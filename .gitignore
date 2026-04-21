@@ -35,3 +35,12 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # local agent artifacts
 .codex
+
+# non-project materials kept only locally
+01_SD+SDD/
+auto-dev/
+breakfast-app-template/
+dist-check/
+dist-check-06/
+dist-check-submit1/
+CLAUDE.md

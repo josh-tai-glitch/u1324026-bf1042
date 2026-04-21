@@ -234,6 +234,16 @@ export default function App() {
     });
 
     if (!response.ok) {
+      if ([401, 403, 404].includes(response.status)) {
+        window.localStorage.removeItem(USER_STORAGE_KEY);
+        setUser(null);
+        setAuthError("登入狀態已失效，請重新登入。");
+        setActionError("登入狀態已失效，請重新登入。");
+        setHistoryOrders([]);
+        resetCartState();
+        throw new Error(`Auth expired: HTTP ${response.status}`);
+      }
+
       throw new Error(`Create order failed: HTTP ${response.status}`);
     }
 
@@ -334,6 +344,13 @@ export default function App() {
 
       syncCartFromOrder(updatedOrder);
     } catch (cartError) {
+      if (
+        cartError instanceof Error &&
+        cartError.message.startsWith("Auth expired:")
+      ) {
+        return;
+      }
+
       setActionError("加入購物車失敗，請稍後再試。");
       console.error(cartError);
     } finally {

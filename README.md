@@ -31,8 +31,7 @@ HOST=localhost
 API_ALLOWED_ORIGIN=
 DATABASE_URL=
 DATABASE_URL_MIGRATION=
-STORE_DRIVER=postgres
-``` 
+```
 
 ## PostgreSQL（Drizzle + Neon）
 
@@ -44,10 +43,9 @@ DATABASE_URL_MIGRATION=你的_neon_direct_url
 STORE_DRIVER=postgres
 ```
 
-V8 分支建議明確使用：
+V9 目前版本已收斂為單一資料來源：
 
-- `STORE_DRIVER=postgres`：走 PostgreSQL / Drizzle
-- `STORE_DRIVER=json`：回退到 JSON store
+- PostgreSQL / Drizzle 是唯一 runtime 資料來源
 
 可先做連線檢查：
 
@@ -62,9 +60,7 @@ bun run db:generate
 bun run db:migrate
 ```
 
-若暫時仍要使用 JSON store，可把 `STORE_DRIVER` 改成 `json`。
-
-若要把 `data/store.json` 匯入 PostgreSQL，可執行：
+若要把 `data/store.json` 匯入 PostgreSQL，可執行一次性匯入：
 
 ```bash
 bun run db:migrate-json --reset
@@ -119,7 +115,6 @@ bun run build
 
 - Web App：`http://localhost:3000`
 - API：`http://localhost:3000/api/*`
- 
 
 ## 前端獨立部署
 

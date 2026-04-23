@@ -153,6 +153,51 @@ git push -u origin feat/my-menu-redesign
 - 自己的改造在 feature branch
 - 後續要跟老師新版本對照時比較容易
 
+### 每條 branch 都是獨立可執行的版本
+
+切換到哪條 branch，看到的就是那個版本的完整程式碼，直接執行就能跑：
+
+```bash
+git switch feat/v8-student-custom
+bun dev
+```
+
+這讓你可以隨時回顧舊版本、甚至在舊版本上繼續修改，不同 branch 之間不會互相干擾。
+
+### 版本推進：如何從 V8 切到 V9
+
+當 V8 功能穩定，要繼續開發 V9（例如加入 Better Auth）時，有兩種起點：
+
+**建議做法：先把 V8 merge 進 main，再從 main 切出 V9**
+
+```bash
+# 1. 把 V8 merge 進 main
+git switch main
+git merge feat/v8-student-custom
+git push origin main
+
+# 2. 從乾淨的 main 切出 V9
+git switch -c feat/v9-better-auth
+```
+
+**也可以直接從 V8 branch 切出 V9（main 尚未 merge V8 時）**
+
+```bash
+git switch feat/v8-student-custom
+git switch -c feat/v9-better-auth
+```
+
+Git 完全允許這樣做，V9 會繼承 V8 所有的 commit 作為起點。
+
+兩種做法的選擇依據：
+
+| 情況                           | 建議起點                               |
+| ------------------------------ | -------------------------------------- |
+| V8 已穩定，想保持歷史線清楚    | 先 merge V8 進 main，再從 main 切 V9   |
+| V8 還在進行中，但想提前試做 V9 | 直接從 `feat/v8` 切出 V9，完成後再整理 |
+
+教學場景下，**建議優先選第一種做法**：每個版本都先 merge 回 main，再切下一個版本。這樣每條 branch 的邊界清楚，回顧時也容易看出各版本之間的差異。
+
 ---
 
 ## 4. 老師之後有更新時，學生要怎麼同步

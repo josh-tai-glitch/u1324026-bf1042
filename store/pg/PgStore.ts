@@ -1,99 +1,26 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import type {
-  MenuItem,
-  Order,
-  OrderItem,
-  User,
-} from "../../shared/contracts.ts";
+import type { MenuItem, Order, OrderItem } from "../../shared/contracts.ts";
 import { db } from "../../db/client.ts";
 import {
   menuItemsTable,
   orderItemsTable,
   ordersTable,
-  usersTable,
 } from "../../db/schema.ts";
 import type { Store } from "../Store.ts";
-
-interface PgStoreOptions {
-  dataFilePath?: string;
-}
-
-interface SeedStore {
-  users?: User[];
-  menu?: MenuItem[];
-  orders?: Array<{
-    id: number;
-    userId: number;
-    status: "pending" | "submitted";
-    total: number;
-    createdAt: string;
-    submittedAt?: string;
-    items: Array<{ item: MenuItem; qty: number }>;
-  }>;
-}
-
-function toSafeUser(user: User): Omit<User, "password"> {
-  const { password: _password, ...safeUser } = user;
-  return safeUser;
-}
 
 function calculateTotal(items: ReadonlyArray<OrderItem>): number {
   return items.reduce((sum, item) => sum + item.item.price * item.qty, 0);
 }
 
-function normalizeSeedData(seed: SeedStore): Required<SeedStore> {
-  return {
-    users: Array.isArray(seed.users) ? seed.users : [],
-    menu: Array.isArray(seed.menu) ? seed.menu : [],
-    orders: Array.isArray(seed.orders) ? seed.orders : [],
-  };
-}
-
 export class PgStore implements Store {
-  private readonly dataFilePath: string;
-
-  private users: User[] = [];
   private menu: MenuItem[] = [];
   private orders: Order[] = [];
 
-  constructor(options: PgStoreOptions = {}) {
-    this.dataFilePath = options.dataFilePath ?? "./data/store.json";
-  }
+  constructor() {}
 
   async init(): Promise<void> {
     await db.execute(sql`select 1`);
-
-    await this.seedFromJsonIfEmpty();
     await this.reloadFromDatabase();
-  }
-
-  login(input: {
-    email: string;
-    password: string;
-  }):
-    | { ok: true; user: Omit<User, "password"> }
-    | { ok: false; code: "INVALID_CREDENTIALS" } {
-    const matchedUser = this.users.find(
-      (user) => user.email === input.email && user.password === input.password,
-    );
-
-    if (!matchedUser) {
-      return { ok: false, code: "INVALID_CREDENTIALS" };
-    }
-
-    return {
-      ok: true,
-      user: toSafeUser(matchedUser),
-    };
-  }
-
-  getUserById(userId: number): Omit<User, "password"> | undefined {
-    const user = this.users.find((targetUser) => targetUser.id === userId);
-    if (!user) {
-      return undefined;
-    }
-
-    return toSafeUser(user);
   }
 
   getMenu(): ReadonlyArray<MenuItem> {
@@ -211,13 +138,13 @@ export class PgStore implements Store {
     return this.orders;
   }
 
-  getCurrentOrderByUserId(userId: number): Order | undefined {
+  getCurrentOrderByUserId(userId: string): Order | undefined {
     return this.orders.find(
       (order) => order.userId === userId && order.status === "pending",
     );
   }
 
-  getOrderHistoryByUserId(userId: number): ReadonlyArray<Order> {
+  getOrderHistoryByUserId(userId: string): ReadonlyArray<Order> {
     return this.orders
       .filter(
         (order) => order.userId === userId && order.status === "submitted",
@@ -229,7 +156,7 @@ export class PgStore implements Store {
     return this.orders.find((order) => order.id === orderId);
   }
 
-  async createOrder(input: { userId: number }): Promise<Order> {
+  async createOrder(input: { userId: string }): Promise<Order> {
     const createdAt = new Date();
 
     const [inserted] = await db
@@ -270,7 +197,7 @@ export class PgStore implements Store {
   async updateOrderItem(
     orderId: number,
     input: {
-      userId: number;
+      userId: string;
       itemId: number;
       qty: number;
     },
@@ -365,7 +292,7 @@ export class PgStore implements Store {
 
   async submitOrder(
     orderId: number,
-    input: { userId: number },
+    input: { userId: string },
   ): Promise<
     | { ok: true; order: Order }
     | {
@@ -410,96 +337,7 @@ export class PgStore implements Store {
     return { ok: true, order };
   }
 
-  private async seedFromJsonIfEmpty(): Promise<void> {
-    const [usersCountRow] = await db
-      .select({ value: sql<number>`count(*)` })
-      .from(usersTable);
-
-    const usersCount = Number(usersCountRow?.value ?? 0);
-    if (usersCount > 0) {
-      return;
-    }
-
-    const file = Bun.file(this.dataFilePath);
-    if (!(await file.exists())) {
-      return;
-    }
-
-    const rawText = await file.text();
-    const parsed = JSON.parse(rawText) as SeedStore;
-    const normalized = normalizeSeedData(parsed);
-
-    if (normalized.users.length > 0) {
-      await db.insert(usersTable).values(
-        normalized.users.map((user) => ({
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          password: user.password,
-        })),
-      );
-    }
-
-    if (normalized.menu.length > 0) {
-      await db.insert(menuItemsTable).values(
-        normalized.menu.map((item) => ({
-          id: item.id,
-          name: item.name,
-          price: item.price,
-          category: item.category,
-          description: item.description,
-          imageUrl: item.image_url,
-        })),
-      );
-    }
-
-    if (normalized.orders.length > 0) {
-      for (const order of normalized.orders) {
-        await db.insert(ordersTable).values({
-          id: order.id,
-          userId: order.userId,
-          total: order.total,
-          status: order.status,
-          createdAt: new Date(order.createdAt),
-          submittedAt: order.submittedAt ? new Date(order.submittedAt) : null,
-        });
-
-        if (order.items.length > 0) {
-          await db.insert(orderItemsTable).values(
-            order.items.map((orderItem) => ({
-              orderId: order.id,
-              itemId: orderItem.item.id,
-              name: orderItem.item.name,
-              price: orderItem.item.price,
-              category: orderItem.item.category,
-              description: orderItem.item.description,
-              imageUrl: orderItem.item.image_url,
-              qty: orderItem.qty,
-            })),
-          );
-        }
-      }
-    }
-
-    await db.execute(
-      sql`select setval('users_id_seq', coalesce((select max(id) from users), 1), true)`,
-    );
-    await db.execute(
-      sql`select setval('menu_items_id_seq', coalesce((select max(id) from menu_items), 1), true)`,
-    );
-    await db.execute(
-      sql`select setval('orders_id_seq', coalesce((select max(id) from orders), 1), true)`,
-    );
-    await db.execute(
-      sql`select setval('order_items_id_seq', coalesce((select max(id) from order_items), 1), true)`,
-    );
-  }
-
   private async reloadFromDatabase(): Promise<void> {
-    const userRows = await db
-      .select()
-      .from(usersTable)
-      .orderBy(asc(usersTable.id));
     const menuRows = await db
       .select()
       .from(menuItemsTable)
@@ -512,13 +350,6 @@ export class PgStore implements Store {
       .select()
       .from(orderItemsTable)
       .orderBy(asc(orderItemsTable.id));
-
-    this.users = userRows.map((row) => ({
-      id: row.id,
-      email: row.email,
-      name: row.name,
-      password: row.password,
-    }));
 
     this.menu = menuRows.map((row) => ({
       id: row.id,

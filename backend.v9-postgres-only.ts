@@ -16,13 +16,14 @@ function toOrderResponse(order: Order): OrderResponse {
 async function getAuthenticatedStoreUser(
   request: Request,
 ): Promise<
-  { ok: true; userId: string } | { ok: false; status: 401; error: string }
+  | { ok: true; userId: number }
+  | { ok: false; status: 401 | 403 | 500; error: string }
 > {
   const session = await auth.api.getSession({
     headers: request.headers,
   });
 
-  if (!session?.user?.id) {
+  if (!session?.user?.email) {
     return {
       ok: false,
       status: 401,
@@ -30,9 +31,27 @@ async function getAuthenticatedStoreUser(
     };
   }
 
+  const storeUser = store.getUserByEmail(session.user.email);
+  if (!storeUser) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Authenticated user is not mapped to demo store",
+    };
+  }
+
+  const userId = Number(storeUser.id);
+  if (!Number.isInteger(userId) || userId < 1) {
+    return {
+      ok: false,
+      status: 500,
+      error: "Invalid legacy user mapping",
+    };
+  }
+
   return {
     ok: true,
-    userId: session.user.id,
+    userId,
   };
 }
 
@@ -40,7 +59,7 @@ async function getAuthenticatedStoreUser(
 const port = parseInt(process.env.PORT || "3000", 10);
 const host = process.env.HOST || "localhost";
 const allowedOrigin = process.env.API_ALLOWED_ORIGIN || "*";
-const store = createStore();
+const store = createStore({ dataFilePath: "./data/store.json" });
 
 const apiErrorResponseSchema = t.Object({
   error: t.String(),
@@ -432,7 +451,7 @@ app.get(
       return { error: "Order not found" };
     }
 
-    if (order.userId !== authResult.userId) {
+    if (Number(order.userId) !== authResult.userId) {
       set.status = 403;
       return { error: "Forbidden" };
     }

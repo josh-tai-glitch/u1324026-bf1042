@@ -4,7 +4,6 @@ import { staticPlugin } from "@elysiajs/static";
 import toTaipeiDateTime from "./util.ts";
 import type { Order, OrderResponse } from "./shared/contracts.ts";
 import { createStore } from "./store/index.ts";
-import { auth } from "./auth.ts";
 
 function toOrderResponse(order: Order): OrderResponse {
   return {
@@ -13,34 +12,11 @@ function toOrderResponse(order: Order): OrderResponse {
   };
 }
 
-async function getAuthenticatedStoreUser(
-  request: Request,
-): Promise<
-  { ok: true; userId: string } | { ok: false; status: 401; error: string }
-> {
-  const session = await auth.api.getSession({
-    headers: request.headers,
-  });
-
-  if (!session?.user?.id) {
-    return {
-      ok: false,
-      status: 401,
-      error: "Unauthorized",
-    };
-  }
-
-  return {
-    ok: true,
-    userId: session.user.id,
-  };
-}
-
 // 從環境變量獲取配置
 const port = parseInt(process.env.PORT || "3000", 10);
 const host = process.env.HOST || "localhost";
 const allowedOrigin = process.env.API_ALLOWED_ORIGIN || "*";
-const store = createStore();
+const store = createStore({ dataFilePath: "./data/store.json" });
 
 const apiErrorResponseSchema = t.Object({
   error: t.String(),
@@ -48,7 +24,7 @@ const apiErrorResponseSchema = t.Object({
 });
 
 const safeUserSchema = t.Object({
-  id: t.String({ minLength: 1 }),
+  id: t.Number({ minimum: 1 }),
   email: t.String({ minLength: 3 }),
   name: t.String({ minLength: 1 }),
 });
@@ -69,7 +45,7 @@ const orderItemSchema = t.Object({
 
 const orderResponseSchema = t.Object({
   id: t.Number({ minimum: 1 }),
-  userId: t.String({ minLength: 1 }),
+  userId: t.Number({ minimum: 1 }),
   items: t.Array(orderItemSchema),
   total: t.Number({ minimum: 0 }),
   status: t.Union([t.Literal("pending"), t.Literal("submitted")]),
@@ -178,20 +154,36 @@ app.onAfterHandle(({ request, set }) => {
 
 // API 路由
 
-// Better Auth 處理器
-// 所有 /api/auth/* 的請求都會被委派給 Better Auth 處理（OAuth 流程、session 驗證等）
-app.all(
-  "/api/auth/*",
-  async ({ request }) => {
-    return auth.handler(request);
+// 使用者登入
+app.post(
+  "/api/auth/login",
+  ({ body, set }) => {
+    const result = store.login({
+      email: body.email,
+      password: body.password,
+    });
+
+    if (!result.ok) {
+      set.status = 401;
+      return { error: "Invalid credentials" };
+    }
+
+    return { data: result.user };
   },
   {
+    body: t.Object({
+      email: t.String({ minLength: 3 }),
+      password: t.String({ minLength: 1 }),
+    }),
     detail: {
       tags: ["auth"],
-      summary: "Better Auth handler",
+      summary: "Login with demo credentials",
       description:
-        "Handles all authentication flows: OAuth callbacks, session validation, etc.",
-      hide: true,
+        "Validate a demo user account and return the safe user profile.",
+    },
+    response: {
+      200: loginResponseSchema,
+      401: apiErrorResponseSchema,
     },
   },
 );
@@ -320,28 +312,31 @@ app.get(
 // 取得使用者目前進行中的訂單
 app.get(
   "/api/orders/current",
-  async ({ request, set }) => {
-    const authResult = await getAuthenticatedStoreUser(request);
-    if (!authResult.ok) {
-      set.status = authResult.status;
-      return { error: authResult.error };
+  ({ query, set }) => {
+    const userId = parseInt(query.userId, 10);
+    const user = store.getUserById(userId);
+
+    if (!user) {
+      set.status = 404;
+      return { error: "User not found" };
     }
 
-    const currentOrder = store.getCurrentOrderByUserId(authResult.userId);
+    const currentOrder = store.getCurrentOrderByUserId(userId);
     return { data: currentOrder ? toOrderResponse(currentOrder) : null };
   },
   {
+    query: t.Object({
+      userId: t.String({ pattern: "^[0-9]+$" }),
+    }),
     detail: {
       tags: ["orders"],
       summary: "Get current order",
       description:
-        "Return the current pending order of the authenticated user, or null if none exists.",
+        "Return the current pending order of a user, or null if none exists.",
     },
     response: {
       200: nullableOrderResponseEnvelopeSchema,
-      401: apiErrorResponseSchema,
-      403: apiErrorResponseSchema,
-      500: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
     },
   },
 );
@@ -349,31 +344,31 @@ app.get(
 // 取得使用者歷史訂單
 app.get(
   "/api/orders/history",
-  async ({ request, set }) => {
-    const authResult = await getAuthenticatedStoreUser(request);
-    if (!authResult.ok) {
-      set.status = authResult.status;
-      return { error: authResult.error };
+  ({ query, set }) => {
+    const userId = parseInt(query.userId, 10);
+    const user = store.getUserById(userId);
+
+    if (!user) {
+      set.status = 404;
+      return { error: "User not found" };
     }
 
     return {
-      data: store
-        .getOrderHistoryByUserId(authResult.userId)
-        .map(toOrderResponse),
+      data: store.getOrderHistoryByUserId(userId).map(toOrderResponse),
     };
   },
   {
+    query: t.Object({
+      userId: t.String({ pattern: "^[0-9]+$" }),
+    }),
     detail: {
       tags: ["orders"],
       summary: "Get order history",
-      description:
-        "Return submitted orders belonging to the authenticated user.",
+      description: "Return submitted orders belonging to a user.",
     },
     response: {
       200: orderListResponseSchema,
-      401: apiErrorResponseSchema,
-      403: apiErrorResponseSchema,
-      500: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
     },
   },
 );
@@ -381,35 +376,36 @@ app.get(
 // 創建新訂單
 app.post(
   "/api/orders",
-  async ({ request, set }) => {
-    const authResult = await getAuthenticatedStoreUser(request);
-    if (!authResult.ok) {
-      set.status = authResult.status;
-      return { error: authResult.error };
+  async ({ body, set }) => {
+    const user = store.getUserById(body.userId);
+    if (!user) {
+      set.status = 404;
+      return { error: "User not found" };
     }
 
-    const existingOrder = store.getCurrentOrderByUserId(authResult.userId);
+    const existingOrder = store.getCurrentOrderByUserId(body.userId);
     if (existingOrder) {
       return { data: toOrderResponse(existingOrder) };
     }
 
-    const newOrder = await store.createOrder({ userId: authResult.userId });
+    const newOrder = await store.createOrder({ userId: body.userId });
     set.status = 201;
     return { data: toOrderResponse(newOrder) };
   },
   {
+    body: t.Object({
+      userId: t.Number({ minimum: 1 }),
+    }),
     detail: {
       tags: ["orders"],
       summary: "Create or reuse current order",
       description:
-        "Create a new pending order, or return the existing pending order for the authenticated user.",
+        "Create a new pending order, or return the existing pending order for the user.",
     },
     response: {
       200: orderResponseEnvelopeSchema,
       201: orderResponseEnvelopeSchema,
-      401: apiErrorResponseSchema,
-      403: apiErrorResponseSchema,
-      500: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
     },
   },
 );
@@ -417,14 +413,9 @@ app.post(
 // 獲取單筆訂單
 app.get(
   "/api/orders/:id",
-  async ({ params, request, set }) => {
-    const authResult = await getAuthenticatedStoreUser(request);
-    if (!authResult.ok) {
-      set.status = authResult.status;
-      return { error: authResult.error };
-    }
-
+  ({ params, query, set }) => {
     const orderId = parseInt(params.id, 10);
+    const userId = parseInt(query.userId, 10);
     const order = store.getOrderById(orderId);
 
     if (!order) {
@@ -432,7 +423,7 @@ app.get(
       return { error: "Order not found" };
     }
 
-    if (order.userId !== authResult.userId) {
+    if (order.userId !== userId) {
       set.status = 403;
       return { error: "Forbidden" };
     }
@@ -443,18 +434,19 @@ app.get(
     params: t.Object({
       id: t.String({ pattern: "^[0-9]+$" }),
     }),
+    query: t.Object({
+      userId: t.String({ pattern: "^[0-9]+$" }),
+    }),
     detail: {
       tags: ["orders"],
       summary: "Get order by id",
       description:
-        "Return a single order when it belongs to the authenticated user.",
+        "Return a single order when it belongs to the requested user.",
     },
     response: {
       200: orderResponseEnvelopeSchema,
-      401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
-      500: apiErrorResponseSchema,
     },
   },
 );
@@ -462,16 +454,10 @@ app.get(
 // 更新訂單項目
 app.patch(
   "/api/orders/:id",
-  async ({ params, body, request, set }) => {
-    const authResult = await getAuthenticatedStoreUser(request);
-    if (!authResult.ok) {
-      set.status = authResult.status;
-      return { error: authResult.error };
-    }
-
+  async ({ params, body, set }) => {
     const orderId = parseInt(params.id);
     const result = await store.updateOrderItem(orderId, {
-      userId: authResult.userId,
+      userId: body.userId,
       itemId: body.itemId,
       qty: body.qty,
     });
@@ -508,18 +494,17 @@ app.patch(
       id: t.String({ pattern: "^[0-9]+$" }),
     }),
     body: t.Object({
+      userId: t.Number({ minimum: 1 }),
       itemId: t.Number({ minimum: 1 }),
       qty: t.Number({ minimum: 0 }),
     }),
     detail: {
       tags: ["orders"],
       summary: "Update order item quantity",
-      description:
-        "Set the quantity of a menu item within the authenticated user's pending order.",
+      description: "Set the quantity of a menu item within a pending order.",
     },
     response: {
       200: orderResponseEnvelopeSchema,
-      401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
       409: apiErrorResponseSchema,
@@ -531,17 +516,9 @@ app.patch(
 // 送出訂單
 app.post(
   "/api/orders/:id/submit",
-  async ({ params, request, set }) => {
-    const authResult = await getAuthenticatedStoreUser(request);
-    if (!authResult.ok) {
-      set.status = authResult.status;
-      return { error: authResult.error };
-    }
-
+  async ({ params, body, set }) => {
     const orderId = parseInt(params.id, 10);
-    const result = await store.submitOrder(orderId, {
-      userId: authResult.userId,
-    });
+    const result = await store.submitOrder(orderId, { userId: body.userId });
 
     if (!result.ok && result.code === "ORDER_NOT_FOUND") {
       set.status = 404;
@@ -574,16 +551,17 @@ app.post(
     params: t.Object({
       id: t.String({ pattern: "^[0-9]+$" }),
     }),
+    body: t.Object({
+      userId: t.Number({ minimum: 1 }),
+    }),
     detail: {
       tags: ["orders"],
       summary: "Submit order",
-      description:
-        "Submit a pending order that belongs to the authenticated user.",
+      description: "Submit a pending order that belongs to the user.",
     },
     response: {
       200: orderResponseEnvelopeSchema,
       400: apiErrorResponseSchema,
-      401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
       409: apiErrorResponseSchema,

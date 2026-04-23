@@ -8,13 +8,6 @@
       "when": 1776699381769,
       "tag": "0000_nervous_ronan",
       "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1745376000000,
-      "tag": "0001_v9_better_auth_schema",
-      "breakpoints": true
     }
   ]
 }

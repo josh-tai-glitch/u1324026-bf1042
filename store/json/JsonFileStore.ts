@@ -3,25 +3,14 @@ import type {
   MenuItem,
   Order,
   OrderItem,
-  User as PublicUser,
+  User,
 } from "../../shared/contracts.ts";
 import type { Store } from "../Store.ts";
 
-interface LegacyUser {
-  id: number;
-  email: string;
-  name: string;
-  password: string;
-}
-
-interface LegacyOrder extends Omit<Order, "userId"> {
-  userId: number;
-}
-
 interface DataStore {
-  users: LegacyUser[];
+  users: User[];
   menu: MenuItem[];
-  orders: LegacyOrder[];
+  orders: Order[];
   userIdCounter: number;
   menuIdCounter: number;
   orderIdCounter: number;
@@ -87,31 +76,21 @@ function normalizeMenuItem(item: Partial<MenuItem>): MenuItem {
   };
 }
 
-function normalizeUser(user: Partial<LegacyUser>): LegacyUser {
+function normalizeUser(user: Partial<User>): User {
   return {
-    id: Number(user.id ?? 0),
+    id: user.id ?? 0,
     email: user.email ?? "",
     name: user.name ?? "",
     password: user.password ?? "",
   };
 }
 
-function toPublicUser(user: LegacyUser): PublicUser {
-  return {
-    id: String(user.id),
-    email: user.email,
-    name: user.name,
-  };
+function stripSensitiveUserData(user: User): Omit<User, "password"> {
+  const { password: _password, ...safeUser } = user;
+  return safeUser;
 }
 
-function toPublicOrder(order: LegacyOrder): Order {
-  return {
-    ...order,
-    userId: String(order.userId),
-  };
-}
-
-const defaultUsers: LegacyUser[] = [
+const defaultUsers: User[] = [
   {
     id: 1,
     email: "demo@example.com",
@@ -133,9 +112,9 @@ function cloneDefaultUsers(): User[] {
 export class JsonFileStore implements Store {
   private readonly dataFilePath: string;
 
-  private users: LegacyUser[] = [];
+  private users: User[] = [];
   private menu: MenuItem[] = [];
-  private orders: LegacyOrder[] = [];
+  private orders: Order[] = [];
   private userIdCounter = 0;
   private menuIdCounter = 0;
   private orderIdCounter = 0;
@@ -202,7 +181,7 @@ export class JsonFileStore implements Store {
     email: string;
     password: string;
   }):
-    | { ok: true; user: PublicUser }
+    | { ok: true; user: Omit<User, "password"> }
     | { ok: false; code: "INVALID_CREDENTIALS" } {
     const matchedUser = this.users.find(
       (user) => user.email === input.email && user.password === input.password,
@@ -214,26 +193,17 @@ export class JsonFileStore implements Store {
 
     return {
       ok: true,
-      user: toPublicUser(matchedUser),
+      user: stripSensitiveUserData(matchedUser),
     };
   }
 
-  getUserById(userId: number): PublicUser | undefined {
+  getUserById(userId: number): Omit<User, "password"> | undefined {
     const user = this.users.find((targetUser) => targetUser.id === userId);
     if (!user) {
       return undefined;
     }
 
-    return toPublicUser(user);
-  }
-
-  getUserByEmail(email: string): PublicUser | undefined {
-    const user = this.users.find((targetUser) => targetUser.email === email);
-    if (!user) {
-      return undefined;
-    }
-
-    return toPublicUser(user);
+    return stripSensitiveUserData(user);
   }
 
   getMenu(): ReadonlyArray<MenuItem> {
@@ -301,14 +271,13 @@ export class JsonFileStore implements Store {
   }
 
   getOrders(): ReadonlyArray<Order> {
-    return this.orders.map(toPublicOrder);
+    return this.orders;
   }
 
   getCurrentOrderByUserId(userId: number): Order | undefined {
-    const order = this.orders.find(
+    return this.orders.find(
       (order) => order.userId === userId && order.status === "pending",
     );
-    return order ? toPublicOrder(order) : undefined;
   }
 
   getOrderHistoryByUserId(userId: number): ReadonlyArray<Order> {
@@ -316,17 +285,15 @@ export class JsonFileStore implements Store {
       .filter(
         (order) => order.userId === userId && order.status === "submitted",
       )
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .map(toPublicOrder);
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   getOrderById(orderId: number): Order | undefined {
-    const order = this.orders.find((order) => order.id === orderId);
-    return order ? toPublicOrder(order) : undefined;
+    return this.orders.find((order) => order.id === orderId);
   }
 
   async createOrder(input: { userId: number }): Promise<Order> {
-    const newOrder: LegacyOrder = {
+    const newOrder: Order = {
       id: ++this.orderIdCounter,
       userId: input.userId,
       items: [],
@@ -338,7 +305,7 @@ export class JsonFileStore implements Store {
     this.orders.push(newOrder);
     await this.persist();
 
-    return toPublicOrder(newOrder);
+    return newOrder;
   }
 
   async updateOrderItem(
@@ -396,7 +363,7 @@ export class JsonFileStore implements Store {
     order.total = calculateOrderTotal(order.items);
     await this.persist();
 
-    return { ok: true, order: toPublicOrder(order) };
+    return { ok: true, order };
   }
 
   async submitOrder(
@@ -434,7 +401,7 @@ export class JsonFileStore implements Store {
     order.submittedAt = new Date().toISOString();
     await this.persist();
 
-    return { ok: true, order: toPublicOrder(order) };
+    return { ok: true, order };
   }
 
   private createInitialStore(): DataStore {

@@ -8,17 +8,10 @@ export interface MenuItem {
 }
 
 export interface User {
-  id: string;
+  id: number;
   email: string;
   name: string;
-  phone?: string;
-  address?: string;
-}
-
-export interface SessionUser {
-  id: string;
-  email: string;
-  name: string;
+  password: string;
 }
 
 export interface OrderItem {
@@ -28,7 +21,7 @@ export interface OrderItem {
 
 export interface Order {
   id: number;
-  userId: string;
+  userId: number;
   items: OrderItem[];
   total: number;
   status: "pending" | "submitted";

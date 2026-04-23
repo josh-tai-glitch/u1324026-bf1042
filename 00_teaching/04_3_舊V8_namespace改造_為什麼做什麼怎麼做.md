@@ -108,3 +108,29 @@ curl -s "http://localhost:3010/api/orders/current?userId=1"
 建議口訣：
 
 `先隔離（schema/port）再驗證（smoke test），最後才談邏輯修補。`
+
+---
+
+## 7. Render 佈署紀錄（本次決策）
+
+這次教學決策是：若要上線舊 V8 namespace 改造版，Render 啟動入口必須指向 `backend.v8.ts`。
+
+### 為什麼
+
+1. 專案預設 `start` 仍會跑 `backend.ts`。
+2. 舊 V8 改造邏輯在 `backend.v8.ts`，不是在 `backend.ts`。
+3. 若入口沒切換，部署雖成功，但實際跑的不是目標版本。
+
+### 做什麼
+
+1. Build Command：`bun install && bun run build`
+2. Start Command：`bun backend.v8.ts`
+3. 建議改成更保險版本：`bun run v8:db:setup && bun backend.v8.ts`
+4. 環境變數維持既有 `DATABASE_URL`，並建議明確補 `V8_DB_SCHEMA=v8_legacy`
+
+### 怎麼做（操作順序）
+
+1. 在 Render 更新 Start Command。
+2. 確認 `DATABASE_URL` 存在且可連線。
+3. 設定 `V8_DB_SCHEMA=v8_legacy`（建議）。
+4. 重新部署後先打 `/health`，再測 `login/menu/orders`。

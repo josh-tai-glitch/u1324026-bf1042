@@ -32,7 +32,7 @@ API_ALLOWED_ORIGIN=
 DATABASE_URL=
 DATABASE_URL_MIGRATION=
 STORE_DRIVER=postgres
-``` 
+```
 
 ## PostgreSQL（Drizzle + Neon）
 
@@ -119,7 +119,38 @@ bun run build
 
 - Web App：`http://localhost:3000`
 - API：`http://localhost:3000/api/*`
- 
+
+## Render 部署（舊 V8 namespace 改造版）
+
+若要在 Render 部署「舊 V8 namespace 改造版」，請確認啟動入口是 `backend.v8.ts`，而不是預設 `backend.ts`。
+
+建議設定：
+
+1. Build Command
+
+```bash
+bun install && bun run build
+```
+
+2. Start Command（最小可行）
+
+```bash
+bun backend.v8.ts
+```
+
+3. Start Command（較保險，會先建立 namespace 資料表）
+
+```bash
+bun run v8:db:setup && bun backend.v8.ts
+```
+
+4. Environment Variables
+
+- `DATABASE_URL`：沿用既有連線設定
+- `PORT`：由 Render 自動注入
+- `V8_DB_SCHEMA`：可不設定（預設 `v8_legacy`），建議明確設為 `v8_legacy`
+
+補充：若 Render 仍使用 `bun run start`（對應 `dist/backend.js`），實際會跑 `backend.ts`，不會進入舊 V8 改造入口。
 
 ## 前端獨立部署
 

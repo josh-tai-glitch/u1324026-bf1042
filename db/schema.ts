@@ -9,7 +9,7 @@ import {
 // PostgreSQL namespace 隔離
 // 透過 PG_SCHEMA 環境變數切換，預設 "public"
 // 新主線 V8 使用 bf_v8（對應 feat/v8-clean-drizzle-neon 分支）
-const appSchema = pgSchema(process.env.PG_SCHEMA ?? "public");
+const appSchema = pgSchema(process.env.PG_SCHEMA ?? "bf_v8");
 
 // 對照 shared/contracts.ts：
 //   User { id: string, email, name }  → users（多存 password，不對外暴露）

@@ -1,15 +1,9 @@
-import type { SessionUser } from "../shared/contracts.ts";
-import type { Auth } from "./Auth.ts";
-
-interface StoredUser {
-  id: string;
-  email: string;
-  name: string;
-  password: string;
-}
+import type { SessionUser, User } from "../shared/contracts.ts";
+import type { Auth, LoginErrorCode } from "./Auth.ts";
+import { toSessionUser } from "./user-mapper.ts";
 
 interface DataStore {
-  users: StoredUser[];
+  users: User[];
 }
 
 interface DemoAuthOptions {
@@ -32,24 +26,18 @@ function normalizeUserId(rawId: unknown): string {
   return "0001";
 }
 
-function normalizeStoredUser(user: Partial<StoredUser>): StoredUser {
+function normalizeStoredUser(user: Partial<User>): User {
   return {
     id: normalizeUserId(user.id),
     email: user.email ?? "",
     name: user.name ?? "",
     password: user.password ?? "",
+    birthday: user.birthday,
+    address: user.address,
   };
 }
 
-function toSessionUser(user: StoredUser): SessionUser {
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-  };
-}
-
-const defaultUsers: StoredUser[] = [
+const defaultUsers: User[] = [
   {
     id: "0001",
     email: "demo@example.com",
@@ -66,7 +54,7 @@ const defaultUsers: StoredUser[] = [
 
 export class DemoAuth implements Auth {
   private readonly dataFilePath: string;
-  private users: StoredUser[] = [];
+  private users: User[] = [];
 
   constructor(options: DemoAuthOptions) {
     this.dataFilePath = options.dataFilePath;
@@ -95,9 +83,7 @@ export class DemoAuth implements Auth {
   login(input: {
     email: string;
     password: string;
-  }):
-    | { ok: true; user: SessionUser }
-    | { ok: false; code: "INVALID_CREDENTIALS" } {
+  }): { ok: true; user: SessionUser } | { ok: false; code: LoginErrorCode } {
     const matchedUser = this.users.find(
       (user) => user.email === input.email && user.password === input.password,
     );

@@ -1,18 +1,12 @@
 import { asc } from "drizzle-orm";
-import type { SessionUser } from "../../shared/contracts.ts";
+import type { SessionUser, User } from "../../shared/contracts.ts";
 import type { Auth, LoginErrorCode } from "../Auth.ts";
 import { db } from "../../db/client.ts";
 import { usersTable } from "../../db/schema.ts";
-
-interface CachedUser {
-  id: string; // string 版，對齊 SessionUser.id
-  email: string;
-  name: string;
-  password: string; // 僅內部驗證用，不對外暴露
-}
+import { toSessionUser } from "../user-mapper.ts";
 
 export class PgAuth implements Auth {
-  private users: CachedUser[] = [];
+  private users: User[] = [];
 
   async init(): Promise<void> {
     // 在 init() 時將 users 從 DB 載入記憶體
@@ -39,7 +33,7 @@ export class PgAuth implements Auth {
 
     return {
       ok: true,
-      user: { id: matched.id, email: matched.email, name: matched.name },
+      user: toSessionUser(matched),
     };
   }
 
@@ -47,6 +41,6 @@ export class PgAuth implements Auth {
     const user = this.users.find((u) => u.id === userId);
     if (!user) return undefined;
 
-    return { id: user.id, email: user.email, name: user.name };
+    return toSessionUser(user);
   }
 }

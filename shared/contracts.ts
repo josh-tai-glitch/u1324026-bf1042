@@ -13,11 +13,20 @@ export const menuItemSchema = z.object({
   image_url: z.string().min(1),
 });
 
-export const sessionUserSchema = z.object({
+export const userSchema = z.object({
   id: z.string().min(1),
   email: z.string().min(3),
   name: z.string().min(1),
-  // 注意：password 不在 API 業務層，只存在 DB 層（db/schema.ts）
+  password: z.string().min(1),
+  // 預留個資欄位（未來註冊/個資編輯流程會使用）
+  birthday: z.string().min(1).optional(),
+  address: z.string().min(1).optional(),
+});
+
+export const sessionUserSchema = userSchema.pick({
+  id: true,
+  email: true,
+  name: true,
 });
 
 export const orderItemSchema = z.object({
@@ -35,23 +44,12 @@ export const orderSchema = z.object({
   submittedAt: z.string().min(1).optional(),
 });
 
-export const orderResponseSchema = orderSchema.extend({
-  createdAtTaipei: z.string().min(1),
-});
-
-export const apiErrorResponseSchema = z.object({
-  error: z.string(),
-  message: z.string().optional(),
-});
-
 // ─── Derived TypeScript Types（自動推導，永不過時）───────────────────────────
 export type MenuItem = z.infer<typeof menuItemSchema>;
+export type User = z.infer<typeof userSchema>;
 export type SessionUser = z.infer<typeof sessionUserSchema>;
-export type User = SessionUser; // 與 SessionUser 相同（API 層不含 password）
 export type OrderItem = z.infer<typeof orderItemSchema>;
 export type Order = z.infer<typeof orderSchema>;
-export type OrderResponse = z.infer<typeof orderResponseSchema>;
-export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;
 
 export interface ApiDataResponse<T> {
   data: T;

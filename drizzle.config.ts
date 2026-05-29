@@ -1,5 +1,13 @@
 import { defineConfig } from "drizzle-kit";
 
+const schemaName = process.env.PG_SCHEMA || "bf_v10";
+
+if (schemaName === "public") {
+  throw new Error(
+    'PG_SCHEMA cannot be "public". Use a custom schema name such as "bf_v10".',
+  );
+}
+
 const migrationUrl =
   process.env.DATABASE_URL_MIGRATION ?? process.env.DATABASE_URL;
 
@@ -16,4 +24,5 @@ export default defineConfig({
   dbCredentials: {
     url: migrationUrl,
   },
+  schemaFilter: [schemaName],
 });

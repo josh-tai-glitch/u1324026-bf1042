@@ -5,18 +5,18 @@ import { boolean, pgSchema, text, timestamp } from "drizzle-orm/pg-core";
 // 2. 欄位結構遵循 Better Auth 1.x 規格（https://better-auth.com/docs/concepts/database）。
 // 3. 與業務表（menu_items / orders / order_items）並存於同一 db/schema，
 //    但放在獨立的 auth-schema.ts，保持職責清晰、方便閱讀對照。
-// 4. pgSchema 從 PG_SCHEMA 環境變數取值，與業務 schema 一致（共用 bf_v9）。
+// 4. pgSchema 從 PG_SCHEMA 環境變數取值，與業務 schema 一致（共用 bf_v10）。
 //    ⚠️ 注意：不能使用 "public" 作為 schema 名稱（Drizzle 限制）
 //
 // 對照 shared/contracts.ts：
-//   SessionUser { id, email, name }  ← 只取這三欄對外暴露（auth/better-auth.ts 負責轉換）
+//   SessionUser { id, email, name, roles }  ← 對外暴露的安全投影（auth/better-auth.ts 負責轉換）
 //   password、emailVerified、image 等欄位屬於 DB 層，不進入 API contract。
 // ─────────────────────────────────────────────────────────────────────────────
 
-const schemaName = process.env.PG_SCHEMA || "bf_v9";
+const schemaName = process.env.PG_SCHEMA || "bf_v10";
 if (schemaName === "public") {
   throw new Error(
-    'PG_SCHEMA cannot be "public". Use a custom schema name or leave it unset to use the default "bf_v9".',
+    'PG_SCHEMA cannot be "public". Use a custom schema name or leave it unset to use the default "bf_v10".',
   );
 }
 const appSchema = pgSchema(schemaName);
@@ -28,6 +28,7 @@ export const user = appSchema.table("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
+  roles: text("roles").array().notNull().default(["customer"]),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
   createdAt: timestamp("created_at").notNull(),

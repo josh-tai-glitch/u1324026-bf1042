@@ -338,7 +338,12 @@ export class JsonFileStore implements Store {
 
     for (const item of this.menu) {
       if (item.primary_category_id === categoryId) {
-        item.primary_category_name = category.name;
+        if (category.isActive) {
+          item.primary_category_name = category.name;
+        } else {
+          item.primary_category_id = null;
+          item.primary_category_name = null;
+        }
       }
       item.categories = (item.categories ?? [])
         .map((linked) => (linked.id === categoryId ? { ...category } : linked))

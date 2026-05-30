@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import type {
   ApiDataResponse,
+  Category,
   MenuItem,
   Order,
   Role,
@@ -18,8 +19,16 @@ const emptyMenuForm = {
   description: "",
   image_url: "",
 };
+const emptyCategoryForm = {
+  name: "",
+  slug: "",
+  description: "",
+  displayOrder: "0",
+  isActive: true,
+};
 
 type MenuForm = typeof emptyMenuForm;
+type CategoryForm = typeof emptyCategoryForm;
 type ApiErrorPayload = { error?: string; message?: string };
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
 
@@ -52,6 +61,7 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const [items, setItems] = useState<MenuItem[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [orderId, setOrderId] = useState<number | null>(null);
@@ -70,6 +80,16 @@ export default function App() {
   const [editingMenuId, setEditingMenuId] = useState<number | null>(null);
   const [menuMessage, setMenuMessage] = useState("");
   const [menuBusy, setMenuBusy] = useState(false);
+  const [categoryForm, setCategoryForm] =
+    useState<CategoryForm>(emptyCategoryForm);
+  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(
+    null,
+  );
+  const [categoryMessage, setCategoryMessage] = useState("");
+  const [categoryBusy, setCategoryBusy] = useState(false);
+  const [selectedCategoryByItemId, setSelectedCategoryByItemId] = useState<
+    Record<number, string>
+  >({});
   const [roleRequestRole, setRoleRequestRole] = useState<"staff" | "chef">(
     "staff",
   );
@@ -108,6 +128,16 @@ export default function App() {
 
     const payload = (await response.json()) as ApiDataResponse<MenuItem[]>;
     setItems(Array.isArray(payload?.data) ? payload.data : []);
+  }, []);
+
+  const loadCategories = useCallback(async () => {
+    const response = await fetch(buildApiUrl("/api/categories"));
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+
+    const payload = (await response.json()) as ApiDataResponse<Category[]>;
+    setCategories(Array.isArray(payload?.data) ? payload.data : []);
   }, []);
 
   function syncCartFromOrder(order: Order) {
@@ -224,7 +254,7 @@ export default function App() {
 
     async function loadInitialMenu() {
       try {
-        await loadMenu();
+        await Promise.all([loadMenu(), loadCategories()]);
       } catch (fetchError) {
         if (mounted) {
           setError("Unable to load menu.");
@@ -243,7 +273,7 @@ export default function App() {
     return () => {
       mounted = false;
     };
-  }, [loadMenu]);
+  }, [loadCategories, loadMenu]);
 
   useEffect(() => {
     if (!user) {
@@ -605,7 +635,7 @@ export default function App() {
         throw new Error(await readApiError(response));
       }
 
-      await loadMenu();
+      await Promise.all([loadMenu(), loadCategories()]);
       resetMenuForm();
       setMenuMessage(editingMenuId ? "Menu item updated." : "Menu item added.");
     } catch (menuError) {
@@ -633,12 +663,178 @@ export default function App() {
         throw new Error(await readApiError(response));
       }
 
-      await loadMenu();
+      await Promise.all([loadMenu(), loadCategories()]);
       setMenuMessage("Menu item deleted.");
       if (editingMenuId === item.id) resetMenuForm();
     } catch (menuError) {
       setMenuMessage(
         menuError instanceof Error ? menuError.message : "Delete failed.",
+      );
+    } finally {
+      setMenuBusy(false);
+    }
+  }
+
+  function updateCategoryForm(field: keyof CategoryForm, value: string | boolean) {
+    setCategoryForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function startEditCategory(category: Category) {
+    setEditingCategoryId(category.id);
+    setCategoryMessage("");
+    setCategoryForm({
+      name: category.name,
+      slug: category.slug,
+      description: category.description ?? "",
+      displayOrder: String(category.displayOrder),
+      isActive: category.isActive,
+    });
+  }
+
+  function resetCategoryForm() {
+    setEditingCategoryId(null);
+    setCategoryForm(emptyCategoryForm);
+  }
+
+  async function submitCategoryForm(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageMenu) return;
+
+    setCategoryBusy(true);
+    setCategoryMessage("");
+    try {
+      const body = {
+        name: categoryForm.name.trim(),
+        slug: categoryForm.slug.trim(),
+        description: categoryForm.description.trim() || undefined,
+        displayOrder: Number(categoryForm.displayOrder),
+        isActive: categoryForm.isActive,
+      };
+
+      const response = await fetch(
+        buildApiUrl(
+          editingCategoryId
+            ? `/api/categories/${editingCategoryId}`
+            : "/api/categories",
+        ),
+        {
+          method: editingCategoryId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await Promise.all([loadCategories(), loadMenu()]);
+      resetCategoryForm();
+      setCategoryMessage(
+        editingCategoryId ? "Category updated." : "Category created.",
+      );
+    } catch (categoryError) {
+      setCategoryMessage(
+        categoryError instanceof Error
+          ? categoryError.message
+          : "Category update failed.",
+      );
+    } finally {
+      setCategoryBusy(false);
+    }
+  }
+
+  async function deactivateCategory(category: Category) {
+    if (!canManageMenu) return;
+    if (!window.confirm(`Deactivate ${category.name}?`)) return;
+
+    setCategoryBusy(true);
+    setCategoryMessage("");
+    try {
+      const response = await fetch(buildApiUrl(`/api/categories/${category.id}`), {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await Promise.all([loadCategories(), loadMenu()]);
+      setCategoryMessage("Category deactivated.");
+      if (editingCategoryId === category.id) resetCategoryForm();
+    } catch (categoryError) {
+      setCategoryMessage(
+        categoryError instanceof Error
+          ? categoryError.message
+          : "Category deactivate failed.",
+      );
+    } finally {
+      setCategoryBusy(false);
+    }
+  }
+
+  async function addCategoryToItem(item: MenuItem) {
+    if (!canManageMenu) return;
+    const categoryId = Number(selectedCategoryByItemId[item.id]);
+    if (!categoryId) {
+      setMenuMessage("Select a category first.");
+      return;
+    }
+
+    setMenuBusy(true);
+    setMenuMessage("");
+    try {
+      const response = await fetch(buildApiUrl(`/api/menu/${item.id}/categories`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ categoryId }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await loadMenu();
+      setMenuMessage("Category assigned to item.");
+    } catch (assignError) {
+      setMenuMessage(
+        assignError instanceof Error
+          ? assignError.message
+          : "Category assignment failed.",
+      );
+    } finally {
+      setMenuBusy(false);
+    }
+  }
+
+  async function removeCategoryFromItem(item: MenuItem, category: Category) {
+    if (!canManageMenu) return;
+
+    setMenuBusy(true);
+    setMenuMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/menu/${item.id}/categories/${category.id}`),
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await loadMenu();
+      setMenuMessage("Category removed from item.");
+    } catch (removeError) {
+      setMenuMessage(
+        removeError instanceof Error
+          ? removeError.message
+          : "Category removal failed.",
       );
     } finally {
       setMenuBusy(false);
@@ -1083,6 +1279,141 @@ export default function App() {
           </section>
         ) : null}
 
+        {canManageMenu ? (
+          <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
+            <div className="card-body">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="card-title">Category management</h2>
+                {editingCategoryId ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={resetCategoryForm}
+                  >
+                    Cancel edit
+                  </button>
+                ) : null}
+              </div>
+              <form
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3"
+                onSubmit={(event) => {
+                  void submitCategoryForm(event);
+                }}
+              >
+                <input
+                  className="input input-bordered"
+                  placeholder="Name"
+                  value={categoryForm.name}
+                  onChange={(event) =>
+                    updateCategoryForm("name", event.target.value)
+                  }
+                  required
+                />
+                <input
+                  className="input input-bordered"
+                  placeholder="Slug"
+                  value={categoryForm.slug}
+                  onChange={(event) =>
+                    updateCategoryForm("slug", event.target.value)
+                  }
+                  required
+                />
+                <input
+                  className="input input-bordered"
+                  placeholder="Description"
+                  value={categoryForm.description}
+                  onChange={(event) =>
+                    updateCategoryForm("description", event.target.value)
+                  }
+                />
+                <input
+                  className="input input-bordered"
+                  placeholder="Display order"
+                  type="number"
+                  step={1}
+                  value={categoryForm.displayOrder}
+                  onChange={(event) =>
+                    updateCategoryForm("displayOrder", event.target.value)
+                  }
+                />
+                <label className="label cursor-pointer justify-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="checkbox"
+                    checked={categoryForm.isActive}
+                    onChange={(event) =>
+                      updateCategoryForm("isActive", event.target.checked)
+                    }
+                  />
+                  <span className="label-text">Active</span>
+                </label>
+                <button className="btn btn-primary w-fit" disabled={categoryBusy}>
+                  {categoryBusy
+                    ? "Saving..."
+                    : editingCategoryId
+                      ? "Save category"
+                      : "Add category"}
+                </button>
+              </form>
+              {categoryMessage ? (
+                <div className="alert">
+                  <span>{categoryMessage}</span>
+                </div>
+              ) : null}
+              {categories.length === 0 ? (
+                <div className="alert alert-info">
+                  <span>No active categories.</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Slug</th>
+                        <th>Description</th>
+                        <th>Order</th>
+                        <th>Active</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categories.map((category) => (
+                        <tr key={category.id}>
+                          <td>{category.name}</td>
+                          <td>{category.slug}</td>
+                          <td>{category.description || ""}</td>
+                          <td>{category.displayOrder}</td>
+                          <td>{category.isActive ? "yes" : "no"}</td>
+                          <td>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                className="btn btn-sm btn-outline"
+                                onClick={() => startEditCategory(category)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="btn btn-sm btn-error btn-outline"
+                                disabled={categoryBusy}
+                                onClick={() => {
+                                  void deactivateCategory(category);
+                                }}
+                              >
+                                Deactivate
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+        ) : null}
+
         {items.length === 0 ? (
           <div className="alert alert-info">
             <span>No menu items yet.</span>
@@ -1113,6 +1444,35 @@ export default function App() {
                     </figure>
                     <div className="card-body">
                       <h3 className="card-title text-lg">{item.name}</h3>
+                      {item.primary_category_name ? (
+                        <span className="badge badge-primary w-fit">
+                          Primary: {item.primary_category_name}
+                        </span>
+                      ) : null}
+                      {item.categories && item.categories.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {item.categories.map((category) => (
+                            <span
+                              key={category.id}
+                              className="badge badge-outline gap-1"
+                            >
+                              {category.name}
+                              {canManageMenu ? (
+                                <button
+                                  className="ml-1 text-xs"
+                                  aria-label={`Remove ${category.name}`}
+                                  onClick={() => {
+                                    void removeCategoryFromItem(item, category);
+                                  }}
+                                  disabled={menuBusy}
+                                >
+                                  x
+                                </button>
+                              ) : null}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                       <p className="text-sm opacity-80 line-clamp-2 min-h-[2.75rem]">
                         {item.description}
                       </p>
@@ -1137,22 +1497,54 @@ export default function App() {
                         </button>
                       </div>
                       {canManageMenu ? (
-                        <div className="card-actions justify-end">
-                          <button
-                            className="btn btn-sm btn-outline"
-                            onClick={() => startEditMenuItem(item)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="btn btn-sm btn-error btn-outline"
-                            onClick={() => {
-                              void deleteMenuItem(item);
-                            }}
-                            disabled={menuBusy}
-                          >
-                            Delete
-                          </button>
+                        <div className="space-y-3">
+                          <div className="flex gap-2">
+                            <select
+                              className="select select-bordered select-sm flex-1"
+                              value={selectedCategoryByItemId[item.id] ?? ""}
+                              onChange={(event) => {
+                                setSelectedCategoryByItemId((current) => ({
+                                  ...current,
+                                  [item.id]: event.target.value,
+                                }));
+                              }}
+                            >
+                              <option value="">Select category</option>
+                              {categories.map((category) => (
+                                <option key={category.id} value={category.id}>
+                                  {category.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="btn btn-sm btn-outline"
+                              disabled={
+                                menuBusy || !selectedCategoryByItemId[item.id]
+                              }
+                              onClick={() => {
+                                void addCategoryToItem(item);
+                              }}
+                            >
+                              Add category
+                            </button>
+                          </div>
+                          <div className="card-actions justify-end">
+                            <button
+                              className="btn btn-sm btn-outline"
+                              onClick={() => startEditMenuItem(item)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="btn btn-sm btn-error btn-outline"
+                              onClick={() => {
+                                void deleteMenuItem(item);
+                              }}
+                              disabled={menuBusy}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
                       ) : null}
                     </div>

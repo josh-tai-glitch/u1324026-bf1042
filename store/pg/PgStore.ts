@@ -229,6 +229,18 @@ export class PgStore implements Store {
 
     if (!updated) return null;
 
+    if (updated.isActive) {
+      await db
+        .update(menuItemsTable)
+        .set({ primaryCategoryName: updated.name })
+        .where(eq(menuItemsTable.primaryCategoryId, categoryId));
+    } else {
+      await db
+        .update(menuItemsTable)
+        .set({ primaryCategoryId: null, primaryCategoryName: null })
+        .where(eq(menuItemsTable.primaryCategoryId, categoryId));
+    }
+
     await this.reloadFromDatabase();
     return this.toCategory(updated);
   }
@@ -241,6 +253,11 @@ export class PgStore implements Store {
       .returning();
 
     if (!updated) return null;
+
+    await db
+      .update(menuItemsTable)
+      .set({ primaryCategoryId: null, primaryCategoryName: null })
+      .where(eq(menuItemsTable.primaryCategoryId, categoryId));
 
     await this.reloadFromDatabase();
     return this.toCategory(updated);

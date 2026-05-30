@@ -1,16 +1,50 @@
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import type {
   ApiDataResponse,
   MenuItem,
   Order,
+  Role,
+  RoleRequest,
   SessionUser,
 } from "../../shared/contracts.ts";
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+const defaultRoles: Role[] = ["customer"];
+const emptyMenuForm = {
+  name: "",
+  price: "",
+  category: "",
+  description: "",
+  image_url: "",
+};
+
+type MenuForm = typeof emptyMenuForm;
+type ApiErrorPayload = { error?: string; message?: string };
+type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
 
 function buildApiUrl(path: string) {
   return `${apiBaseUrl}${path}`;
+}
+
+function normalizeUser(user: Partial<SessionUser>): SessionUser {
+  return {
+    id: user.id ?? "",
+    email: user.email ?? "",
+    name: user.name ?? user.email ?? "User",
+    roles: Array.isArray(user.roles) && user.roles.length > 0
+      ? user.roles
+      : defaultRoles,
+  };
+}
+
+async function readApiError(response: Response) {
+  try {
+    const payload = (await response.json()) as ApiErrorPayload;
+    return payload.message || payload.error || `HTTP ${response.status}`;
+  } catch {
+    return `HTTP ${response.status}`;
+  }
 }
 
 export default function App() {
@@ -23,15 +57,58 @@ export default function App() {
   const [orderId, setOrderId] = useState<number | null>(null);
   const [historyOrders, setHistoryOrders] = useState<Order[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [cartQtyByItemId, setCartQtyByItemId] = useState<
-    Record<number, number>
-  >({});
+  const [cartQtyByItemId, setCartQtyByItemId] = useState<Record<number, number>>(
+    {},
+  );
   const [cartTotal, setCartTotal] = useState(0);
   const [activeItemId, setActiveItemId] = useState<number | null>(null);
   const [actionError, setActionError] = useState("");
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isClearingCart, setIsClearingCart] = useState(false);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [menuForm, setMenuForm] = useState<MenuForm>(emptyMenuForm);
+  const [editingMenuId, setEditingMenuId] = useState<number | null>(null);
+  const [menuMessage, setMenuMessage] = useState("");
+  const [menuBusy, setMenuBusy] = useState(false);
+  const [roleRequestRole, setRoleRequestRole] = useState<"staff" | "chef">(
+    "staff",
+  );
+  const [roleRequestReason, setRoleRequestReason] = useState("");
+  const [roleRequestMessage, setRoleRequestMessage] = useState("");
+  const [roleRequestBusy, setRoleRequestBusy] = useState(false);
+  const [adminStatus, setAdminStatus] = useState<RoleRequestStatus>("pending");
+  const [adminRequests, setAdminRequests] = useState<RoleRequest[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminMessage, setAdminMessage] = useState("");
+  const [adminReviewBusyId, setAdminReviewBusyId] = useState<number | null>(
+    null,
+  );
+  const [adminReviewNotes, setAdminReviewNotes] = useState<
+    Record<number, string>
+  >({});
+
+  const roles = user?.roles?.length ? user.roles : defaultRoles;
+  const hasRole = useCallback((role: Role) => roles.includes(role), [roles]);
+  const hasAnyRole = useCallback(
+    (requiredRoles: Role[]) => requiredRoles.some((role) => hasRole(role)),
+    [hasRole],
+  );
+  const hasAllRoles = useCallback(
+    (requiredRoles: Role[]) => requiredRoles.every((role) => hasRole(role)),
+    [hasRole],
+  );
+  const canManageMenu = hasAnyRole(["owner", "admin"]);
+  const isAdmin = hasRole("admin");
+
+  const loadMenu = useCallback(async () => {
+    const response = await fetch(buildApiUrl("/api/menu"));
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+
+    const payload = (await response.json()) as ApiDataResponse<MenuItem[]>;
+    setItems(Array.isArray(payload?.data) ? payload.data : []);
+  }, []);
 
   function syncCartFromOrder(order: Order) {
     const nextQtyByItemId = order.items.reduce(
@@ -59,7 +136,7 @@ export default function App() {
     });
 
     if (!response.ok) {
-      throw new Error(`Load current order failed: HTTP ${response.status}`);
+      throw new Error(`Load current order failed: ${await readApiError(response)}`);
     }
 
     const payload = (await response.json()) as ApiDataResponse<Order | null>;
@@ -84,7 +161,7 @@ export default function App() {
       });
 
       if (!response.ok) {
-        throw new Error(`Load history failed: HTTP ${response.status}`);
+        throw new Error(`Load history failed: ${await readApiError(response)}`);
       }
 
       const payload = (await response.json()) as ApiDataResponse<Order[]>;
@@ -98,43 +175,59 @@ export default function App() {
     await Promise.all([loadCurrentOrder(), loadOrderHistory()]);
   }
 
+  const loadAdminRoleRequests = useCallback(async () => {
+    if (!isAdmin) return;
+
+    setAdminLoading(true);
+    setAdminMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/admin/role-requests?status=${adminStatus}`),
+        { credentials: "include" },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<RoleRequest[]>;
+      setAdminRequests(Array.isArray(payload?.data) ? payload.data : []);
+    } catch (loadError) {
+      setAdminMessage(
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load role requests.",
+      );
+    } finally {
+      setAdminLoading(false);
+    }
+  }, [adminStatus, isAdmin]);
+
   useEffect(() => {
     let mounted = true;
 
-    // V9: 從 Better Auth session cookie 恢復登入狀態（不再用 localStorage）
     async function restoreSession() {
       try {
         const res = await fetch(buildApiUrl("/api/auth/get-session"), {
           credentials: "include",
         });
         if (res.ok) {
-          const data = (await res.json()) as { user?: SessionUser } | null;
+          const data = (await res.json()) as { user?: Partial<SessionUser> };
           if (data?.user && mounted) {
-            setUser(data.user);
+            setUser(normalizeUser(data.user));
           }
         }
       } catch {
-        // session 無法取得，維持未登入狀態
+        // Anonymous sessions are fine on the public menu page.
       }
     }
-    void restoreSession();
 
-    async function loadMenu() {
+    async function loadInitialMenu() {
       try {
-        const response = await fetch(buildApiUrl("/api/menu"));
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const payload = (await response.json()) as ApiDataResponse<MenuItem[]>;
-        const fetchedItems = Array.isArray(payload?.data) ? payload.data : [];
-
-        if (mounted) {
-          setItems(fetchedItems);
-        }
+        await loadMenu();
       } catch (fetchError) {
         if (mounted) {
-          setError("無法取得菜單資料，請稍後再試。");
+          setError("Unable to load menu.");
           console.error(fetchError);
         }
       } finally {
@@ -144,12 +237,13 @@ export default function App() {
       }
     }
 
-    void loadMenu();
+    void restoreSession();
+    void loadInitialMenu();
 
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [loadMenu]);
 
   useEffect(() => {
     if (!user) {
@@ -160,15 +254,23 @@ export default function App() {
     }
 
     void refreshUserOrders().catch((refreshError) => {
-      setActionError("載入使用者訂單資料失敗，請稍後再試。");
+      setActionError("Unable to refresh your orders.");
       console.error(refreshError);
     });
   }, [user]);
 
+  useEffect(() => {
+    if (isAdmin) {
+      void loadAdminRoleRequests();
+    } else {
+      setAdminRequests([]);
+    }
+  }, [isAdmin, loadAdminRoleRequests]);
+
   const grouped = useMemo(() => {
     const groupedItems = items.reduce(
       (acc, item) => {
-        const category = item?.category || "未分類";
+        const category = item?.category || "Uncategorized";
         if (!acc[category]) {
           acc[category] = [];
         }
@@ -179,7 +281,7 @@ export default function App() {
     );
 
     const categories = Object.keys(groupedItems).sort((a, b) =>
-      a.localeCompare(b, "zh-Hant"),
+      a.localeCompare(b),
     );
 
     return { groupedItems, categories };
@@ -197,9 +299,7 @@ export default function App() {
       .map(([itemIdText, qty]) => {
         const itemId = Number(itemIdText);
         const item = itemById.get(itemId);
-        if (!item || qty <= 0) {
-          return null;
-        }
+        if (!item || qty <= 0) return null;
 
         return {
           itemId,
@@ -208,12 +308,12 @@ export default function App() {
           subtotal: item.price * qty,
         };
       })
-      .filter((entry) => entry !== null);
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }, [cartQtyByItemId, items]);
 
   async function ensureOrder(): Promise<number> {
     if (!user) {
-      throw new Error("Please login first");
+      throw new Error("Please sign in first.");
     }
 
     if (orderId !== null) {
@@ -230,14 +330,14 @@ export default function App() {
     if (!response.ok) {
       if ([401, 403].includes(response.status)) {
         setUser(null);
-        setAuthError("登入狀態已失效，請重新登入。");
-        setActionError("登入狀態已失效，請重新登入。");
+        setAuthError("Your session expired. Please sign in again.");
+        setActionError("Your session expired. Please sign in again.");
         setHistoryOrders([]);
         resetCartState();
         throw new Error(`Auth expired: HTTP ${response.status}`);
       }
 
-      throw new Error(`Create order failed: HTTP ${response.status}`);
+      throw new Error(`Create order failed: ${await readApiError(response)}`);
     }
 
     const payload = (await response.json()) as ApiDataResponse<Order>;
@@ -255,8 +355,6 @@ export default function App() {
     setAuthError("");
     setIsGoogleSigningIn(true);
     try {
-      // Better Auth 的 social sign-in 入口是 POST。
-      // 先向後端取得導向 Google 同意頁的 URL，再切換瀏覽器位置。
       const callbackURL = window.location.origin;
       const response = await fetch(buildApiUrl("/api/auth/sign-in/social"), {
         method: "POST",
@@ -266,7 +364,7 @@ export default function App() {
       });
 
       if (!response.ok) {
-        throw new Error(`Google sign-in failed: HTTP ${response.status}`);
+        throw new Error(`Google sign-in failed: ${await readApiError(response)}`);
       }
 
       const payload = (await response.json()) as { url?: string };
@@ -276,33 +374,30 @@ export default function App() {
 
       window.location.href = payload.url;
     } catch {
-      setAuthError("Google 登入啟動失敗，請稍後再試。");
+      setAuthError("Google sign-in failed. Please try again.");
       setIsGoogleSigningIn(false);
     }
   }
 
   async function handleLogout(): Promise<void> {
-    // 使用 /api/sign-out（server-side proxy），避免 Better Auth CSRF 驗證
-    // 因 BETTER_AUTH_URL 設定錯誤造成的假登出（403 被吃掉）。
-    // 若登出失敗，顯示錯誤並中止，確保使用者知道 session 仍存在。
     try {
       const res = await fetch(buildApiUrl("/api/sign-out"), {
         method: "POST",
         credentials: "include",
       });
       if (!res.ok) {
-        setActionError(
-          `登出失敗（HTTP ${res.status}），請重試或手動清除瀏覽器 Cookie。`,
-        );
+        setActionError(`Sign out failed: ${await readApiError(res)}`);
         return;
       }
     } catch {
-      setActionError("登出時發生網路錯誤，請重試。");
+      setActionError("Sign out failed. Please try again.");
       return;
     }
     setUser(null);
     setAuthError("");
     setActionError("");
+    setRoleRequestMessage("");
+    setAdminRequests([]);
     resetCartState();
   }
 
@@ -312,7 +407,7 @@ export default function App() {
 
     try {
       if (!user) {
-        throw new Error("Please login first");
+        throw new Error("Please sign in first.");
       }
 
       const patchOrderItem = async (
@@ -333,7 +428,7 @@ export default function App() {
         );
 
         if (!response.ok) {
-          throw new Error(`Update order failed: HTTP ${response.status}`);
+          throw new Error(`Update order failed: ${await readApiError(response)}`);
         }
 
         const payload = (await response.json()) as ApiDataResponse<Order>;
@@ -357,7 +452,6 @@ export default function App() {
         const firstTryMessage =
           firstTryError instanceof Error ? firstTryError.message : "";
 
-        // 換帳號或舊訂單失效時，重新同步目前使用者訂單後再重試一次。
         if (
           firstTryMessage.includes("HTTP 403") ||
           firstTryMessage.includes("HTTP 404")
@@ -387,22 +481,7 @@ export default function App() {
         return;
       }
 
-      if (user) {
-        try {
-          const recoveredOrder = await loadCurrentOrder();
-          const recoveredQty = recoveredOrder?.items.find(
-            (orderItem) => orderItem.item.id === item.id,
-          )?.qty;
-
-          if (typeof recoveredQty === "number" && recoveredQty > 0) {
-            return;
-          }
-        } catch (recoveryError) {
-          console.error(recoveryError);
-        }
-      }
-
-      setActionError("加入購物車失敗，請稍後再試。");
+      setActionError("Unable to update cart.");
       console.error(cartError);
     } finally {
       setActiveItemId(null);
@@ -410,9 +489,7 @@ export default function App() {
   }
 
   async function clearCart(): Promise<void> {
-    if (!user || orderId === null || cartDetails.length === 0) {
-      return;
-    }
+    if (!user || orderId === null || cartDetails.length === 0) return;
 
     setActionError("");
     setIsClearingCart(true);
@@ -430,14 +507,14 @@ export default function App() {
         });
 
         if (!response.ok) {
-          throw new Error(`Clear cart failed: HTTP ${response.status}`);
+          throw new Error(`Clear cart failed: ${await readApiError(response)}`);
         }
       }
 
       setCartQtyByItemId({});
       setCartTotal(0);
     } catch (clearError) {
-      setActionError("清空購物車失敗，請稍後再試。");
+      setActionError("Unable to clear cart.");
       console.error(clearError);
     } finally {
       setIsClearingCart(false);
@@ -445,9 +522,7 @@ export default function App() {
   }
 
   async function submitOrder(): Promise<void> {
-    if (!user || orderId === null || cartDetails.length === 0) {
-      return;
-    }
+    if (!user || orderId === null || cartDetails.length === 0) return;
 
     setActionError("");
     setIsSubmittingOrder(true);
@@ -464,17 +539,180 @@ export default function App() {
       );
 
       if (!response.ok) {
-        throw new Error(`Submit order failed: HTTP ${response.status}`);
+        throw new Error(`Submit order failed: ${await readApiError(response)}`);
       }
 
       resetCartState();
       setIsCartOpen(false);
       await loadOrderHistory();
     } catch (submitError) {
-      setActionError("送出訂單失敗，請稍後再試。");
+      setActionError("Unable to submit order.");
       console.error(submitError);
     } finally {
       setIsSubmittingOrder(false);
+    }
+  }
+
+  function updateMenuForm(field: keyof MenuForm, value: string) {
+    setMenuForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function startEditMenuItem(item: MenuItem) {
+    setEditingMenuId(item.id);
+    setMenuMessage("");
+    setMenuForm({
+      name: item.name,
+      price: String(item.price),
+      category: item.category,
+      description: item.description,
+      image_url: item.image_url,
+    });
+  }
+
+  function resetMenuForm() {
+    setEditingMenuId(null);
+    setMenuForm(emptyMenuForm);
+  }
+
+  async function submitMenuForm(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageMenu) return;
+
+    setMenuBusy(true);
+    setMenuMessage("");
+    try {
+      const body = {
+        name: menuForm.name.trim(),
+        price: Number(menuForm.price),
+        category: menuForm.category.trim(),
+        description: menuForm.description.trim(),
+        image_url: menuForm.image_url.trim(),
+      };
+
+      const response = await fetch(
+        buildApiUrl(
+          editingMenuId ? `/api/menu/${editingMenuId}` : "/api/menu",
+        ),
+        {
+          method: editingMenuId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await loadMenu();
+      resetMenuForm();
+      setMenuMessage(editingMenuId ? "Menu item updated." : "Menu item added.");
+    } catch (menuError) {
+      setMenuMessage(
+        menuError instanceof Error ? menuError.message : "Menu update failed.",
+      );
+    } finally {
+      setMenuBusy(false);
+    }
+  }
+
+  async function deleteMenuItem(item: MenuItem) {
+    if (!canManageMenu) return;
+    if (!window.confirm(`Delete ${item.name}?`)) return;
+
+    setMenuBusy(true);
+    setMenuMessage("");
+    try {
+      const response = await fetch(buildApiUrl(`/api/menu/${item.id}`), {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await loadMenu();
+      setMenuMessage("Menu item deleted.");
+      if (editingMenuId === item.id) resetMenuForm();
+    } catch (menuError) {
+      setMenuMessage(
+        menuError instanceof Error ? menuError.message : "Delete failed.",
+      );
+    } finally {
+      setMenuBusy(false);
+    }
+  }
+
+  async function submitRoleRequest(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user) return;
+
+    setRoleRequestBusy(true);
+    setRoleRequestMessage("");
+    try {
+      const response = await fetch(buildApiUrl("/api/users/me/role-request"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          requestedRole: roleRequestRole,
+          reason: roleRequestReason.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      setRoleRequestReason("");
+      setRoleRequestMessage("Role request submitted.");
+    } catch (requestError) {
+      setRoleRequestMessage(
+        requestError instanceof Error
+          ? requestError.message
+          : "Role request failed.",
+      );
+    } finally {
+      setRoleRequestBusy(false);
+    }
+  }
+
+  async function reviewRoleRequest(
+    requestId: number,
+    status: "approved" | "rejected",
+  ) {
+    if (!isAdmin) return;
+
+    setAdminReviewBusyId(requestId);
+    setAdminMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/admin/role-requests/${requestId}`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            status,
+            reviewNote: adminReviewNotes[requestId]?.trim() || undefined,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await loadAdminRoleRequests();
+      setAdminMessage(`Request ${status}.`);
+    } catch (reviewError) {
+      setAdminMessage(
+        reviewError instanceof Error ? reviewError.message : "Review failed.",
+      );
+    } finally {
+      setAdminReviewBusyId(null);
     }
   }
 
@@ -498,22 +736,27 @@ export default function App() {
     <div className="min-h-screen bg-base-200">
       <div className="navbar bg-base-100 shadow-lg flex-col items-stretch gap-2 md:flex-row md:items-center">
         <div className="flex-1 w-full md:w-auto">
-          <a className="btn btn-ghost normal-case text-2xl">
-            🌅 聯大資工早餐菜單
-          </a>
+          <a className="btn btn-ghost normal-case text-2xl">Breakfast Demo</a>
         </div>
         <div className="flex-none w-full md:w-auto">
           <div className="flex flex-wrap gap-2 items-center md:justify-end">
             <div className="badge badge-outline">
-              {user ? `已登入 ${user.name}` : "尚未登入"}
+              {user ? user.name : "Not signed in"}
             </div>
+            {user ? (
+              <div className="flex flex-wrap gap-1">
+                {roles.map((role) => (
+                  <span key={role} className="badge badge-neutral">
+                    {role}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <div className="badge badge-primary">
-              {items.length} 個品項・{grouped.categories.length} 類
+              {items.length} items / {grouped.categories.length} categories
             </div>
-            <div className="badge badge-secondary">
-              購物車 {cartItemCount} 件
-            </div>
-            <div className="badge badge-accent">總計 ${cartTotal}</div>
+            <div className="badge badge-secondary">Cart {cartItemCount}</div>
+            <div className="badge badge-accent">${cartTotal}</div>
             <button
               className="btn btn-sm btn-outline"
               onClick={() => {
@@ -521,7 +764,7 @@ export default function App() {
               }}
               disabled={!user}
             >
-              購物車明細
+              Cart
             </button>
             {user ? (
               <button
@@ -530,7 +773,7 @@ export default function App() {
                   void handleLogout();
                 }}
               >
-                登出
+                Sign out
               </button>
             ) : null}
           </div>
@@ -541,9 +784,10 @@ export default function App() {
         {!user ? (
           <section className="max-w-xl mx-auto card bg-base-100 shadow-md mb-8">
             <div className="card-body">
-              <h2 className="card-title">使用 Google 帳號登入</h2>
+              <h2 className="card-title">Sign in with Google</h2>
               <p className="text-sm opacity-70">
-                點擊下方按鈕，使用您的 Google 帳號登入後即可開始點餐。
+                Sign in to create orders, manage your cart, or request staff
+                access.
               </p>
               {authError ? (
                 <div className="alert alert-error">
@@ -557,7 +801,7 @@ export default function App() {
                 }}
                 disabled={isGoogleSigningIn}
               >
-                {isGoogleSigningIn ? "導向 Google 中..." : "使用 Google 登入"}
+                {isGoogleSigningIn ? "Opening Google..." : "Sign in"}
               </button>
             </div>
           </section>
@@ -569,13 +813,283 @@ export default function App() {
           </div>
         ) : null}
 
+        {user ? (
+          <section className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="card bg-base-100 shadow-sm border border-base-300">
+              <div className="card-body">
+                <h2 className="card-title">Your access</h2>
+                <p className="text-sm opacity-70">{user.email}</p>
+                <div className="flex flex-wrap gap-2">
+                  {roles.map((role) => (
+                    <span key={role} className="badge badge-outline">
+                      {role}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs opacity-60">
+                  {hasAllRoles(["customer"])
+                    ? "You have the default customer role."
+                    : "Your account has elevated access."}
+                </p>
+              </div>
+            </div>
+
+            <form
+              className="card bg-base-100 shadow-sm border border-base-300"
+              onSubmit={(event) => {
+                void submitRoleRequest(event);
+              }}
+            >
+              <div className="card-body">
+                <h2 className="card-title">Request a role</h2>
+                <div className="form-control">
+                  <label className="label" htmlFor="role-request-role">
+                    <span className="label-text">Role</span>
+                  </label>
+                  <select
+                    id="role-request-role"
+                    className="select select-bordered"
+                    value={roleRequestRole}
+                    onChange={(event) => {
+                      setRoleRequestRole(event.target.value as "staff" | "chef");
+                    }}
+                  >
+                    <option value="staff">staff</option>
+                    <option value="chef">chef</option>
+                  </select>
+                </div>
+                <div className="form-control">
+                  <label className="label" htmlFor="role-request-reason">
+                    <span className="label-text">Reason</span>
+                  </label>
+                  <textarea
+                    id="role-request-reason"
+                    className="textarea textarea-bordered min-h-24"
+                    value={roleRequestReason}
+                    minLength={10}
+                    onChange={(event) => {
+                      setRoleRequestReason(event.target.value);
+                    }}
+                  />
+                </div>
+                {roleRequestMessage ? (
+                  <div className="alert">
+                    <span>{roleRequestMessage}</span>
+                  </div>
+                ) : null}
+                <button
+                  className="btn btn-primary"
+                  disabled={roleRequestBusy || roleRequestReason.trim().length < 10}
+                >
+                  {roleRequestBusy ? "Submitting..." : "Submit request"}
+                </button>
+              </div>
+            </form>
+          </section>
+        ) : null}
+
+        {isAdmin ? (
+          <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
+            <div className="card-body">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="card-title">Role requests</h2>
+                <select
+                  className="select select-bordered select-sm"
+                  value={adminStatus}
+                  onChange={(event) => {
+                    setAdminStatus(event.target.value as RoleRequestStatus);
+                  }}
+                >
+                  <option value="pending">pending</option>
+                  <option value="approved">approved</option>
+                  <option value="rejected">rejected</option>
+                  <option value="all">all</option>
+                </select>
+              </div>
+              {adminMessage ? (
+                <div className="alert">
+                  <span>{adminMessage}</span>
+                </div>
+              ) : null}
+              {adminLoading ? (
+                <div className="alert">
+                  <span>Loading requests...</span>
+                </div>
+              ) : adminRequests.length === 0 ? (
+                <div className="alert alert-info">
+                  <span>No role requests.</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>User</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Reason</th>
+                        <th>Review</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminRequests.map((request) => (
+                        <tr key={request.id}>
+                          <td>{request.id}</td>
+                          <td className="max-w-48 truncate">{request.userId}</td>
+                          <td>{request.requestedRole}</td>
+                          <td>
+                            <span className="badge">{request.status}</span>
+                          </td>
+                          <td className="max-w-xs">{request.reason}</td>
+                          <td>
+                            {request.status === "pending" ? (
+                              <div className="flex flex-col gap-2 min-w-56">
+                                <input
+                                  className="input input-bordered input-sm"
+                                  placeholder="Optional note"
+                                  value={adminReviewNotes[request.id] ?? ""}
+                                  onChange={(event) => {
+                                    setAdminReviewNotes((current) => ({
+                                      ...current,
+                                      [request.id]: event.target.value,
+                                    }));
+                                  }}
+                                />
+                                <div className="flex gap-2">
+                                  <button
+                                    className="btn btn-success btn-sm"
+                                    disabled={adminReviewBusyId === request.id}
+                                    onClick={() => {
+                                      void reviewRoleRequest(
+                                        request.id,
+                                        "approved",
+                                      );
+                                    }}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    className="btn btn-error btn-sm"
+                                    disabled={adminReviewBusyId === request.id}
+                                    onClick={() => {
+                                      void reviewRoleRequest(
+                                        request.id,
+                                        "rejected",
+                                      );
+                                    }}
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-sm opacity-70">
+                                {request.reviewNote || "Reviewed"}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {canManageMenu ? (
+          <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
+            <form
+              className="card-body"
+              onSubmit={(event) => {
+                void submitMenuForm(event);
+              }}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="card-title">
+                  {editingMenuId ? "Edit menu item" : "Add menu item"}
+                </h2>
+                {editingMenuId ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={resetMenuForm}
+                  >
+                    Cancel edit
+                  </button>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <input
+                  className="input input-bordered"
+                  placeholder="Name"
+                  value={menuForm.name}
+                  onChange={(event) => updateMenuForm("name", event.target.value)}
+                  required
+                />
+                <input
+                  className="input input-bordered"
+                  placeholder="Price"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={menuForm.price}
+                  onChange={(event) => updateMenuForm("price", event.target.value)}
+                  required
+                />
+                <input
+                  className="input input-bordered"
+                  placeholder="Category"
+                  value={menuForm.category}
+                  onChange={(event) =>
+                    updateMenuForm("category", event.target.value)
+                  }
+                  required
+                />
+                <input
+                  className="input input-bordered md:col-span-2"
+                  placeholder="Description"
+                  value={menuForm.description}
+                  onChange={(event) =>
+                    updateMenuForm("description", event.target.value)
+                  }
+                  required
+                />
+                <input
+                  className="input input-bordered"
+                  placeholder="Image URL"
+                  value={menuForm.image_url}
+                  onChange={(event) =>
+                    updateMenuForm("image_url", event.target.value)
+                  }
+                  required
+                />
+              </div>
+              {menuMessage ? (
+                <div className="alert">
+                  <span>{menuMessage}</span>
+                </div>
+              ) : null}
+              <button className="btn btn-primary w-fit" disabled={menuBusy}>
+                {menuBusy
+                  ? "Saving..."
+                  : editingMenuId
+                    ? "Save changes"
+                    : "Add item"}
+              </button>
+            </form>
+          </section>
+        ) : null}
+
         {items.length === 0 ? (
           <div className="alert alert-info">
-            <span>目前沒有菜單資料</span>
+            <span>No menu items yet.</span>
           </div>
         ) : (
           grouped.categories.map((category) => (
-            <div key={category} className="mb-8">
+            <section key={category} className="mb-8">
               <h2 className="text-3xl font-bold mb-4 text-primary border-b-2 border-primary pb-2">
                 {category}
               </h2>
@@ -592,8 +1106,7 @@ export default function App() {
                         className="w-full h-full object-cover"
                         loading="lazy"
                         onError={(event) => {
-                          const target = event.currentTarget;
-                          target.src =
+                          event.currentTarget.src =
                             "https://images.unsplash.com/photo-1526318896980-cf78c088247c?auto=format&fit=crop&w=800&q=80";
                         }}
                       />
@@ -603,7 +1116,7 @@ export default function App() {
                       <p className="text-sm opacity-80 line-clamp-2 min-h-[2.75rem]">
                         {item.description}
                       </p>
-                      <div className="card-actions justify-between items-center">
+                      <div className="flex items-center justify-between gap-2">
                         <span className="text-xl font-bold text-success">
                           ${item.price}
                         </span>
@@ -612,31 +1125,54 @@ export default function App() {
                           onClick={() => {
                             void addToCart(item);
                           }}
-                          disabled={activeItemId === item.id}
+                          disabled={!user || activeItemId === item.id}
                         >
                           {activeItemId === item.id
-                            ? "加入中..."
-                            : `加入購物車${cartQtyByItemId[item.id] ? ` (${cartQtyByItemId[item.id]})` : ""}`}
+                            ? "Adding..."
+                            : `Add${
+                                cartQtyByItemId[item.id]
+                                  ? ` (${cartQtyByItemId[item.id]})`
+                                  : ""
+                              }`}
                         </button>
                       </div>
+                      {canManageMenu ? (
+                        <div className="card-actions justify-end">
+                          <button
+                            className="btn btn-sm btn-outline"
+                            onClick={() => startEditMenuItem(item)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn-sm btn-error btn-outline"
+                            onClick={() => {
+                              void deleteMenuItem(item);
+                            }}
+                            disabled={menuBusy}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           ))
         )}
 
         {user ? (
           <section className="mt-10">
-            <h2 className="text-2xl font-bold mb-4">我的訂單歷史</h2>
+            <h2 className="text-2xl font-bold mb-4">Order history</h2>
             {historyLoading ? (
               <div className="alert">
-                <span>讀取中...</span>
+                <span>Loading history...</span>
               </div>
             ) : historyOrders.length === 0 ? (
               <div className="alert alert-info">
-                <span>目前尚無歷史訂單。</span>
+                <span>No submitted orders yet.</span>
               </div>
             ) : (
               <div className="space-y-3">
@@ -647,11 +1183,11 @@ export default function App() {
                   >
                     <div className="card-body p-4">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <h3 className="font-semibold">訂單 #{order.id}</h3>
-                        <span className="badge badge-success">已送出</span>
+                        <h3 className="font-semibold">Order #{order.id}</h3>
+                        <span className="badge badge-success">submitted</span>
                       </div>
                       <p className="text-sm opacity-70">
-                        建立時間：{order.createdAt}
+                        Created at {order.createdAt}
                       </p>
                       <ul className="text-sm list-disc pl-5 space-y-1">
                         {order.items.map((detail) => (
@@ -660,9 +1196,7 @@ export default function App() {
                           </li>
                         ))}
                       </ul>
-                      <p className="font-bold text-right">
-                        總額 ${order.total}
-                      </p>
+                      <p className="font-bold text-right">${order.total}</p>
                     </div>
                   </article>
                 ))}
@@ -677,27 +1211,23 @@ export default function App() {
           <button
             className="fixed inset-0 bg-black/35"
             aria-label="close cart drawer"
-            onClick={() => {
-              setIsCartOpen(false);
-            }}
+            onClick={() => setIsCartOpen(false)}
           />
           <aside className="fixed right-0 top-0 h-full w-full max-w-md bg-base-100 shadow-2xl z-10 flex flex-col">
             <div className="p-4 border-b border-base-300 flex items-center justify-between">
-              <h2 className="text-xl font-bold">購物車明細</h2>
+              <h2 className="text-xl font-bold">Cart</h2>
               <button
                 className="btn btn-sm btn-ghost"
-                onClick={() => {
-                  setIsCartOpen(false);
-                }}
+                onClick={() => setIsCartOpen(false)}
               >
-                關閉
+                Close
               </button>
             </div>
 
             <div className="p-4 flex-1 overflow-auto">
               {cartDetails.length === 0 ? (
                 <div className="alert">
-                  <span>購物車目前是空的。</span>
+                  <span>Your cart is empty.</span>
                 </div>
               ) : (
                 <ul className="space-y-3">
@@ -709,7 +1239,7 @@ export default function App() {
                       <div>
                         <p className="font-semibold">{detail.item.name}</p>
                         <p className="text-sm opacity-70">
-                          單價 ${detail.item.price} x {detail.qty}
+                          ${detail.item.price} x {detail.qty}
                         </p>
                       </div>
                       <p className="font-bold">${detail.subtotal}</p>
@@ -721,30 +1251,26 @@ export default function App() {
 
             <div className="p-4 border-t border-base-300 space-y-3">
               <div className="flex items-center justify-between font-semibold">
-                <span>總件數</span>
+                <span>Items</span>
                 <span>{cartItemCount}</span>
               </div>
               <div className="flex items-center justify-between text-lg font-bold">
-                <span>總金額</span>
+                <span>Total</span>
                 <span>${cartTotal}</span>
               </div>
               <button
                 className="btn btn-error btn-outline w-full"
-                onClick={() => {
-                  void clearCart();
-                }}
+                onClick={() => void clearCart()}
                 disabled={cartDetails.length === 0 || isClearingCart}
               >
-                {isClearingCart ? "清空中..." : "清空購物車"}
+                {isClearingCart ? "Clearing..." : "Clear cart"}
               </button>
               <button
                 className="btn btn-primary w-full"
-                onClick={() => {
-                  void submitOrder();
-                }}
+                onClick={() => void submitOrder()}
                 disabled={cartDetails.length === 0 || isSubmittingOrder}
               >
-                {isSubmittingOrder ? "送出中..." : "送出訂單"}
+                {isSubmittingOrder ? "Submitting..." : "Submit order"}
               </button>
             </div>
           </aside>

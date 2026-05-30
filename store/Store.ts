@@ -7,6 +7,13 @@ export class CategorySlugConflictError extends Error {
   }
 }
 
+export class CategoryNotFoundError extends Error {
+  constructor() {
+    super("Category not found");
+    this.name = "CategoryNotFoundError";
+  }
+}
+
 export type UpdateOrderItemErrorCode =
   | "ORDER_NOT_FOUND"
   | "MENU_ITEM_NOT_FOUND"
@@ -27,6 +34,7 @@ export interface Store {
     name: string;
     price: number;
     category: string;
+    primaryCategoryId?: number;
     description: string;
     image_url: string;
   }): Promise<MenuItem>;
@@ -36,6 +44,7 @@ export interface Store {
       name?: string;
       price?: number;
       category?: string;
+      primaryCategoryId?: number | null;
       description?: string;
       image_url?: string;
     },

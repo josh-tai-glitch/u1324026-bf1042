@@ -13,7 +13,11 @@ import {
   orderItemsTable,
   ordersTable,
 } from "../../db/schema.ts";
-import { CategorySlugConflictError, type Store } from "../Store.ts";
+import {
+  CategoryNotFoundError,
+  CategorySlugConflictError,
+  type Store,
+} from "../Store.ts";
 
 interface PgStoreOptions {
   dataFilePath?: string;
@@ -68,37 +72,40 @@ export class PgStore implements Store {
     name: string;
     price: number;
     category: string;
+    primaryCategoryId?: number;
     description: string;
     image_url: string;
   }): Promise<MenuItem> {
+    const primaryCategory =
+      input.primaryCategoryId !== undefined
+        ? await this.findActiveCategory(input.primaryCategoryId)
+        : null;
+    if (input.primaryCategoryId !== undefined && !primaryCategory) {
+      throw new CategoryNotFoundError();
+    }
+
     const [inserted] = await db
       .insert(menuItemsTable)
       .values({
         name: input.name,
         price: input.price,
-        category: input.category,
+        category: primaryCategory?.name ?? input.category,
         description: input.description,
-      imageUrl: input.image_url,
-      primaryCategoryId: null,
-      primaryCategoryName: null,
+        imageUrl: input.image_url,
+        primaryCategoryId: primaryCategory?.id ?? null,
+        primaryCategoryName: primaryCategory?.name ?? null,
       })
       .returning();
 
     if (!inserted) throw new Error("Failed to insert menu item");
 
-    const created: MenuItem = {
-      id: inserted.id,
-      name: inserted.name,
-      price: inserted.price,
-      category: inserted.category,
-      primary_category_id: inserted.primaryCategoryId,
-      primary_category_name: inserted.primaryCategoryName,
-      categories: [],
-      description: inserted.description,
-      image_url: inserted.imageUrl,
-    };
+    if (primaryCategory) {
+      await this.ensureActiveMenuCategoryLink(inserted.id, primaryCategory.id);
+    }
 
-    this.menu.push(created);
+    await this.reloadFromDatabase();
+    const created = this.menu.find((item) => item.id === inserted.id);
+    if (!created) throw new Error("Failed to load created menu item");
     return created;
   }
 
@@ -108,16 +115,31 @@ export class PgStore implements Store {
       name?: string;
       price?: number;
       category?: string;
+      primaryCategoryId?: number | null;
       description?: string;
       image_url?: string;
     },
   ): Promise<MenuItem | null> {
+    let primaryCategory: Category | null = null;
+    const shouldUpdatePrimary = patch.primaryCategoryId !== undefined;
+    if (typeof patch.primaryCategoryId === "number") {
+      primaryCategory = await this.findActiveCategory(patch.primaryCategoryId);
+      if (!primaryCategory) throw new CategoryNotFoundError();
+    }
+
     const [updated] = await db
       .update(menuItemsTable)
       .set({
         ...(patch.name !== undefined ? { name: patch.name } : {}),
         ...(patch.price !== undefined ? { price: patch.price } : {}),
         ...(patch.category !== undefined ? { category: patch.category } : {}),
+        ...(primaryCategory !== null ? { category: primaryCategory.name } : {}),
+        ...(shouldUpdatePrimary
+          ? {
+              primaryCategoryId: primaryCategory?.id ?? null,
+              primaryCategoryName: primaryCategory?.name ?? null,
+            }
+          : {}),
         ...(patch.description !== undefined
           ? { description: patch.description }
           : {}),
@@ -128,23 +150,12 @@ export class PgStore implements Store {
 
     if (!updated) return null;
 
-    const next: MenuItem = {
-      id: updated.id,
-      name: updated.name,
-      price: updated.price,
-      category: updated.category,
-      primary_category_id: updated.primaryCategoryId,
-      primary_category_name: updated.primaryCategoryName,
-      categories:
-        this.menu.find((item) => item.id === menuId)?.categories ?? [],
-      description: updated.description,
-      image_url: updated.imageUrl,
-    };
+    if (primaryCategory) {
+      await this.ensureActiveMenuCategoryLink(menuId, primaryCategory.id);
+    }
 
-    const idx = this.menu.findIndex((item) => item.id === menuId);
-    if (idx !== -1) this.menu[idx] = next;
-
-    return next;
+    await this.reloadFromDatabase();
+    return this.menu.find((item) => item.id === menuId) ?? null;
   }
 
   async deleteMenuItem(menuId: number): Promise<MenuItem | null> {
@@ -534,6 +545,45 @@ export class PgStore implements Store {
   }
 
   // ── Private ─────────────────────────────────────────────────
+
+  private async findActiveCategory(categoryId: number): Promise<Category | null> {
+    const [row] = await db
+      .select()
+      .from(categoriesTable)
+      .where(
+        and(
+          eq(categoriesTable.id, categoryId),
+          eq(categoriesTable.isActive, true),
+        ),
+      )
+      .limit(1);
+
+    return row ? this.toCategory(row) : null;
+  }
+
+  private async ensureActiveMenuCategoryLink(
+    menuId: number,
+    categoryId: number,
+  ): Promise<void> {
+    const [existingActive] = await db
+      .select({ id: menuItemCategoriesTable.id })
+      .from(menuItemCategoriesTable)
+      .where(
+        and(
+          eq(menuItemCategoriesTable.menuItemId, menuId),
+          eq(menuItemCategoriesTable.categoryId, categoryId),
+          isNull(menuItemCategoriesTable.removedAt),
+        ),
+      )
+      .limit(1);
+
+    if (existingActive) return;
+
+    await db.insert(menuItemCategoriesTable).values({
+      menuItemId: menuId,
+      categoryId,
+    });
+  }
 
   private async seedFromJsonIfEmpty(): Promise<void> {
     const [countRow] = await db

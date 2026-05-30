@@ -42,7 +42,10 @@ import {
 } from "./shared/route-schemas.ts";
 import type { Role, RoleRequest } from "./shared/contracts.ts";
 import { hasAnyRole, requireAnyRole, requireRole } from "./shared/guards.ts";
-import { CategorySlugConflictError } from "./store/Store.ts";
+import {
+  CategoryNotFoundError,
+  CategorySlugConflictError,
+} from "./store/Store.ts";
 import { createStore } from "./store/index.ts";
 import { auth, getCurrentUser } from "./auth/better-auth.ts";
 import { db } from "./db/client.ts";
@@ -372,10 +375,20 @@ app.post(
       name: string;
       price: number;
       category: string;
+      primaryCategoryId?: number;
       description: string;
       image_url: string;
     };
-    const newMenuItem = await store.createMenuItem(input);
+    let newMenuItem;
+    try {
+      newMenuItem = await store.createMenuItem(input);
+    } catch (error) {
+      if (error instanceof CategoryNotFoundError) {
+        set.status = 404;
+        return { error: "Category not found" };
+      }
+      throw error;
+    }
     set.status = 201;
     return { data: newMenuItem };
   },
@@ -390,6 +403,7 @@ app.post(
       201: menuItemResponseSchema,
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
     },
   },
 );
@@ -405,10 +419,20 @@ app.patch(
       name?: string;
       price?: number;
       category?: string;
+      primaryCategoryId?: number | null;
       description?: string;
       image_url?: string;
     };
-    const menuItem = await store.updateMenuItem(menuId, patch);
+    let menuItem;
+    try {
+      menuItem = await store.updateMenuItem(menuId, patch);
+    } catch (error) {
+      if (error instanceof CategoryNotFoundError) {
+        set.status = 404;
+        return { error: "Category not found" };
+      }
+      throw error;
+    }
 
     if (!menuItem) {
       set.status = 404;

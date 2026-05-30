@@ -5,7 +5,11 @@ import type {
   Order,
   OrderItem,
 } from "../../shared/contracts.ts";
-import { CategorySlugConflictError, type Store } from "../Store.ts";
+import {
+  CategoryNotFoundError,
+  CategorySlugConflictError,
+  type Store,
+} from "../Store.ts";
 
 interface StoredUser {
   id: string;
@@ -224,17 +228,26 @@ export class JsonFileStore implements Store {
     name: string;
     price: number;
     category: string;
+    primaryCategoryId?: number;
     description: string;
     image_url: string;
   }): Promise<MenuItem> {
+    const primaryCategory =
+      input.primaryCategoryId !== undefined
+        ? this.findActiveCategory(input.primaryCategoryId)
+        : null;
+    if (input.primaryCategoryId !== undefined && !primaryCategory) {
+      throw new CategoryNotFoundError();
+    }
+
     const newMenuItem: MenuItem = {
       id: ++this.menuIdCounter,
       name: input.name,
       price: input.price,
-      category: input.category,
-      primary_category_id: null,
-      primary_category_name: null,
-      categories: [],
+      category: primaryCategory?.name ?? input.category,
+      primary_category_id: primaryCategory?.id ?? null,
+      primary_category_name: primaryCategory?.name ?? null,
+      categories: primaryCategory ? [{ ...primaryCategory }] : [],
       description: input.description,
       image_url: input.image_url,
     };
@@ -251,6 +264,7 @@ export class JsonFileStore implements Store {
       name?: string;
       price?: number;
       category?: string;
+      primaryCategoryId?: number | null;
       description?: string;
       image_url?: string;
     },
@@ -259,10 +273,35 @@ export class JsonFileStore implements Store {
     if (!menuItem) {
       return null;
     }
+    const shouldUpdatePrimary = patch.primaryCategoryId !== undefined;
+    const primaryCategory =
+      typeof patch.primaryCategoryId === "number"
+        ? this.findActiveCategory(patch.primaryCategoryId)
+        : null;
+    if (typeof patch.primaryCategoryId === "number" && !primaryCategory) {
+      throw new CategoryNotFoundError();
+    }
 
     menuItem.name = patch.name ?? menuItem.name;
     menuItem.price = patch.price ?? menuItem.price;
     menuItem.category = patch.category ?? menuItem.category;
+    if (primaryCategory) {
+      menuItem.category = primaryCategory.name;
+      menuItem.primary_category_id = primaryCategory.id;
+      menuItem.primary_category_name = primaryCategory.name;
+      const linkedCategories = menuItem.categories ?? [];
+      if (
+        !linkedCategories.some((category) => category.id === primaryCategory.id)
+      ) {
+        linkedCategories.push({ ...primaryCategory });
+      }
+      menuItem.categories = linkedCategories
+        .filter((category) => category.isActive)
+        .sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
+    } else if (shouldUpdatePrimary) {
+      menuItem.primary_category_id = null;
+      menuItem.primary_category_name = null;
+    }
     menuItem.description = patch.description ?? menuItem.description;
     menuItem.image_url = patch.image_url ?? menuItem.image_url;
 
@@ -563,6 +602,14 @@ export class JsonFileStore implements Store {
     await this.persist();
 
     return { ok: true, order };
+  }
+
+  private findActiveCategory(categoryId: number): Category | null {
+    return (
+      this.categories.find(
+        (category) => category.id === categoryId && category.isActive,
+      ) ?? null
+    );
   }
 
   private createInitialStore(): DataStore {

@@ -47,6 +47,7 @@ export const createMenuItemBodySchema = z.object({
   name: z.string().min(1),
   price: z.number().int().min(0),
   category: z.string().min(1),
+  primaryCategoryId: z.number().int().min(1).optional(),
   description: z.string().min(1),
   image_url: z.string().min(1),
 });
@@ -60,6 +61,7 @@ export const updateMenuItemBodySchema = z.object({
   name: z.string().min(1).optional(),
   price: z.number().int().min(0).optional(),
   category: z.string().min(1).optional(),
+  primaryCategoryId: z.number().int().min(1).nullable().optional(),
   description: z.string().min(1).optional(),
   image_url: z.string().min(1).optional(),
 });

@@ -16,6 +16,7 @@ const emptyMenuForm = {
   name: "",
   price: "",
   category: "",
+  primaryCategoryId: "",
   description: "",
   image_url: "",
 };
@@ -624,6 +625,18 @@ export default function App() {
     setMenuForm((current) => ({ ...current, [field]: value }));
   }
 
+  function updateMenuPrimaryCategory(categoryIdText: string) {
+    const selectedCategory = categories.find(
+      (category) => String(category.id) === categoryIdText,
+    );
+
+    setMenuForm((current) => ({
+      ...current,
+      primaryCategoryId: categoryIdText,
+      category: selectedCategory?.name ?? current.category,
+    }));
+  }
+
   function startEditMenuItem(item: MenuItem) {
     setEditingMenuId(item.id);
     setMenuMessage("");
@@ -631,6 +644,9 @@ export default function App() {
       name: item.name,
       price: String(item.price),
       category: item.category,
+      primaryCategoryId: item.primary_category_id
+        ? String(item.primary_category_id)
+        : "",
       description: item.description,
       image_url: item.image_url,
     });
@@ -654,6 +670,11 @@ export default function App() {
         category: menuForm.category.trim(),
         description: menuForm.description.trim(),
         image_url: menuForm.image_url.trim(),
+        ...(menuForm.primaryCategoryId
+          ? { primaryCategoryId: Number(menuForm.primaryCategoryId) }
+          : editingMenuId
+            ? { primaryCategoryId: null }
+            : {}),
       };
 
       const response = await fetch(
@@ -1281,6 +1302,20 @@ export default function App() {
                   }
                   required
                 />
+                <select
+                  className="select select-bordered"
+                  value={menuForm.primaryCategoryId}
+                  onChange={(event) =>
+                    updateMenuPrimaryCategory(event.target.value)
+                  }
+                >
+                  <option value="">No primary category</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
                 <input
                   className="input input-bordered md:col-span-2"
                   placeholder="Description"

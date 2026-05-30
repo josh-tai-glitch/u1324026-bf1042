@@ -126,6 +126,7 @@ export default function App() {
     [hasRole],
   );
   const canManageMenu = hasAnyRole(["owner", "admin"]);
+  const canViewAllOrders = hasAnyRole(["staff", "chef", "owner", "admin"]);
   const isAdmin = hasRole("admin");
 
   const loadMenu = useCallback(async () => {
@@ -194,7 +195,7 @@ export default function App() {
     setHistoryLoading(true);
 
     try {
-      const response = await fetch(buildApiUrl("/api/orders/history"), {
+      const response = await fetch(buildApiUrl("/api/orders"), {
         credentials: "include",
       });
 
@@ -1788,14 +1789,16 @@ export default function App() {
 
         {user ? (
           <section className="mt-10">
-            <h2 className="text-2xl font-bold mb-4">Order history</h2>
+            <h2 className="text-2xl font-bold mb-4">
+              {canViewAllOrders ? "All orders" : "Order history"}
+            </h2>
             {historyLoading ? (
               <div className="alert">
                 <span>Loading history...</span>
               </div>
             ) : historyOrders.length === 0 ? (
               <div className="alert alert-info">
-                <span>No submitted orders yet.</span>
+                <span>No orders yet.</span>
               </div>
             ) : (
               <div className="space-y-3">
@@ -1807,10 +1810,16 @@ export default function App() {
                     <div className="card-body p-4">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <h3 className="font-semibold">Order #{order.id}</h3>
-                        <span className="badge badge-success">submitted</span>
+                        <span className="badge badge-success">
+                          {order.status}
+                        </span>
                       </div>
                       <p className="text-sm opacity-70">
-                        Created at {order.createdAt}
+                        Created at{" "}
+                        {
+                          (order as Order & { createdAtTaipei?: string })
+                            .createdAtTaipei ?? order.createdAt
+                        }
                       </p>
                       <ul className="text-sm list-disc pl-5 space-y-1">
                         {order.items.map((detail) => (

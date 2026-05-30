@@ -11,6 +11,7 @@ import {
   categoryListResponseSchema,
   categoryParamsSchema,
   categoryResponseSchema,
+  categorySalesListResponseSchema,
   createCategoryBodySchema,
   createMenuItemBodySchema,
   createRoleRequestBodySchema,
@@ -31,6 +32,8 @@ import {
   roleRequestResponseSchema,
   submitOrderParamsSchema,
   toOrderResponse,
+  topItemSalesListResponseSchema,
+  topItemsAnalyticsQuerySchema,
   updateCategoryBodySchema,
   updateMenuItemBodySchema,
   updateMenuItemParamsSchema,
@@ -859,6 +862,59 @@ app.post(
       400: apiErrorResponseSchema,
       401: apiErrorResponseSchema,
       500: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.get(
+  "/api/admin/analytics/category-sales",
+  async ({ request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    return { data: store.getCategorySalesAnalytics() };
+  },
+  {
+    detail: {
+      tags: ["admin"],
+      summary: "Get category sales analytics",
+      description: "Return category sales totals for submitted orders.",
+    },
+    response: {
+      200: categorySalesListResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.get(
+  "/api/admin/analytics/top-items",
+  async ({ query, request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const rawLimit = (query as { limit?: string }).limit;
+    const parsedLimit =
+      rawLimit !== undefined ? Number.parseInt(rawLimit, 10) : 10;
+    const limit =
+      Number.isFinite(parsedLimit) && parsedLimit > 0
+        ? Math.min(parsedLimit, 100)
+        : 10;
+
+    return { data: store.getTopItemSalesAnalytics(limit) };
+  },
+  {
+    query: topItemsAnalyticsQuerySchema,
+    detail: {
+      tags: ["admin"],
+      summary: "Get top item sales analytics",
+      description: "Return top-selling menu items for submitted orders.",
+    },
+    response: {
+      200: topItemSalesListResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
     },
   },
 );

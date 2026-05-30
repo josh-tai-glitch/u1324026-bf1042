@@ -1,4 +1,10 @@
-import type { Category, MenuItem, Order } from "../shared/contracts.ts";
+import type {
+  Category,
+  CategorySales,
+  MenuItem,
+  Order,
+  TopItemSales,
+} from "../shared/contracts.ts";
 
 export class CategorySlugConflictError extends Error {
   constructor() {
@@ -100,4 +106,7 @@ export interface Store {
   ): Promise<
     { ok: true; order: Order } | { ok: false; code: SubmitOrderErrorCode }
   >;
+
+  getCategorySalesAnalytics(): ReadonlyArray<CategorySales>;
+  getTopItemSalesAnalytics(limit?: number): ReadonlyArray<TopItemSales>;
 }

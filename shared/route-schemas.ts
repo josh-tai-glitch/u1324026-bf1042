@@ -2,11 +2,13 @@ import { z } from "zod";
 import type { Order } from "./contracts.ts";
 import {
   categorySchema,
+  categorySalesSchema,
   menuItemSchema,
   orderSchema,
   roleRequestSchema,
   roleSchema,
   sessionUserSchema,
+  topItemSalesSchema,
 } from "./contracts.ts";
 import toTaipeiDateTime from "../util.ts";
 
@@ -124,6 +126,10 @@ export const updateUserRolesBodySchema = z.object({
   roles: z.array(roleSchema).min(1),
 });
 
+export const topItemsAnalyticsQuerySchema = z.object({
+  limit: z.string().regex(/^[0-9]+$/).optional(),
+});
+
 /** /api/categories/:id */
 export const categoryParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),
@@ -178,6 +184,14 @@ export const categoryResponseSchema = z.object({
 
 export const categoryListResponseSchema = z.object({
   data: z.array(categorySchema),
+});
+
+export const categorySalesListResponseSchema = z.object({
+  data: z.array(categorySalesSchema),
+});
+
+export const topItemSalesListResponseSchema = z.object({
+  data: z.array(topItemSalesSchema),
 });
 
 export const orderListResponseSchema = z.object({

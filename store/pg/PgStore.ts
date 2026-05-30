@@ -1,9 +1,11 @@
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import type {
   Category,
+  CategorySales,
   MenuItem,
   Order,
   OrderItem,
+  TopItemSales,
 } from "../../shared/contracts.ts";
 import { db } from "../../db/client.ts";
 import {
@@ -542,6 +544,97 @@ export class PgStore implements Store {
     order.submittedAt = submittedAt;
 
     return { ok: true, order };
+  }
+
+  getCategorySalesAnalytics(): ReadonlyArray<CategorySales> {
+    const salesByCategory = new Map<
+      string,
+      { quantity: number; revenue: number; orderIds: Set<number> }
+    >();
+
+    for (const order of this.orders) {
+      if (order.status !== "submitted") continue;
+
+      for (const orderItem of order.items) {
+        const category = orderItem.item.category || "Uncategorized";
+        const sales = salesByCategory.get(category) ?? {
+          quantity: 0,
+          revenue: 0,
+          orderIds: new Set<number>(),
+        };
+        sales.quantity += orderItem.qty;
+        sales.revenue += orderItem.item.price * orderItem.qty;
+        sales.orderIds.add(order.id);
+        salesByCategory.set(category, sales);
+      }
+    }
+
+    return Array.from(salesByCategory.entries())
+      .map(([category, sales]) => ({
+        category,
+        quantity: sales.quantity,
+        revenue: sales.revenue,
+        orderCount: sales.orderIds.size,
+      }))
+      .sort(
+        (a, b) =>
+          b.revenue - a.revenue ||
+          b.quantity - a.quantity ||
+          a.category.localeCompare(b.category),
+      );
+  }
+
+  getTopItemSalesAnalytics(limit = 10): ReadonlyArray<TopItemSales> {
+    const safeLimit =
+      Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 10;
+    const salesByItem = new Map<
+      string,
+      {
+        itemId: number;
+        name: string;
+        category: string;
+        quantity: number;
+        revenue: number;
+        orderIds: Set<number>;
+      }
+    >();
+
+    for (const order of this.orders) {
+      if (order.status !== "submitted") continue;
+
+      for (const orderItem of order.items) {
+        const key = `${orderItem.item.id}:${orderItem.item.name}:${orderItem.item.category}`;
+        const sales = salesByItem.get(key) ?? {
+          itemId: orderItem.item.id,
+          name: orderItem.item.name,
+          category: orderItem.item.category,
+          quantity: 0,
+          revenue: 0,
+          orderIds: new Set<number>(),
+        };
+        sales.quantity += orderItem.qty;
+        sales.revenue += orderItem.item.price * orderItem.qty;
+        sales.orderIds.add(order.id);
+        salesByItem.set(key, sales);
+      }
+    }
+
+    return Array.from(salesByItem.values())
+      .map((sales) => ({
+        itemId: sales.itemId,
+        name: sales.name,
+        category: sales.category,
+        quantity: sales.quantity,
+        revenue: sales.revenue,
+        orderCount: sales.orderIds.size,
+      }))
+      .sort(
+        (a, b) =>
+          b.revenue - a.revenue ||
+          b.quantity - a.quantity ||
+          a.name.localeCompare(b.name),
+      )
+      .slice(0, safeLimit);
   }
 
   // ── Private ─────────────────────────────────────────────────

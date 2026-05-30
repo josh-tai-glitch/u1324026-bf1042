@@ -94,6 +94,22 @@ export const orderSchema = z.object({
   submittedAt: z.string().min(1).optional(),
 });
 
+export const categorySalesSchema = z.object({
+  category: z.string().min(1),
+  quantity: z.number().min(0),
+  revenue: z.number().min(0),
+  orderCount: z.number().int().min(0),
+});
+
+export const topItemSalesSchema = z.object({
+  itemId: z.number().int().min(1),
+  name: z.string().min(1),
+  category: z.string().min(1),
+  quantity: z.number().min(0),
+  revenue: z.number().min(0),
+  orderCount: z.number().int().min(0),
+});
+
 // ─── Derived TypeScript Types（自動推導，永不過時）───────────────────────────
 export type MenuItem = z.infer<typeof menuItemSchema>;
 export type Category = z.infer<typeof categorySchema>;
@@ -104,6 +120,8 @@ export type SessionUser = z.infer<typeof sessionUserSchema>;
 export type RoleRequest = z.infer<typeof roleRequestSchema>;
 export type OrderItem = z.infer<typeof orderItemSchema>;
 export type Order = z.infer<typeof orderSchema>;
+export type CategorySales = z.infer<typeof categorySalesSchema>;
+export type TopItemSales = z.infer<typeof topItemSalesSchema>;
 
 export interface ApiDataResponse<T> {
   data: T;

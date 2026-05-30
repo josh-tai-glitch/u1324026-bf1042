@@ -41,6 +41,10 @@ export type UpdateOrderStatusErrorCode =
   | "INVALID_STATUS_TRANSITION"
   | "ORDER_STATUS_LOCKED";
 
+export type UpdateOrderPaymentStatusErrorCode =
+  | "ORDER_NOT_FOUND"
+  | "ORDER_NOT_SUBMITTED";
+
 export type CategoryStatusFilter = "active" | "inactive" | "all";
 
 export interface Store {
@@ -135,6 +139,13 @@ export interface Store {
   ): Promise<
     | { ok: true; order: Order }
     | { ok: false; code: UpdateOrderStatusErrorCode }
+  >;
+  updateOrderPaymentStatus(
+    orderId: number,
+    input: { paymentStatus: PaymentStatus },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: UpdateOrderPaymentStatusErrorCode }
   >;
 
   getCategorySalesAnalytics(): ReadonlyArray<CategorySales>;

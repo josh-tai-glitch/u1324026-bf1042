@@ -101,6 +101,15 @@ export const updateOrderStatusBodySchema = z.object({
   status: orderStatusSchema,
 });
 
+/** PATCH /api/orders/:id/payment */
+export const updateOrderPaymentParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
+export const updateOrderPaymentBodySchema = z.object({
+  paymentStatus: z.literal("paid"),
+});
+
 /** POST /api/orders/:id/submit */
 export const submitOrderParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),

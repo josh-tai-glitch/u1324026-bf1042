@@ -709,6 +709,24 @@ export class JsonFileStore implements Store {
     return { ok: true, order };
   }
 
+  async updateOrderPaymentStatus(
+    orderId: number,
+    input: { paymentStatus: PaymentStatus },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: "ORDER_NOT_FOUND" | "ORDER_NOT_SUBMITTED" }
+  > {
+    const order = this.orders.find((targetOrder) => targetOrder.id === orderId);
+    if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+    if (order.status === "pending") {
+      return { ok: false, code: "ORDER_NOT_SUBMITTED" };
+    }
+
+    order.paymentStatus = input.paymentStatus;
+    await this.persist();
+    return { ok: true, order };
+  }
+
   getCategorySalesAnalytics(): ReadonlyArray<CategorySales> {
     const salesByCategory = new Map<
       string,

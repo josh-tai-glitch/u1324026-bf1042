@@ -40,6 +40,8 @@ import {
   updateMenuItemBodySchema,
   updateMenuItemParamsSchema,
   updateOrderBodySchema,
+  updateOrderPaymentBodySchema,
+  updateOrderPaymentParamsSchema,
   updateOrderParamsSchema,
   updateOrderStatusBodySchema,
   updateOrderStatusParamsSchema,
@@ -70,6 +72,7 @@ const menuManagerRoles = ["owner", "admin"] satisfies Role[];
 const orderViewerRoles = ["staff", "chef", "owner", "admin"] satisfies Role[];
 const orderEditorRoles = ["staff", "owner", "admin"] satisfies Role[];
 const statusUpdaterRoles = ["staff", "chef", "owner", "admin"] satisfies Role[];
+const paymentUpdaterRoles = ["staff", "owner", "admin"] satisfies Role[];
 const nextOrderStatusByStatus: Partial<Record<OrderStatus, OrderStatus>> = {
   submitted: "preparing",
   preparing: "ready",
@@ -878,6 +881,53 @@ app.patch(
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
       409: apiErrorResponseSchema,
+      500: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.patch(
+  "/api/orders/:id/payment",
+  async ({ params, body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, paymentUpdaterRoles);
+
+    const orderId = parseInt(params.id, 10);
+    const input = body as { paymentStatus: "paid" };
+    const result = await store.updateOrderPaymentStatus(orderId, {
+      paymentStatus: input.paymentStatus,
+    });
+
+    if (result.ok === false) {
+      switch (result.code) {
+        case "ORDER_NOT_FOUND":
+          set.status = 404;
+          return { error: "Order not found" };
+        case "ORDER_NOT_SUBMITTED":
+          set.status = 400;
+          return { error: "Order is not submitted" };
+        default:
+          set.status = 500;
+          return { error: "Unexpected store state" };
+      }
+    }
+
+    return { data: toOrderResponse(result.order) };
+  },
+  {
+    params: updateOrderPaymentParamsSchema,
+    body: updateOrderPaymentBodySchema,
+    detail: {
+      tags: ["orders"],
+      summary: "Update order payment status",
+      description: "Mark a submitted order as paid from the counter.",
+    },
+    response: {
+      200: orderResponseEnvelopeSchema,
+      400: apiErrorResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
       500: apiErrorResponseSchema,
     },
   },

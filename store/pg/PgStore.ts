@@ -662,6 +662,28 @@ export class PgStore implements Store {
     return { ok: true, order };
   }
 
+  async updateOrderPaymentStatus(
+    orderId: number,
+    input: { paymentStatus: PaymentStatus },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: "ORDER_NOT_FOUND" | "ORDER_NOT_SUBMITTED" }
+  > {
+    const order = this.orders.find((item) => item.id === orderId);
+    if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+    if (order.status === "pending") {
+      return { ok: false, code: "ORDER_NOT_SUBMITTED" };
+    }
+
+    await db
+      .update(ordersTable)
+      .set({ paymentStatus: input.paymentStatus })
+      .where(eq(ordersTable.id, orderId));
+
+    order.paymentStatus = input.paymentStatus;
+    return { ok: true, order };
+  }
+
   getCategorySalesAnalytics(): ReadonlyArray<CategorySales> {
     const salesByCategory = new Map<
       string,

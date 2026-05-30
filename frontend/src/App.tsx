@@ -136,6 +136,9 @@ export default function App() {
   const [statusUpdatingOrderId, setStatusUpdatingOrderId] = useState<
     number | null
   >(null);
+  const [paymentUpdatingOrderId, setPaymentUpdatingOrderId] = useState<
+    number | null
+  >(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [orderStatusDrafts, setOrderStatusDrafts] = useState<
     Record<number, OrderStatus>
@@ -181,6 +184,7 @@ export default function App() {
   );
   const canManageMenu = hasAnyRole(["owner", "admin"]);
   const canViewAllOrders = hasAnyRole(["staff", "chef", "owner", "admin"]);
+  const canUpdatePaymentStatus = hasAnyRole(["staff", "owner", "admin"]);
   const isAdmin = hasRole("admin");
   const managerTabs = [
     { id: "orders" as const, label: "Orders", visible: canViewAllOrders },
@@ -936,6 +940,48 @@ export default function App() {
       );
     } finally {
       setStatusUpdatingOrderId(null);
+    }
+  }
+
+  async function markOrderPaid(targetOrderId: number): Promise<void> {
+    setPaymentUpdatingOrderId(targetOrderId);
+    setStatusMessage("");
+
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/orders/${targetOrderId}/payment`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ paymentStatus: "paid" }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<Order>;
+      const updatedOrder = payload?.data;
+      if (!updatedOrder) {
+        throw new Error("Update payment failed: invalid payload");
+      }
+
+      setHistoryOrders((currentOrders) =>
+        currentOrders.map((order) =>
+          order.id === updatedOrder.id ? updatedOrder : order,
+        ),
+      );
+      setStatusMessage(`Order #${updatedOrder.id} marked paid.`);
+    } catch (paymentError) {
+      setStatusMessage(
+        paymentError instanceof Error
+          ? paymentError.message
+          : "Unable to update payment status.",
+      );
+    } finally {
+      setPaymentUpdatingOrderId(null);
     }
   }
 
@@ -1781,13 +1827,45 @@ export default function App() {
                           </p>
                           <div className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
                             <span>Fulfillment: {order.fulfillmentType}</span>
-                            <span>
-                              Payment: {order.paymentMethod} /{" "}
-                              {order.paymentStatus}
-                            </span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span>Payment: {order.paymentMethod}</span>
+                              <span
+                                className={`badge ${
+                                  order.paymentStatus === "paid"
+                                    ? "badge-success"
+                                    : "badge-warning"
+                                }`}
+                              >
+                                {order.paymentStatus}
+                              </span>
+                              {canUpdatePaymentStatus &&
+                              order.paymentStatus === "unpaid" &&
+                              order.status !== "pending" ? (
+                                <button
+                                  className="btn btn-xs btn-outline"
+                                  disabled={
+                                    paymentUpdatingOrderId === order.id
+                                  }
+                                  onClick={() => {
+                                    void markOrderPaid(order.id);
+                                  }}
+                                >
+                                  {paymentUpdatingOrderId === order.id
+                                    ? "Updating..."
+                                    : "Mark paid"}
+                                </button>
+                              ) : null}
+                            </div>
                             {order.pickupTime ? (
                               <span>
                                 Pickup: {formatCheckoutDateTime(order.pickupTime)}
+                              </span>
+                            ) : null}
+                            {order.paymentStatus === "unpaid" &&
+                            (order.status === "ready" ||
+                              order.status === "completed") ? (
+                              <span className="text-warning">
+                                Payment due before pickup.
                               </span>
                             ) : null}
                             {order.customerNote ? (

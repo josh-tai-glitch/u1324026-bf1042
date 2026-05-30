@@ -21,6 +21,14 @@ const managerOrderStatuses: OrderStatus[] = [
   "ready",
   "completed",
 ];
+const orderBoardFilters = [
+  { id: "active", label: "Active" },
+  { id: "submitted", label: "Submitted" },
+  { id: "preparing", label: "Preparing" },
+  { id: "ready", label: "Ready" },
+  { id: "completed", label: "Completed" },
+  { id: "all", label: "All" },
+] as const;
 const emptyMenuForm = {
   name: "",
   price: "",
@@ -42,6 +50,7 @@ type CategoryForm = typeof emptyCategoryForm;
 type ApiErrorPayload = { error?: string; message?: string };
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
 type ManagerTab = "orders" | "analytics" | "menu" | "categories" | "roleRequests";
+type OrderBoardFilter = (typeof orderBoardFilters)[number]["id"];
 
 function buildApiUrl(path: string) {
   return `${apiBaseUrl}${path}`;
@@ -114,6 +123,8 @@ export default function App() {
   const [orderStatusDrafts, setOrderStatusDrafts] = useState<
     Record<number, OrderStatus>
   >({});
+  const [orderStatusFilter, setOrderStatusFilter] =
+    useState<OrderBoardFilter>("active");
 
   // Role request / admin review state
   const [roleRequestRole, setRoleRequestRole] = useState<"staff" | "chef">(
@@ -171,6 +182,19 @@ export default function App() {
   const completedOrders = historyOrders.filter(
     (order) => order.status === "completed",
   ).length;
+  const filteredBoardOrders = useMemo(() => {
+    if (orderStatusFilter === "all") {
+      return historyOrders;
+    }
+
+    if (orderStatusFilter === "active") {
+      return historyOrders.filter((order) =>
+        ["submitted", "preparing", "ready"].includes(order.status),
+      );
+    }
+
+    return historyOrders.filter((order) => order.status === orderStatusFilter);
+  }, [historyOrders, orderStatusFilter]);
 
   function getNextAllowedStatuses(order: Order): OrderStatus[] {
     if (canManageMenu) {
@@ -187,6 +211,29 @@ export default function App() {
     }
 
     return [];
+  }
+
+  function getPrimaryOrderAction(
+    order: Order,
+  ): { label: string; status: OrderStatus } | null {
+    const allowedStatuses = getNextAllowedStatuses(order);
+
+    if (
+      order.status === "submitted" &&
+      allowedStatuses.includes("preparing")
+    ) {
+      return { label: "Start preparing", status: "preparing" };
+    }
+
+    if (order.status === "preparing" && allowedStatuses.includes("ready")) {
+      return { label: "Mark ready", status: "ready" };
+    }
+
+    if (order.status === "ready" && allowedStatuses.includes("completed")) {
+      return { label: "Complete pickup", status: "completed" };
+    }
+
+    return null;
   }
 
   function getStatusBadgeClass(status: OrderStatus): string {
@@ -1497,6 +1544,21 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {orderBoardFilters.map((filter) => (
+                    <button
+                      key={filter.id}
+                      className={`btn btn-sm ${
+                        orderStatusFilter === filter.id
+                          ? "btn-primary"
+                          : "btn-outline"
+                      }`}
+                      onClick={() => setOrderStatusFilter(filter.id)}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
                 {statusMessage ? (
                   <div className="alert mb-4">
                     <span>{statusMessage}</span>
@@ -1510,10 +1572,17 @@ export default function App() {
                   <div className="alert alert-info">
                     <span>No orders yet.</span>
                   </div>
+                ) : filteredBoardOrders.length === 0 ? (
+                  <div className="alert alert-info">
+                    <span>
+                      No orders match this filter. Try another status filter.
+                    </span>
+                  </div>
                 ) : (
                   <div className="space-y-3">
-                    {historyOrders.map((order) => {
+                    {filteredBoardOrders.map((order) => {
                       const allowedStatuses = getNextAllowedStatuses(order);
+                      const primaryAction = getPrimaryOrderAction(order);
                       const draftedStatus = orderStatusDrafts[order.id];
                       const selectedStatus =
                         draftedStatus && allowedStatuses.includes(draftedStatus)
@@ -1535,6 +1604,24 @@ export default function App() {
                               >
                                 {order.status}
                               </span>
+                              {primaryAction ? (
+                                <button
+                                  className="btn btn-sm btn-primary"
+                                  disabled={
+                                    statusUpdatingOrderId === order.id
+                                  }
+                                  onClick={() => {
+                                    void updateOrderStatus(
+                                      order.id,
+                                      primaryAction.status,
+                                    );
+                                  }}
+                                >
+                                  {statusUpdatingOrderId === order.id
+                                    ? "Updating..."
+                                    : primaryAction.label}
+                                </button>
+                              ) : null}
                               {allowedStatuses.length > 0 ? (
                                 <div className="join">
                                   <select

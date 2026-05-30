@@ -3,11 +3,13 @@ import "./App.css";
 import type {
   ApiDataResponse,
   Category,
+  CategorySales,
   MenuItem,
   Order,
   Role,
   RoleRequest,
   SessionUser,
+  TopItemSales,
 } from "../../shared/contracts.ts";
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
@@ -108,6 +110,10 @@ export default function App() {
   const [adminReviewNotes, setAdminReviewNotes] = useState<
     Record<number, string>
   >({});
+  const [categorySales, setCategorySales] = useState<CategorySales[]>([]);
+  const [topItemSales, setTopItemSales] = useState<TopItemSales[]>([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsMessage, setAnalyticsMessage] = useState("");
 
   const roles = user?.roles?.length ? user.roles : defaultRoles;
   const hasRole = useCallback((role: Role) => roles.includes(role), [roles]);
@@ -235,6 +241,50 @@ export default function App() {
     }
   }, [adminStatus, isAdmin]);
 
+  const loadAnalytics = useCallback(async () => {
+    if (!canManageMenu) return;
+
+    setAnalyticsLoading(true);
+    setAnalyticsMessage("");
+    try {
+      const [categoryResponse, topItemsResponse] = await Promise.all([
+        fetch(buildApiUrl("/api/admin/analytics/category-sales"), {
+          credentials: "include",
+        }),
+        fetch(buildApiUrl("/api/admin/analytics/top-items?limit=10"), {
+          credentials: "include",
+        }),
+      ]);
+
+      if (!categoryResponse.ok) {
+        throw new Error(await readApiError(categoryResponse));
+      }
+      if (!topItemsResponse.ok) {
+        throw new Error(await readApiError(topItemsResponse));
+      }
+
+      const categoryPayload =
+        (await categoryResponse.json()) as ApiDataResponse<CategorySales[]>;
+      const topItemsPayload =
+        (await topItemsResponse.json()) as ApiDataResponse<TopItemSales[]>;
+
+      setCategorySales(
+        Array.isArray(categoryPayload?.data) ? categoryPayload.data : [],
+      );
+      setTopItemSales(
+        Array.isArray(topItemsPayload?.data) ? topItemsPayload.data : [],
+      );
+    } catch (analyticsError) {
+      setAnalyticsMessage(
+        analyticsError instanceof Error
+          ? analyticsError.message
+          : "Unable to load analytics.",
+      );
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [canManageMenu]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -298,6 +348,16 @@ export default function App() {
       setAdminRequests([]);
     }
   }, [isAdmin, loadAdminRoleRequests]);
+
+  useEffect(() => {
+    if (canManageMenu) {
+      void loadAnalytics();
+    } else {
+      setCategorySales([]);
+      setTopItemSales([]);
+      setAnalyticsMessage("");
+    }
+  }, [canManageMenu, loadAnalytics]);
 
   const grouped = useMemo(() => {
     const groupedItems = items.reduce(
@@ -1249,6 +1309,105 @@ export default function App() {
                   </table>
                 </div>
               )}
+            </div>
+          </section>
+        ) : null}
+
+        {canManageMenu ? (
+          <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
+            <div className="card-body">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="card-title">Analytics</h2>
+                <button
+                  className="btn btn-sm btn-outline"
+                  disabled={analyticsLoading}
+                  onClick={() => {
+                    void loadAnalytics();
+                  }}
+                >
+                  {analyticsLoading ? "Loading..." : "Refresh analytics"}
+                </button>
+              </div>
+              {analyticsMessage ? (
+                <div className="alert alert-warning">
+                  <span>{analyticsMessage}</span>
+                </div>
+              ) : null}
+              {!analyticsLoading &&
+              categorySales.length === 0 &&
+              topItemSales.length === 0 ? (
+                <div className="alert alert-info">
+                  <span>No analytics data yet</span>
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div>
+                  <h3 className="font-semibold mb-2">Category sales</h3>
+                  {categorySales.length === 0 ? (
+                    <div className="alert">
+                      <span>No analytics data yet</span>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>Category</th>
+                            <th>Quantity</th>
+                            <th>Revenue</th>
+                            <th>Orders</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {categorySales.map((row) => (
+                            <tr key={row.category}>
+                              <td>{row.category}</td>
+                              <td>{row.quantity}</td>
+                              <td>${row.revenue}</td>
+                              <td>{row.orderCount}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <h3 className="font-semibold mb-2">Top items</h3>
+                  {topItemSales.length === 0 ? (
+                    <div className="alert">
+                      <span>No analytics data yet</span>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>Rank</th>
+                            <th>Name</th>
+                            <th>Category</th>
+                            <th>Quantity</th>
+                            <th>Revenue</th>
+                            <th>Orders</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {topItemSales.map((row, index) => (
+                            <tr key={`${row.itemId}-${row.name}-${row.category}`}>
+                              <td>{index + 1}</td>
+                              <td>{row.name}</td>
+                              <td>{row.category}</td>
+                              <td>{row.quantity}</td>
+                              <td>${row.revenue}</td>
+                              <td>{row.orderCount}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </section>
         ) : null}

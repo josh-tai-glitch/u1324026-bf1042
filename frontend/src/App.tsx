@@ -74,6 +74,7 @@ export default function App() {
   const [activeItemId, setActiveItemId] = useState<number | null>(null);
   const [actionError, setActionError] = useState("");
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [cartBusyItemId, setCartBusyItemId] = useState<number | null>(null);
   const [isClearingCart, setIsClearingCart] = useState(false);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [menuForm, setMenuForm] = useState<MenuForm>(emptyMenuForm);
@@ -300,7 +301,8 @@ export default function App() {
   const grouped = useMemo(() => {
     const groupedItems = items.reduce(
       (acc, item) => {
-        const category = item?.category || "Uncategorized";
+        const category =
+          item?.primary_category_name || item?.category || "Uncategorized";
         if (!acc[category]) {
           acc[category] = [];
         }
@@ -381,6 +383,32 @@ export default function App() {
     return createdOrderId;
   }
 
+  async function patchOrderItemQty(
+    targetOrderId: number,
+    itemId: number,
+    qty: number,
+  ): Promise<Order> {
+    const response = await fetch(buildApiUrl(`/api/orders/${targetOrderId}`), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ itemId, qty }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+
+    const payload = (await response.json()) as ApiDataResponse<Order>;
+    const updatedOrder = payload?.data;
+
+    if (!updatedOrder) {
+      throw new Error("Update order failed: invalid payload");
+    }
+
+    return updatedOrder;
+  }
+
   async function handleGoogleSignIn(): Promise<void> {
     setAuthError("");
     setIsGoogleSigningIn(true);
@@ -440,43 +468,16 @@ export default function App() {
         throw new Error("Please sign in first.");
       }
 
-      const patchOrderItem = async (
-        targetOrderId: number,
-        qty: number,
-      ): Promise<Order> => {
-        const response = await fetch(
-          buildApiUrl(`/api/orders/${targetOrderId}`),
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              itemId: item.id,
-              qty,
-            }),
-          },
-        );
-
-        if (!response.ok) {
-          throw new Error(`Update order failed: ${await readApiError(response)}`);
-        }
-
-        const payload = (await response.json()) as ApiDataResponse<Order>;
-        const updatedOrder = payload?.data;
-
-        if (!updatedOrder) {
-          throw new Error("Update order failed: invalid payload");
-        }
-
-        return updatedOrder;
-      };
-
       const targetOrderId = await ensureOrder();
       const currentQty = cartQtyByItemId[item.id] ?? 0;
       const nextQty = currentQty + 1;
 
       try {
-        const updatedOrder = await patchOrderItem(targetOrderId, nextQty);
+        const updatedOrder = await patchOrderItemQty(
+          targetOrderId,
+          item.id,
+          nextQty,
+        );
         syncCartFromOrder(updatedOrder);
       } catch (firstTryError) {
         const firstTryMessage =
@@ -496,7 +497,11 @@ export default function App() {
             )?.qty ?? 0;
           const retryQty = recoveredQty + 1;
 
-          const retriedOrder = await patchOrderItem(retryOrderId, retryQty);
+          const retriedOrder = await patchOrderItemQty(
+            retryOrderId,
+            item.id,
+            retryQty,
+          );
           syncCartFromOrder(retriedOrder);
           return;
         }
@@ -515,6 +520,38 @@ export default function App() {
       console.error(cartError);
     } finally {
       setActiveItemId(null);
+    }
+  }
+
+  async function updateCartItemQty(itemId: number, qty: number): Promise<void> {
+    if (!user) return;
+
+    setActionError("");
+    setCartBusyItemId(itemId);
+    try {
+      const targetOrderId = await ensureOrder();
+      const updatedOrder = await patchOrderItemQty(
+        targetOrderId,
+        itemId,
+        Math.max(0, qty),
+      );
+      syncCartFromOrder(updatedOrder);
+    } catch (cartError) {
+      if (
+        cartError instanceof Error &&
+        cartError.message.startsWith("Auth expired:")
+      ) {
+        return;
+      }
+
+      setActionError(
+        cartError instanceof Error
+          ? cartError.message
+          : "Unable to update cart.",
+      );
+      console.error(cartError);
+    } finally {
+      setCartBusyItemId(null);
     }
   }
 
@@ -1626,15 +1663,48 @@ export default function App() {
                   {cartDetails.map((detail) => (
                     <li
                       key={detail.itemId}
-                      className="p-3 rounded-lg bg-base-200 flex items-center justify-between"
+                      className="p-3 rounded-lg bg-base-200 flex items-center justify-between gap-3"
                     >
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-semibold">{detail.item.name}</p>
                         <p className="text-sm opacity-70">
                           ${detail.item.price} x {detail.qty}
                         </p>
                       </div>
-                      <p className="font-bold">${detail.subtotal}</p>
+                      <div className="flex flex-col items-end gap-2">
+                        <p className="font-bold">${detail.subtotal}</p>
+                        <div className="join">
+                          <button
+                            className="btn btn-sm join-item"
+                            aria-label={`Decrease ${detail.item.name}`}
+                            disabled={cartBusyItemId === detail.itemId}
+                            onClick={() => {
+                              void updateCartItemQty(
+                                detail.itemId,
+                                detail.qty - 1,
+                              );
+                            }}
+                          >
+                            -
+                          </button>
+                          <span className="btn btn-sm join-item pointer-events-none min-w-12">
+                            {detail.qty}
+                          </span>
+                          <button
+                            className="btn btn-sm join-item"
+                            aria-label={`Increase ${detail.item.name}`}
+                            disabled={cartBusyItemId === detail.itemId}
+                            onClick={() => {
+                              void updateCartItemQty(
+                                detail.itemId,
+                                detail.qty + 1,
+                              );
+                            }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
                     </li>
                   ))}
                 </ul>

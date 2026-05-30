@@ -1,4 +1,5 @@
 import {
+  boolean,
   integer,
   pgSchema,
   serial,
@@ -6,6 +7,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { user } from "./auth-schema.ts";
 
 // PostgreSQL namespace 隔離
@@ -28,14 +30,51 @@ const appSchema = pgSchema(schemaName);
 // V9 設計：userId 直接對應 Better Auth 的 user.id（text PK）
 // 不再維護獨立的 users 表，身份完全由 Better Auth 管理。
 
+export const categoriesTable = appSchema.table("categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  displayOrder: integer("display_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const menuItemsTable = appSchema.table("menu_items", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   name: text("name").notNull(),
   price: integer("price").notNull(),
   category: text("category").notNull(),
+  primaryCategoryId: integer("primary_category_id").references(
+    () => categoriesTable.id,
+  ),
+  primaryCategoryName: text("primary_category_name"),
   description: text("description").notNull(),
   imageUrl: text("image_url").notNull(),
 });
+
+export const menuItemCategoriesTable = appSchema.table(
+  "menu_item_categories",
+  {
+    id: serial("id").primaryKey(),
+    menuItemId: integer("menu_item_id")
+      .notNull()
+      .references(() => menuItemsTable.id, { onDelete: "cascade" }),
+    categoryId: integer("category_id")
+      .notNull()
+      .references(() => categoriesTable.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    removedAt: timestamp("removed_at"),
+  },
+  (table) => ({
+    activeMenuItemCategoryUniqueIdx: uniqueIndex(
+      "menu_item_categories_active_unique_idx",
+    )
+      .on(table.menuItemId, table.categoryId)
+      .where(sql`${table.removedAt} is null`),
+  }),
+);
 
 export const ordersTable = appSchema.table("orders", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),

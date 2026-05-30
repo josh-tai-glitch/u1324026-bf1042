@@ -6,6 +6,12 @@ import { existsSync } from "node:fs";
 import toTaipeiDateTime from "./util.ts";
 import {
   apiErrorResponseSchema,
+  assignMenuItemCategoryBodySchema,
+  assignMenuItemCategoryParamsSchema,
+  categoryListResponseSchema,
+  categoryParamsSchema,
+  categoryResponseSchema,
+  createCategoryBodySchema,
   createMenuItemBodySchema,
   createRoleRequestBodySchema,
   currentUserResponseSchema,
@@ -18,12 +24,14 @@ import {
   nullableOrderResponseEnvelopeSchema,
   orderListResponseSchema,
   orderResponseEnvelopeSchema,
+  removeMenuItemCategoryParamsSchema,
   reviewRoleRequestBodySchema,
   reviewRoleRequestParamsSchema,
   roleRequestListResponseSchema,
   roleRequestResponseSchema,
   submitOrderParamsSchema,
   toOrderResponse,
+  updateCategoryBodySchema,
   updateMenuItemBodySchema,
   updateMenuItemParamsSchema,
   updateOrderBodySchema,
@@ -150,6 +158,7 @@ app.use(
       tags: [
         { name: "auth", description: "Authentication endpoints" },
         { name: "menu", description: "Menu management endpoints" },
+        { name: "categories", description: "Category management endpoints" },
         { name: "orders", description: "Order query and mutation endpoints" },
         { name: "users", description: "User profile and role requests" },
         { name: "admin", description: "Admin role management endpoints" },
@@ -205,6 +214,121 @@ app.post("/api/sign-out", async ({ request }) => {
 });
 
 // 菜單路由
+app.get("/api/categories", () => ({ data: [...store.getCategories()] }), {
+  detail: {
+    tags: ["categories"],
+    summary: "List categories",
+    description: "Return all configured menu categories.",
+  },
+  response: {
+    200: categoryListResponseSchema,
+  },
+});
+
+app.post(
+  "/api/categories",
+  async ({ body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const input = body as {
+      name: string;
+      slug: string;
+      description?: string;
+      displayOrder?: number;
+      isActive?: boolean;
+    };
+    const category = await store.createCategory(input);
+    set.status = 201;
+    return { data: category };
+  },
+  {
+    body: createCategoryBodySchema,
+    detail: {
+      tags: ["categories"],
+      summary: "Create a category",
+      description: "Create a menu category.",
+    },
+    response: {
+      201: categoryResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.patch(
+  "/api/categories/:id",
+  async ({ params, body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const categoryId = parseInt(params.id, 10);
+    const patch = body as {
+      name?: string;
+      slug?: string;
+      description?: string | null;
+      displayOrder?: number;
+      isActive?: boolean;
+    };
+    const category = await store.updateCategory(categoryId, patch);
+
+    if (!category) {
+      set.status = 404;
+      return { error: "Category not found" };
+    }
+
+    return { data: category };
+  },
+  {
+    params: categoryParamsSchema,
+    body: updateCategoryBodySchema,
+    detail: {
+      tags: ["categories"],
+      summary: "Update a category",
+      description: "Update fields of an existing category.",
+    },
+    response: {
+      200: categoryResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.delete(
+  "/api/categories/:id",
+  async ({ params, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const categoryId = parseInt(params.id, 10);
+    const category = await store.deleteCategory(categoryId);
+
+    if (!category) {
+      set.status = 404;
+      return { error: "Category not found" };
+    }
+
+    return { data: category };
+  },
+  {
+    params: categoryParamsSchema,
+    detail: {
+      tags: ["categories"],
+      summary: "Deactivate a category",
+      description: "Soft deactivate a category.",
+    },
+    response: {
+      200: categoryResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
 app.get("/api/menu", () => ({ data: [...store.getMenu()] }), {
   detail: {
     tags: ["menu"],
@@ -321,6 +445,73 @@ app.delete(
 );
 
 // 訂單列表路由
+app.post(
+  "/api/menu/:id/categories",
+  async ({ params, body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const menuId = parseInt(params.id, 10);
+    const input = body as { categoryId: number };
+    const menuItem = await store.addCategoryToMenuItem(menuId, input.categoryId);
+
+    if (!menuItem) {
+      set.status = 404;
+      return { error: "Menu item or category not found" };
+    }
+
+    return { data: menuItem };
+  },
+  {
+    params: assignMenuItemCategoryParamsSchema,
+    body: assignMenuItemCategoryBodySchema,
+    detail: {
+      tags: ["menu"],
+      summary: "Assign category to menu item",
+      description: "Add an active category link to a menu item.",
+    },
+    response: {
+      200: menuItemResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.delete(
+  "/api/menu/:id/categories/:categoryId",
+  async ({ params, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const menuId = parseInt(params.id, 10);
+    const categoryId = parseInt(params.categoryId, 10);
+    const menuItem = await store.removeCategoryFromMenuItem(menuId, categoryId);
+
+    if (!menuItem) {
+      set.status = 404;
+      return { error: "Menu item or category not found" };
+    }
+
+    return { data: menuItem };
+  },
+  {
+    params: removeMenuItemCategoryParamsSchema,
+    detail: {
+      tags: ["menu"],
+      summary: "Remove category from menu item",
+      description: "Soft remove an active category link from a menu item.",
+    },
+    response: {
+      200: menuItemResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
 app.get(
   "/api/orders",
   async ({ request }) => {

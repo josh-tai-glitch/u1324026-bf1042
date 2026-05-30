@@ -1,4 +1,4 @@
-import type { MenuItem, Order } from "../shared/contracts.ts";
+import type { Category, MenuItem, Order } from "../shared/contracts.ts";
 
 export type UpdateOrderItemErrorCode =
   | "ORDER_NOT_FOUND"
@@ -34,6 +34,34 @@ export interface Store {
     },
   ): Promise<MenuItem | null>;
   deleteMenuItem(menuId: number): Promise<MenuItem | null>;
+
+  getCategories(): ReadonlyArray<Category>;
+  createCategory(input: {
+    name: string;
+    slug: string;
+    description?: string | null;
+    displayOrder?: number;
+    isActive?: boolean;
+  }): Promise<Category>;
+  updateCategory(
+    categoryId: number,
+    patch: {
+      name?: string;
+      slug?: string;
+      description?: string | null;
+      displayOrder?: number;
+      isActive?: boolean;
+    },
+  ): Promise<Category | null>;
+  deleteCategory(categoryId: number): Promise<Category | null>;
+  addCategoryToMenuItem(
+    menuId: number,
+    categoryId: number,
+  ): Promise<MenuItem | null>;
+  removeCategoryFromMenuItem(
+    menuId: number,
+    categoryId: number,
+  ): Promise<MenuItem | null>;
 
   getOrders(): ReadonlyArray<Order>;
   getCurrentOrderByUserId(userId: string): Order | undefined;

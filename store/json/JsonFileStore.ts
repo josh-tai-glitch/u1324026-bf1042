@@ -1,5 +1,10 @@
 import { mkdir, rename } from "node:fs/promises";
-import type { MenuItem, Order, OrderItem } from "../../shared/contracts.ts";
+import type {
+  Category,
+  MenuItem,
+  Order,
+  OrderItem,
+} from "../../shared/contracts.ts";
 import type { Store } from "../Store.ts";
 
 interface StoredUser {
@@ -12,6 +17,7 @@ interface StoredUser {
 interface DataStore {
   users: StoredUser[];
   menu: MenuItem[];
+  categories?: Category[];
   orders: Order[];
   userIdCounter: number;
   menuIdCounter: number;
@@ -73,8 +79,27 @@ function normalizeMenuItem(item: Partial<MenuItem>): MenuItem {
     name: item.name ?? "",
     price: item.price ?? 0,
     category: item.category ?? "",
+    primary_category_id: item.primary_category_id ?? null,
+    primary_category_name: item.primary_category_name ?? null,
+    categories: Array.isArray(item.categories)
+      ? item.categories.map((category) => normalizeCategory(category))
+      : [],
     description: item.description ?? "",
     image_url: item.image_url ?? "",
+  };
+}
+
+function normalizeCategory(category: Partial<Category>): Category {
+  const now = new Date().toISOString();
+  return {
+    id: category.id ?? 0,
+    name: category.name ?? "",
+    slug: category.slug ?? "",
+    description: category.description ?? null,
+    displayOrder: category.displayOrder ?? 0,
+    isActive: category.isActive ?? true,
+    createdAt: category.createdAt ?? now,
+    updatedAt: category.updatedAt ?? now,
   };
 }
 
@@ -127,6 +152,7 @@ export class JsonFileStore implements Store {
 
   private users: StoredUser[] = [];
   private menu: MenuItem[] = [];
+  private categories: Category[] = [];
   private orders: Order[] = [];
   private userIdCounter = 0;
   private menuIdCounter = 0;
@@ -163,6 +189,9 @@ export class JsonFileStore implements Store {
 
       this.applyStore({
         users: normalizedUsers,
+        categories: Array.isArray(parsed.categories)
+          ? parsed.categories.map((category) => normalizeCategory(category))
+          : [],
         menu: parsed.menu.map((item) => normalizeMenuItem(item)),
         orders: parsed.orders.map((order) => ({
           ...order,
@@ -203,6 +232,9 @@ export class JsonFileStore implements Store {
       name: input.name,
       price: input.price,
       category: input.category,
+      primary_category_id: null,
+      primary_category_name: null,
+      categories: [],
       description: input.description,
       image_url: input.image_url,
     };
@@ -249,6 +281,123 @@ export class JsonFileStore implements Store {
     await this.persist();
 
     return removedMenuItem ?? null;
+  }
+
+  getCategories(): ReadonlyArray<Category> {
+    return this.categories.filter((category) => category.isActive);
+  }
+
+  async createCategory(input: {
+    name: string;
+    slug: string;
+    description?: string | null;
+    displayOrder?: number;
+    isActive?: boolean;
+  }): Promise<Category> {
+    const now = new Date().toISOString();
+    const nextId =
+      this.categories.reduce((max, category) => Math.max(max, category.id), 0) +
+      1;
+    const category: Category = {
+      id: nextId,
+      name: input.name,
+      slug: input.slug,
+      description: input.description ?? null,
+      displayOrder: input.displayOrder ?? 0,
+      isActive: input.isActive ?? true,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.categories.push(category);
+    this.categories.sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
+    await this.persist();
+    return category;
+  }
+
+  async updateCategory(
+    categoryId: number,
+    patch: {
+      name?: string;
+      slug?: string;
+      description?: string | null;
+      displayOrder?: number;
+      isActive?: boolean;
+    },
+  ): Promise<Category | null> {
+    const category = this.categories.find((item) => item.id === categoryId);
+    if (!category) return null;
+
+    category.name = patch.name ?? category.name;
+    category.slug = patch.slug ?? category.slug;
+    category.description =
+      patch.description !== undefined ? patch.description : category.description;
+    category.displayOrder = patch.displayOrder ?? category.displayOrder;
+    category.isActive = patch.isActive ?? category.isActive;
+    category.updatedAt = new Date().toISOString();
+
+    for (const item of this.menu) {
+      if (item.primary_category_id === categoryId) {
+        item.primary_category_name = category.name;
+      }
+      item.categories = (item.categories ?? [])
+        .map((linked) => (linked.id === categoryId ? { ...category } : linked))
+        .filter((linked) => linked.isActive);
+    }
+
+    await this.persist();
+    return category;
+  }
+
+  async deleteCategory(categoryId: number): Promise<Category | null> {
+    return this.updateCategory(categoryId, { isActive: false });
+  }
+
+  async addCategoryToMenuItem(
+    menuId: number,
+    categoryId: number,
+  ): Promise<MenuItem | null> {
+    const menuItem = this.menu.find((item) => item.id === menuId);
+    const category = this.categories.find(
+      (item) => item.id === categoryId && item.isActive,
+    );
+    if (!menuItem || !category) return null;
+
+    const linkedCategories = menuItem.categories ?? [];
+    if (!linkedCategories.some((item) => item.id === categoryId)) {
+      linkedCategories.push({ ...category });
+    }
+    menuItem.categories = linkedCategories.sort(
+      (a, b) => a.displayOrder - b.displayOrder || a.id - b.id,
+    );
+
+    if (!menuItem.primary_category_id) {
+      menuItem.primary_category_id = category.id;
+      menuItem.primary_category_name = category.name;
+    }
+
+    await this.persist();
+    return menuItem;
+  }
+
+  async removeCategoryFromMenuItem(
+    menuId: number,
+    categoryId: number,
+  ): Promise<MenuItem | null> {
+    const menuItem = this.menu.find((item) => item.id === menuId);
+    const category = this.categories.find((item) => item.id === categoryId);
+    if (!menuItem || !category) return null;
+
+    menuItem.categories = (menuItem.categories ?? []).filter(
+      (item) => item.id !== categoryId,
+    );
+    if (menuItem.primary_category_id === categoryId) {
+      menuItem.primary_category_id = null;
+      menuItem.primary_category_name = null;
+    }
+
+    await this.persist();
+    return menuItem;
   }
 
   getOrders(): ReadonlyArray<Order> {
@@ -402,6 +551,7 @@ export class JsonFileStore implements Store {
   private createInitialStore(): DataStore {
     return {
       users: cloneDefaultUsers(),
+      categories: [],
       menu: cloneDefaultMenu(),
       orders: [],
       userIdCounter: defaultUsers.length,
@@ -412,6 +562,7 @@ export class JsonFileStore implements Store {
 
   private applyStore(store: DataStore): void {
     this.users = store.users;
+    this.categories = Array.isArray(store.categories) ? store.categories : [];
     this.menu = store.menu;
     this.orders = store.orders;
 
@@ -437,6 +588,7 @@ export class JsonFileStore implements Store {
   private buildStoreSnapshot(): DataStore {
     return {
       users: this.users,
+      categories: this.categories,
       menu: this.menu,
       orders: this.orders,
       userIdCounter: this.userIdCounter,

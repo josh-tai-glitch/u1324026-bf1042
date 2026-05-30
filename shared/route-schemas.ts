@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Order } from "./contracts.ts";
 import {
+  categorySchema,
   menuItemSchema,
   orderSchema,
   roleRequestSchema,
@@ -121,6 +122,44 @@ export const updateUserRolesBodySchema = z.object({
   roles: z.array(roleSchema).min(1),
 });
 
+/** /api/categories/:id */
+export const categoryParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
+/** POST /api/categories */
+export const createCategoryBodySchema = z.object({
+  name: z.string().min(1),
+  slug: z.string().min(1),
+  description: z.string().optional(),
+  displayOrder: z.number().int().optional(),
+  isActive: z.boolean().optional(),
+});
+
+/** PATCH /api/categories/:id */
+export const updateCategoryBodySchema = z.object({
+  name: z.string().min(1).optional(),
+  slug: z.string().min(1).optional(),
+  description: z.string().nullable().optional(),
+  displayOrder: z.number().int().optional(),
+  isActive: z.boolean().optional(),
+});
+
+/** POST /api/menu/:id/categories */
+export const assignMenuItemCategoryParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
+export const assignMenuItemCategoryBodySchema = z.object({
+  categoryId: z.number().int().min(1),
+});
+
+/** DELETE /api/menu/:id/categories/:categoryId */
+export const removeMenuItemCategoryParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+  categoryId: z.string().regex(/^[0-9]+$/),
+});
+
 // ─── Response Schemas（API envelope 層）─────────────────────────────────
 
 export const menuListResponseSchema = z.object({
@@ -129,6 +168,14 @@ export const menuListResponseSchema = z.object({
 
 export const menuItemResponseSchema = z.object({
   data: menuItemSchema,
+});
+
+export const categoryResponseSchema = z.object({
+  data: categorySchema,
+});
+
+export const categoryListResponseSchema = z.object({
+  data: z.array(categorySchema),
 });
 
 export const orderListResponseSchema = z.object({

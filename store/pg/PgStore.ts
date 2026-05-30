@@ -1,7 +1,14 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
-import type { MenuItem, Order, OrderItem } from "../../shared/contracts.ts";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import type {
+  Category,
+  MenuItem,
+  Order,
+  OrderItem,
+} from "../../shared/contracts.ts";
 import { db } from "../../db/client.ts";
 import {
+  categoriesTable,
+  menuItemCategoriesTable,
   menuItemsTable,
   orderItemsTable,
   ordersTable,
@@ -34,6 +41,7 @@ function calculateTotal(items: ReadonlyArray<OrderItem>): number {
 export class PgStore implements Store {
   private readonly dataFilePath: string;
   private menu: MenuItem[] = [];
+  private categories: Category[] = [];
   private orders: Order[] = [];
 
   constructor(options: PgStoreOptions = {}) {
@@ -52,6 +60,10 @@ export class PgStore implements Store {
     return this.menu;
   }
 
+  getCategories(): ReadonlyArray<Category> {
+    return this.categories;
+  }
+
   async createMenuItem(input: {
     name: string;
     price: number;
@@ -66,7 +78,9 @@ export class PgStore implements Store {
         price: input.price,
         category: input.category,
         description: input.description,
-        imageUrl: input.image_url,
+      imageUrl: input.image_url,
+      primaryCategoryId: null,
+      primaryCategoryName: null,
       })
       .returning();
 
@@ -77,6 +91,9 @@ export class PgStore implements Store {
       name: inserted.name,
       price: inserted.price,
       category: inserted.category,
+      primary_category_id: inserted.primaryCategoryId,
+      primary_category_name: inserted.primaryCategoryName,
+      categories: [],
       description: inserted.description,
       image_url: inserted.imageUrl,
     };
@@ -116,6 +133,10 @@ export class PgStore implements Store {
       name: updated.name,
       price: updated.price,
       category: updated.category,
+      primary_category_id: updated.primaryCategoryId,
+      primary_category_name: updated.primaryCategoryName,
+      categories:
+        this.menu.find((item) => item.id === menuId)?.categories ?? [],
       description: updated.description,
       image_url: updated.imageUrl,
     };
@@ -139,6 +160,10 @@ export class PgStore implements Store {
       name: removed.name,
       price: removed.price,
       category: removed.category,
+      primary_category_id: removed.primaryCategoryId,
+      primary_category_name: removed.primaryCategoryName,
+      categories:
+        this.menu.find((item) => item.id === menuId)?.categories ?? [],
       description: removed.description,
       image_url: removed.imageUrl,
     };
@@ -147,6 +172,151 @@ export class PgStore implements Store {
     if (idx !== -1) this.menu.splice(idx, 1);
 
     return removedItem;
+  }
+
+  async createCategory(input: {
+    name: string;
+    slug: string;
+    description?: string | null;
+    displayOrder?: number;
+    isActive?: boolean;
+  }): Promise<Category> {
+    const [inserted] = await db
+      .insert(categoriesTable)
+      .values({
+        name: input.name,
+        slug: input.slug,
+        description: input.description ?? null,
+        displayOrder: input.displayOrder ?? 0,
+        isActive: input.isActive ?? true,
+      })
+      .returning();
+
+    if (!inserted) throw new Error("Failed to insert category");
+
+    const created = this.toCategory(inserted);
+    this.categories.push(created);
+    this.categories.sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
+    return created;
+  }
+
+  async updateCategory(
+    categoryId: number,
+    patch: {
+      name?: string;
+      slug?: string;
+      description?: string | null;
+      displayOrder?: number;
+      isActive?: boolean;
+    },
+  ): Promise<Category | null> {
+    const [updated] = await db
+      .update(categoriesTable)
+      .set({
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.slug !== undefined ? { slug: patch.slug } : {}),
+        ...(patch.description !== undefined
+          ? { description: patch.description }
+          : {}),
+        ...(patch.displayOrder !== undefined
+          ? { displayOrder: patch.displayOrder }
+          : {}),
+        ...(patch.isActive !== undefined ? { isActive: patch.isActive } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(categoriesTable.id, categoryId))
+      .returning();
+
+    if (!updated) return null;
+
+    await this.reloadFromDatabase();
+    return this.toCategory(updated);
+  }
+
+  async deleteCategory(categoryId: number): Promise<Category | null> {
+    const [updated] = await db
+      .update(categoriesTable)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(categoriesTable.id, categoryId))
+      .returning();
+
+    if (!updated) return null;
+
+    await this.reloadFromDatabase();
+    return this.toCategory(updated);
+  }
+
+  async addCategoryToMenuItem(
+    menuId: number,
+    categoryId: number,
+  ): Promise<MenuItem | null> {
+    const menuItem = this.menu.find((item) => item.id === menuId);
+    const category = this.categories.find(
+      (item) => item.id === categoryId && item.isActive,
+    );
+    if (!menuItem || !category) return null;
+
+    const [existingActive] = await db
+      .select()
+      .from(menuItemCategoriesTable)
+      .where(
+        and(
+          eq(menuItemCategoriesTable.menuItemId, menuId),
+          eq(menuItemCategoriesTable.categoryId, categoryId),
+          isNull(menuItemCategoriesTable.removedAt),
+        ),
+      )
+      .limit(1);
+
+    if (!existingActive) {
+      await db.insert(menuItemCategoriesTable).values({
+        menuItemId: menuId,
+        categoryId,
+      });
+    }
+
+    if (!menuItem.primary_category_id) {
+      await db
+        .update(menuItemsTable)
+        .set({
+          primaryCategoryId: category.id,
+          primaryCategoryName: category.name,
+        })
+        .where(eq(menuItemsTable.id, menuId));
+    }
+
+    await this.reloadFromDatabase();
+    return this.menu.find((item) => item.id === menuId) ?? null;
+  }
+
+  async removeCategoryFromMenuItem(
+    menuId: number,
+    categoryId: number,
+  ): Promise<MenuItem | null> {
+    const menuItem = this.menu.find((item) => item.id === menuId);
+    const category = this.categories.find((item) => item.id === categoryId);
+    if (!menuItem || !category) return null;
+
+    await db
+      .update(menuItemCategoriesTable)
+      .set({ removedAt: new Date() })
+      .where(
+        and(
+          eq(menuItemCategoriesTable.menuItemId, menuId),
+          eq(menuItemCategoriesTable.categoryId, categoryId),
+          isNull(menuItemCategoriesTable.removedAt),
+        ),
+      );
+
+    if (menuItem.primary_category_id === categoryId) {
+      await db
+        .update(menuItemsTable)
+        .set({ primaryCategoryId: null, primaryCategoryName: null })
+        .where(eq(menuItemsTable.id, menuId));
+    }
+
+    await this.reloadFromDatabase();
+    return this.menu.find((item) => item.id === menuId) ?? null;
   }
 
   // ── Orders ──────────────────────────────────────────────────
@@ -359,10 +529,38 @@ export class PgStore implements Store {
   }
 
   private async reloadFromDatabase(): Promise<void> {
+    const categoryRows = await db
+      .select()
+      .from(categoriesTable)
+      .where(eq(categoriesTable.isActive, true))
+      .orderBy(asc(categoriesTable.displayOrder), asc(categoriesTable.id));
+
     const menuRows = await db
       .select()
       .from(menuItemsTable)
       .orderBy(asc(menuItemsTable.id));
+
+    const menuCategoryRows = await db
+      .select({
+        menuItemId: menuItemCategoriesTable.menuItemId,
+        category: categoriesTable,
+      })
+      .from(menuItemCategoriesTable)
+      .innerJoin(
+        categoriesTable,
+        eq(menuItemCategoriesTable.categoryId, categoriesTable.id),
+      )
+      .where(
+        and(
+          isNull(menuItemCategoriesTable.removedAt),
+          eq(categoriesTable.isActive, true),
+        ),
+      )
+      .orderBy(
+        asc(categoriesTable.displayOrder),
+        asc(categoriesTable.id),
+        asc(menuItemCategoriesTable.id),
+      );
 
     const orderRows = await db
       .select()
@@ -374,11 +572,23 @@ export class PgStore implements Store {
       .from(orderItemsTable)
       .orderBy(asc(orderItemsTable.id));
 
+    this.categories = categoryRows.map((row) => this.toCategory(row));
+
+    const categoriesByMenuId = new Map<number, Category[]>();
+    for (const row of menuCategoryRows) {
+      const categories = categoriesByMenuId.get(row.menuItemId) ?? [];
+      categories.push(this.toCategory(row.category));
+      categoriesByMenuId.set(row.menuItemId, categories);
+    }
+
     this.menu = menuRows.map((row) => ({
       id: row.id,
       name: row.name,
       price: row.price,
       category: row.category,
+      primary_category_id: row.primaryCategoryId,
+      primary_category_name: row.primaryCategoryName,
+      categories: categoriesByMenuId.get(row.id) ?? [],
       description: row.description,
       image_url: row.imageUrl,
     }));
@@ -416,5 +626,24 @@ export class PgStore implements Store {
           : new Date(row.submittedAt).toISOString()
         : undefined,
     }));
+  }
+
+  private toCategory(row: typeof categoriesTable.$inferSelect): Category {
+    return {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      description: row.description,
+      displayOrder: row.displayOrder,
+      isActive: row.isActive,
+      createdAt:
+        row.createdAt instanceof Date
+          ? row.createdAt.toISOString()
+          : new Date(row.createdAt).toISOString(),
+      updatedAt:
+        row.updatedAt instanceof Date
+          ? row.updatedAt.toISOString()
+          : new Date(row.updatedAt).toISOString(),
+    };
   }
 }

@@ -1,8 +1,9 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import * as schema from "../db/auth-schema.ts";
-import type { SessionUser } from "../shared/contracts.ts";
+import type { Role, SessionUser } from "../shared/contracts.ts";
 import { toSessionUser } from "./user-mapper.ts";
 
 // ─── Startup guard ────────────────────────────────────────────────────────────
@@ -68,6 +69,12 @@ export async function getCurrentUser(
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session?.user) return null;
 
+  const [dbUser] = await db
+    .select({ roles: schema.user.roles })
+    .from(schema.user)
+    .where(eq(schema.user.id, session.user.id))
+    .limit(1);
+
   // DbUser → SessionUser 轉換（延續 contracts.ts 分層原則）
-  return toSessionUser(session.user);
+  return toSessionUser({ ...session.user, roles: dbUser?.roles as Role[] });
 }

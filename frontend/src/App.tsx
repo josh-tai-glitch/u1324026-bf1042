@@ -208,13 +208,13 @@ export default function App() {
 
     async function restoreSession() {
       try {
-        const res = await fetch(buildApiUrl("/api/auth/get-session"), {
+        const res = await fetch(buildApiUrl("/api/me"), {
           credentials: "include",
         });
         if (res.ok) {
-          const data = (await res.json()) as { user?: Partial<SessionUser> };
-          if (data?.user && mounted) {
-            setUser(normalizeUser(data.user));
+          const payload = (await res.json()) as ApiDataResponse<SessionUser>;
+          if (payload?.data && mounted) {
+            setUser(normalizeUser(payload.data));
           }
         }
       } catch {

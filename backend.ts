@@ -8,6 +8,7 @@ import {
   apiErrorResponseSchema,
   createMenuItemBodySchema,
   createRoleRequestBodySchema,
+  currentUserResponseSchema,
   deleteMenuItemParamsSchema,
   getAdminRoleRequestsQuerySchema,
   getOrderByIdParamsSchema,
@@ -109,6 +110,30 @@ app.use(
 // 必須在其他 API 路由之前定義，確保 Better Auth 路由優先匹配
 app.get("/api/auth/*", ({ request }) => auth.handler(request));
 app.post("/api/auth/*", ({ request }) => auth.handler(request));
+
+app.get(
+  "/api/me",
+  async ({ request, set }) => {
+    const user = await getCurrentUser(request);
+    if (!user) {
+      set.status = 401;
+      return { error: "Unauthorized" };
+    }
+
+    return { data: user };
+  },
+  {
+    detail: {
+      tags: ["auth"],
+      summary: "Get current user",
+      description: "Return the current signed-in user with database roles.",
+    },
+    response: {
+      200: currentUserResponseSchema,
+      401: apiErrorResponseSchema,
+    },
+  },
+);
 
 // ─── OpenAPI Plugin ───────────────────────────────────────────────────────────
 app.use(

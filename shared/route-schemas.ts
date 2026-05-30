@@ -5,6 +5,7 @@ import {
   orderSchema,
   roleRequestSchema,
   roleSchema,
+  sessionUserSchema,
 } from "./contracts.ts";
 import toTaipeiDateTime from "../util.ts";
 
@@ -155,6 +156,10 @@ export const userRolesResponseSchema = z.object({
     userId: z.string().min(1),
     roles: z.array(roleSchema).min(1),
   }),
+});
+
+export const currentUserResponseSchema = z.object({
+  data: sessionUserSchema,
 });
 
 export const healthResponseSchema = z.object({

@@ -39,11 +39,13 @@ import {
   updateMenuItemParamsSchema,
   updateOrderBodySchema,
   updateOrderParamsSchema,
+  updateOrderStatusBodySchema,
+  updateOrderStatusParamsSchema,
   updateUserRolesBodySchema,
   updateUserRolesParamsSchema,
   userRolesResponseSchema,
 } from "./shared/route-schemas.ts";
-import type { Role, RoleRequest } from "./shared/contracts.ts";
+import type { OrderStatus, Role, RoleRequest } from "./shared/contracts.ts";
 import { hasAnyRole, requireAnyRole, requireRole } from "./shared/guards.ts";
 import {
   CategoryNotFoundError,
@@ -65,6 +67,43 @@ const hasPublicAssets =
 const menuManagerRoles = ["owner", "admin"] satisfies Role[];
 const orderViewerRoles = ["staff", "chef", "owner", "admin"] satisfies Role[];
 const orderEditorRoles = ["staff", "owner", "admin"] satisfies Role[];
+const statusUpdaterRoles = ["staff", "chef", "owner", "admin"] satisfies Role[];
+const nextOrderStatusByStatus: Partial<Record<OrderStatus, OrderStatus>> = {
+  submitted: "preparing",
+  preparing: "ready",
+  ready: "completed",
+};
+
+function canUpdateOrderStatus(
+  userRoles: readonly Role[],
+  currentStatus: OrderStatus,
+  nextStatus: OrderStatus,
+): boolean {
+  if (userRoles.some((role) => role === "owner" || role === "admin")) {
+    return true;
+  }
+
+  if (
+    userRoles.includes("chef") &&
+    ((currentStatus === "submitted" && nextStatus === "preparing") ||
+      (currentStatus === "preparing" && nextStatus === "ready"))
+  ) {
+    return true;
+  }
+
+  return (
+    userRoles.includes("staff") &&
+    currentStatus === "ready" &&
+    nextStatus === "completed"
+  );
+}
+
+function isStandardOrderStatusTransition(
+  currentStatus: OrderStatus,
+  nextStatus: OrderStatus,
+): boolean {
+  return nextOrderStatusByStatus[currentStatus] === nextStatus;
+}
 
 function toRoleRequestResponse(
   row: typeof roleRequests.$inferSelect,
@@ -622,7 +661,8 @@ app.get(
     detail: {
       tags: ["orders"],
       summary: "Get order history",
-      description: "Return submitted orders belonging to a user.",
+      description:
+        "Return submitted and later order states belonging to a user.",
     },
     response: {
       200: orderListResponseSchema,
@@ -763,7 +803,79 @@ app.patch(
   },
 );
 
-// 送出訂單
+// 更新訂單狀態
+app.patch(
+  "/api/orders/:id/status",
+  async ({ params, body, request, set }) => {
+    const user = await requireUser(request);
+    const orderId = parseInt(params.id, 10);
+    const order = store.getOrderById(orderId);
+
+    if (!order) {
+      set.status = 404;
+      return { error: "Order not found" };
+    }
+
+    const input = body as { status: OrderStatus };
+    const allowAnyTransition = hasAnyRole(user, menuManagerRoles);
+
+    if (!allowAnyTransition && !hasAnyRole(user, statusUpdaterRoles)) {
+      set.status = 403;
+      return { error: "Forbidden" };
+    }
+
+    if (
+      !allowAnyTransition &&
+      isStandardOrderStatusTransition(order.status, input.status) &&
+      !canUpdateOrderStatus(user.roles, order.status, input.status)
+    ) {
+      set.status = 403;
+      return { error: "Forbidden" };
+    }
+
+    const result = await store.updateOrderStatus(orderId, {
+      status: input.status,
+      allowAnyTransition,
+    });
+
+    if (result.ok === false) {
+      switch (result.code) {
+        case "ORDER_NOT_FOUND":
+          set.status = 404;
+          return { error: "Order not found" };
+        case "INVALID_STATUS_TRANSITION":
+          set.status = 409;
+          return { error: "Invalid status transition" };
+        case "ORDER_STATUS_LOCKED":
+          set.status = 409;
+          return { error: "Order status is locked" };
+        default:
+          set.status = 500;
+          return { error: "Unexpected store state" };
+      }
+    }
+
+    return { data: toOrderResponse(result.order) };
+  },
+  {
+    params: updateOrderStatusParamsSchema,
+    body: updateOrderStatusBodySchema,
+    detail: {
+      tags: ["orders"],
+      summary: "Update order status",
+      description: "Move a submitted order through kitchen and pickup states.",
+    },
+    response: {
+      200: orderResponseEnvelopeSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+      409: apiErrorResponseSchema,
+      500: apiErrorResponseSchema,
+    },
+  },
+);
+
 app.post(
   "/api/orders/:id/submit",
   async ({ params, request, set }) => {
@@ -878,7 +990,8 @@ app.get(
     detail: {
       tags: ["admin"],
       summary: "Get category sales analytics",
-      description: "Return category sales totals for submitted orders.",
+      description:
+        "Return category sales totals for submitted and later order states.",
     },
     response: {
       200: categorySalesListResponseSchema,
@@ -909,7 +1022,8 @@ app.get(
     detail: {
       tags: ["admin"],
       summary: "Get top item sales analytics",
-      description: "Return top-selling menu items for submitted orders.",
+      description:
+        "Return top-selling menu items for submitted and later order states.",
     },
     response: {
       200: topItemSalesListResponseSchema,

@@ -5,6 +5,7 @@ import type {
   MenuItem,
   Order,
   OrderItem,
+  OrderStatus,
   TopItemSales,
 } from "../../shared/contracts.ts";
 import { db } from "../../db/client.ts";
@@ -32,7 +33,7 @@ interface SeedData {
   orders?: Array<{
     id: number;
     userId: string | number;
-    status: "pending" | "submitted";
+    status: OrderStatus;
     total: number;
     createdAt: string;
     submittedAt?: string;
@@ -42,6 +43,33 @@ interface SeedData {
 
 function calculateTotal(items: ReadonlyArray<OrderItem>): number {
   return items.reduce((sum, oi) => sum + oi.item.price * oi.qty, 0);
+}
+
+const validOrderStatuses = [
+  "pending",
+  "submitted",
+  "preparing",
+  "ready",
+  "completed",
+] satisfies OrderStatus[];
+
+const revenueOrderStatuses = [
+  "submitted",
+  "preparing",
+  "ready",
+  "completed",
+] satisfies OrderStatus[];
+
+const nextOrderStatusByStatus: Partial<Record<OrderStatus, OrderStatus>> = {
+  submitted: "preparing",
+  preparing: "ready",
+  ready: "completed",
+};
+
+function toOrderStatus(value: string): OrderStatus {
+  return validOrderStatuses.includes(value as OrderStatus)
+    ? (value as OrderStatus)
+    : "pending";
 }
 
 export class PgStore implements Store {
@@ -397,7 +425,9 @@ export class PgStore implements Store {
 
   getOrderHistoryByUserId(userId: string): ReadonlyArray<Order> {
     return this.orders
-      .filter((o) => o.userId === userId && o.status === "submitted")
+      .filter(
+        (o) => o.userId === userId && revenueOrderStatuses.includes(o.status),
+      )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
@@ -546,6 +576,43 @@ export class PgStore implements Store {
     return { ok: true, order };
   }
 
+  async updateOrderStatus(
+    orderId: number,
+    input: { status: OrderStatus; allowAnyTransition?: boolean },
+  ): Promise<
+    | { ok: true; order: Order }
+    | {
+        ok: false;
+        code:
+          | "ORDER_NOT_FOUND"
+          | "INVALID_STATUS_TRANSITION"
+          | "ORDER_STATUS_LOCKED";
+      }
+  > {
+    const order = this.orders.find((item) => item.id === orderId);
+    if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+
+    if (order.status === "completed" && !input.allowAnyTransition) {
+      return { ok: false, code: "ORDER_STATUS_LOCKED" };
+    }
+
+    const expectedNextStatus = nextOrderStatusByStatus[order.status];
+    if (
+      !input.allowAnyTransition &&
+      (expectedNextStatus === undefined || input.status !== expectedNextStatus)
+    ) {
+      return { ok: false, code: "INVALID_STATUS_TRANSITION" };
+    }
+
+    await db
+      .update(ordersTable)
+      .set({ status: input.status })
+      .where(eq(ordersTable.id, orderId));
+
+    order.status = input.status;
+    return { ok: true, order };
+  }
+
   getCategorySalesAnalytics(): ReadonlyArray<CategorySales> {
     const salesByCategory = new Map<
       string,
@@ -553,7 +620,7 @@ export class PgStore implements Store {
     >();
 
     for (const order of this.orders) {
-      if (order.status !== "submitted") continue;
+      if (!revenueOrderStatuses.includes(order.status)) continue;
 
       for (const orderItem of order.items) {
         const category = orderItem.item.category || "Uncategorized";
@@ -600,7 +667,7 @@ export class PgStore implements Store {
     >();
 
     for (const order of this.orders) {
-      if (order.status !== "submitted") continue;
+      if (!revenueOrderStatuses.includes(order.status)) continue;
 
       for (const orderItem of order.items) {
         const key = `${orderItem.item.id}:${orderItem.item.name}:${orderItem.item.category}`;
@@ -802,7 +869,7 @@ export class PgStore implements Store {
       userId: row.userId,
       items: itemsByOrderId.get(row.id) ?? [],
       total: row.total,
-      status: row.status === "submitted" ? "submitted" : "pending",
+      status: toOrderStatus(row.status),
       createdAt:
         row.createdAt instanceof Date
           ? row.createdAt.toISOString()

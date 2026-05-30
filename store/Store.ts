@@ -3,6 +3,7 @@ import type {
   CategorySales,
   MenuItem,
   Order,
+  OrderStatus,
   TopItemSales,
 } from "../shared/contracts.ts";
 
@@ -31,6 +32,11 @@ export type SubmitOrderErrorCode =
   | "ORDER_NOT_OWNED"
   | "ORDER_NOT_EDITABLE"
   | "EMPTY_ORDER";
+
+export type UpdateOrderStatusErrorCode =
+  | "ORDER_NOT_FOUND"
+  | "INVALID_STATUS_TRANSITION"
+  | "ORDER_STATUS_LOCKED";
 
 export interface Store {
   init(): Promise<void>;
@@ -105,6 +111,16 @@ export interface Store {
     input: { userId: string },
   ): Promise<
     { ok: true; order: Order } | { ok: false; code: SubmitOrderErrorCode }
+  >;
+  updateOrderStatus(
+    orderId: number,
+    input: {
+      status: OrderStatus;
+      allowAnyTransition?: boolean;
+    },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: UpdateOrderStatusErrorCode }
   >;
 
   getCategorySalesAnalytics(): ReadonlyArray<CategorySales>;

@@ -5,6 +5,7 @@ import {
   categorySalesSchema,
   menuItemSchema,
   orderSchema,
+  orderStatusSchema,
   roleRequestSchema,
   roleSchema,
   sessionUserSchema,
@@ -86,6 +87,15 @@ export const updateOrderParamsSchema = z.object({
 export const updateOrderBodySchema = z.object({
   itemId: z.number().int().min(1),
   qty: z.number().min(0),
+});
+
+/** PATCH /api/orders/:id/status */
+export const updateOrderStatusParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
+export const updateOrderStatusBodySchema = z.object({
+  status: orderStatusSchema,
 });
 
 /** POST /api/orders/:id/submit */

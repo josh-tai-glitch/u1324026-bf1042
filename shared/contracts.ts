@@ -84,12 +84,20 @@ export const orderItemSchema = z.object({
   qty: z.number().min(0),
 });
 
+export const orderStatusSchema = z.enum([
+  "pending",
+  "submitted",
+  "preparing",
+  "ready",
+  "completed",
+]);
+
 export const orderSchema = z.object({
   id: z.number().int().min(1),
   userId: z.string().min(1),
   items: z.array(orderItemSchema),
   total: z.number().min(0),
-  status: z.enum(["pending", "submitted"]),
+  status: orderStatusSchema,
   createdAt: z.string().min(1),
   submittedAt: z.string().min(1).optional(),
 });
@@ -119,6 +127,7 @@ export type User = z.infer<typeof userSchema>;
 export type SessionUser = z.infer<typeof sessionUserSchema>;
 export type RoleRequest = z.infer<typeof roleRequestSchema>;
 export type OrderItem = z.infer<typeof orderItemSchema>;
+export type OrderStatus = z.infer<typeof orderStatusSchema>;
 export type Order = z.infer<typeof orderSchema>;
 export type CategorySales = z.infer<typeof categorySalesSchema>;
 export type TopItemSales = z.infer<typeof topItemSalesSchema>;

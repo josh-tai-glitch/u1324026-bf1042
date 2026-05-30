@@ -60,26 +60,16 @@ async function readApiError(response: Response) {
 }
 
 export default function App() {
+  // Auth / session state
   const [user, setUser] = useState<SessionUser | null>(null);
   const [authError, setAuthError] = useState("");
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
-  const [items, setItems] = useState<MenuItem[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [orderId, setOrderId] = useState<number | null>(null);
-  const [historyOrders, setHistoryOrders] = useState<Order[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [cartQtyByItemId, setCartQtyByItemId] = useState<Record<number, number>>(
-    {},
-  );
-  const [cartTotal, setCartTotal] = useState(0);
-  const [activeItemId, setActiveItemId] = useState<number | null>(null);
-  const [actionError, setActionError] = useState("");
-  const [isCartOpen, setIsCartOpen] = useState(false);
-  const [cartBusyItemId, setCartBusyItemId] = useState<number | null>(null);
-  const [isClearingCart, setIsClearingCart] = useState(false);
-  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+
+  // Menu / category state
+  const [items, setItems] = useState<MenuItem[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [menuForm, setMenuForm] = useState<MenuForm>(emptyMenuForm);
   const [editingMenuId, setEditingMenuId] = useState<number | null>(null);
   const [menuMessage, setMenuMessage] = useState("");
@@ -94,6 +84,23 @@ export default function App() {
   const [selectedCategoryByItemId, setSelectedCategoryByItemId] = useState<
     Record<number, string>
   >({});
+
+  // Cart / order state
+  const [orderId, setOrderId] = useState<number | null>(null);
+  const [historyOrders, setHistoryOrders] = useState<Order[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [cartQtyByItemId, setCartQtyByItemId] = useState<Record<number, number>>(
+    {},
+  );
+  const [cartTotal, setCartTotal] = useState(0);
+  const [activeItemId, setActiveItemId] = useState<number | null>(null);
+  const [actionError, setActionError] = useState("");
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [cartBusyItemId, setCartBusyItemId] = useState<number | null>(null);
+  const [isClearingCart, setIsClearingCart] = useState(false);
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+
+  // Role request / admin review state
   const [roleRequestRole, setRoleRequestRole] = useState<"staff" | "chef">(
     "staff",
   );
@@ -110,6 +117,8 @@ export default function App() {
   const [adminReviewNotes, setAdminReviewNotes] = useState<
     Record<number, string>
   >({});
+
+  // Analytics state
   const [categorySales, setCategorySales] = useState<CategorySales[]>([]);
   const [topItemSales, setTopItemSales] = useState<TopItemSales[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
@@ -121,14 +130,11 @@ export default function App() {
     (requiredRoles: Role[]) => requiredRoles.some((role) => hasRole(role)),
     [hasRole],
   );
-  const hasAllRoles = useCallback(
-    (requiredRoles: Role[]) => requiredRoles.every((role) => hasRole(role)),
-    [hasRole],
-  );
   const canManageMenu = hasAnyRole(["owner", "admin"]);
   const canViewAllOrders = hasAnyRole(["staff", "chef", "owner", "admin"]);
   const isAdmin = hasRole("admin");
 
+  // Data loading helpers
   const loadMenu = useCallback(async () => {
     const response = await fetch(buildApiUrl("/api/menu"));
     if (!response.ok) {
@@ -286,6 +292,7 @@ export default function App() {
     }
   }, [canManageMenu]);
 
+  // Effects
   useEffect(() => {
     let mounted = true;
 
@@ -405,6 +412,7 @@ export default function App() {
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }, [cartQtyByItemId, items]);
 
+  // Event handlers
   async function ensureOrder(): Promise<number> {
     if (!user) {
       throw new Error("Please sign in first.");
@@ -1047,6 +1055,7 @@ export default function App() {
     );
   }
 
+  // Render sections
   return (
     <div className="min-h-screen bg-base-200">
       <div className="navbar bg-base-100 shadow-lg flex-col items-stretch gap-2 md:flex-row md:items-center">

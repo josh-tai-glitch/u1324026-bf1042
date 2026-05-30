@@ -6,6 +6,7 @@ import type {
   CategorySales,
   MenuItem,
   Order,
+  OrderStatus,
   Role,
   RoleRequest,
   SessionUser,
@@ -14,6 +15,12 @@ import type {
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const defaultRoles: Role[] = ["customer"];
+const managerOrderStatuses: OrderStatus[] = [
+  "submitted",
+  "preparing",
+  "ready",
+  "completed",
+];
 const emptyMenuForm = {
   name: "",
   price: "",
@@ -99,6 +106,13 @@ export default function App() {
   const [cartBusyItemId, setCartBusyItemId] = useState<number | null>(null);
   const [isClearingCart, setIsClearingCart] = useState(false);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [statusUpdatingOrderId, setStatusUpdatingOrderId] = useState<
+    number | null
+  >(null);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [orderStatusDrafts, setOrderStatusDrafts] = useState<
+    Record<number, OrderStatus>
+  >({});
 
   // Role request / admin review state
   const [roleRequestRole, setRoleRequestRole] = useState<"staff" | "chef">(
@@ -133,6 +147,23 @@ export default function App() {
   const canManageMenu = hasAnyRole(["owner", "admin"]);
   const canViewAllOrders = hasAnyRole(["staff", "chef", "owner", "admin"]);
   const isAdmin = hasRole("admin");
+
+  function getNextAllowedStatuses(order: Order): OrderStatus[] {
+    if (canManageMenu) {
+      return managerOrderStatuses;
+    }
+
+    if (hasRole("chef")) {
+      if (order.status === "submitted") return ["preparing"];
+      if (order.status === "preparing") return ["ready"];
+    }
+
+    if (hasRole("staff") && order.status === "ready") {
+      return ["completed"];
+    }
+
+    return [];
+  }
 
   // Data loading helpers
   const loadMenu = useCallback(async () => {
@@ -687,6 +718,60 @@ export default function App() {
       console.error(submitError);
     } finally {
       setIsSubmittingOrder(false);
+    }
+  }
+
+  async function updateOrderStatus(
+    targetOrderId: number,
+    status: OrderStatus,
+  ): Promise<void> {
+    setStatusUpdatingOrderId(targetOrderId);
+    setStatusMessage("");
+
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/orders/${targetOrderId}/status`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ status }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<Order>;
+      const updatedOrder = payload?.data;
+      if (!updatedOrder) {
+        throw new Error("Update order status failed: invalid payload");
+      }
+
+      setHistoryOrders((currentOrders) =>
+        currentOrders.map((order) =>
+          order.id === updatedOrder.id ? updatedOrder : order,
+        ),
+      );
+      setOrderStatusDrafts((currentDrafts) => {
+        const nextDrafts = { ...currentDrafts };
+        delete nextDrafts[updatedOrder.id];
+        return nextDrafts;
+      });
+      setStatusMessage(`Order #${updatedOrder.id} status updated.`);
+
+      if (canManageMenu) {
+        await loadAnalytics();
+      }
+    } catch (statusError) {
+      setStatusMessage(
+        statusError instanceof Error
+          ? statusError.message
+          : "Unable to update order status.",
+      );
+    } finally {
+      setStatusUpdatingOrderId(null);
     }
   }
 
@@ -1801,6 +1886,11 @@ export default function App() {
             <h2 className="text-2xl font-bold mb-4">
               {canViewAllOrders ? "All orders" : "Order history"}
             </h2>
+            {statusMessage ? (
+              <div className="alert mb-4">
+                <span>{statusMessage}</span>
+              </div>
+            ) : null}
             {historyLoading ? (
               <div className="alert">
                 <span>Loading history...</span>
@@ -1811,36 +1901,83 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-3">
-                {historyOrders.map((order) => (
-                  <article
-                    key={order.id}
-                    className="card bg-base-100 shadow-sm border border-base-300"
-                  >
-                    <div className="card-body p-4">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <h3 className="font-semibold">Order #{order.id}</h3>
-                        <span className="badge badge-success">
-                          {order.status}
-                        </span>
+                {historyOrders.map((order) => {
+                  const allowedStatuses = getNextAllowedStatuses(order);
+                  const draftedStatus = orderStatusDrafts[order.id];
+                  const selectedStatus =
+                    draftedStatus && allowedStatuses.includes(draftedStatus)
+                      ? draftedStatus
+                      : allowedStatuses[0];
+
+                  return (
+                    <article
+                      key={order.id}
+                      className="card bg-base-100 shadow-sm border border-base-300"
+                    >
+                      <div className="card-body p-4">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <h3 className="font-semibold">Order #{order.id}</h3>
+                          <div className="flex items-center gap-2 flex-wrap justify-end">
+                            <span className="badge badge-success">
+                              {order.status}
+                            </span>
+                            {allowedStatuses.length > 0 ? (
+                              <div className="join">
+                                <select
+                                  className="select select-sm select-bordered join-item"
+                                  value={selectedStatus}
+                                  disabled={statusUpdatingOrderId === order.id}
+                                  onChange={(event) => {
+                                    setOrderStatusDrafts((currentDrafts) => ({
+                                      ...currentDrafts,
+                                      [order.id]: event.target
+                                        .value as OrderStatus,
+                                    }));
+                                  }}
+                                >
+                                  {allowedStatuses.map((status) => (
+                                    <option key={status} value={status}>
+                                      {status}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  className="btn btn-sm join-item"
+                                  disabled={statusUpdatingOrderId === order.id}
+                                  onClick={() => {
+                                    void updateOrderStatus(
+                                      order.id,
+                                      selectedStatus,
+                                    );
+                                  }}
+                                >
+                                  {statusUpdatingOrderId === order.id
+                                    ? "Updating..."
+                                    : "Update status"}
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                        <p className="text-sm opacity-70">
+                          Created at{" "}
+                          {
+                            (order as Order & { createdAtTaipei?: string })
+                              .createdAtTaipei ?? order.createdAt
+                          }
+                        </p>
+                        <ul className="text-sm list-disc pl-5 space-y-1">
+                          {order.items.map((detail) => (
+                            <li key={`${order.id}-${detail.item.id}`}>
+                              {detail.item.name} x {detail.qty}
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="font-bold text-right">${order.total}</p>
                       </div>
-                      <p className="text-sm opacity-70">
-                        Created at{" "}
-                        {
-                          (order as Order & { createdAtTaipei?: string })
-                            .createdAtTaipei ?? order.createdAt
-                        }
-                      </p>
-                      <ul className="text-sm list-disc pl-5 space-y-1">
-                        {order.items.map((detail) => (
-                          <li key={`${order.id}-${detail.item.id}`}>
-                            {detail.item.name} x {detail.qty}
-                          </li>
-                        ))}
-                      </ul>
-                      <p className="font-bold text-right">${order.total}</p>
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>

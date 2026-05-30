@@ -827,7 +827,7 @@ export default function App() {
                   ))}
                 </div>
                 <p className="text-xs opacity-60">
-                  {hasAllRoles(["customer"])
+                  {roles.length === 1 && roles.includes("customer")
                     ? "You have the default customer role."
                     : "Your account has elevated access."}
                 </p>

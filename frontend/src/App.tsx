@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import type {
   ApiDataResponse,
@@ -41,6 +41,7 @@ type MenuForm = typeof emptyMenuForm;
 type CategoryForm = typeof emptyCategoryForm;
 type ApiErrorPayload = { error?: string; message?: string };
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
+type ManagerTab = "orders" | "analytics" | "menu" | "categories" | "roleRequests";
 
 function buildApiUrl(path: string) {
   return `${apiBaseUrl}${path}`;
@@ -137,6 +138,12 @@ export default function App() {
   const [topItemSales, setTopItemSales] = useState<TopItemSales[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsMessage, setAnalyticsMessage] = useState("");
+  const [managerTab, setManagerTab] = useState<ManagerTab>("orders");
+
+  const menuSectionRef = useRef<HTMLElement | null>(null);
+  const managerSectionRef = useRef<HTMLElement | null>(null);
+  const ordersSectionRef = useRef<HTMLElement | null>(null);
+  const accountSectionRef = useRef<HTMLElement | null>(null);
 
   const roles = user?.roles?.length ? user.roles : defaultRoles;
   const hasRole = useCallback((role: Role) => roles.includes(role), [roles]);
@@ -147,6 +154,23 @@ export default function App() {
   const canManageMenu = hasAnyRole(["owner", "admin"]);
   const canViewAllOrders = hasAnyRole(["staff", "chef", "owner", "admin"]);
   const isAdmin = hasRole("admin");
+  const managerTabs = [
+    { id: "orders" as const, label: "Orders", visible: canViewAllOrders },
+    { id: "analytics" as const, label: "Analytics", visible: canManageMenu },
+    { id: "menu" as const, label: "Menu", visible: canManageMenu },
+    { id: "categories" as const, label: "Categories", visible: canManageMenu },
+    { id: "roleRequests" as const, label: "Role requests", visible: isAdmin },
+  ].filter((tab) => tab.visible);
+  const hasManagerTools = managerTabs.length > 0;
+  const activeOrders = historyOrders.filter((order) =>
+    ["submitted", "preparing", "ready"].includes(order.status),
+  ).length;
+  const readyOrders = historyOrders.filter(
+    (order) => order.status === "ready",
+  ).length;
+  const completedOrders = historyOrders.filter(
+    (order) => order.status === "completed",
+  ).length;
 
   function getNextAllowedStatuses(order: Order): OrderStatus[] {
     if (canManageMenu) {
@@ -163,6 +187,27 @@ export default function App() {
     }
 
     return [];
+  }
+
+  function getStatusBadgeClass(status: OrderStatus): string {
+    switch (status) {
+      case "pending":
+        return "badge-neutral";
+      case "submitted":
+        return "badge-info";
+      case "preparing":
+        return "badge-warning";
+      case "ready":
+        return "badge-primary";
+      case "completed":
+        return "badge-success";
+      default:
+        return "badge-neutral";
+    }
+  }
+
+  function scrollToSection(ref: React.RefObject<HTMLElement | null>) {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   // Data loading helpers
@@ -397,6 +442,13 @@ export default function App() {
       setAnalyticsMessage("");
     }
   }, [canManageMenu, loadAnalytics]);
+
+  useEffect(() => {
+    if (!hasManagerTools) return;
+    if (!managerTabs.some((tab) => tab.id === managerTab)) {
+      setManagerTab(managerTabs[0].id);
+    }
+  }, [hasManagerTools, managerTab, managerTabs]);
 
   const grouped = useMemo(() => {
     const groupedItems = items.reduce(
@@ -1143,55 +1195,146 @@ export default function App() {
   // Render sections
   return (
     <div className="min-h-screen bg-base-200">
-      <div className="navbar bg-base-100 shadow-lg flex-col items-stretch gap-2 md:flex-row md:items-center">
-        <div className="flex-1 w-full md:w-auto">
-          <a className="btn btn-ghost normal-case text-2xl">Breakfast Demo</a>
-        </div>
-        <div className="flex-none w-full md:w-auto">
-          <div className="flex flex-wrap gap-2 items-center md:justify-end">
-            <div className="badge badge-outline">
-              {user ? user.name : "Not signed in"}
-            </div>
-            {user ? (
-              <div className="flex flex-wrap gap-1">
-                {roles.map((role) => (
-                  <span key={role} className="badge badge-neutral">
-                    {role}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            <div className="badge badge-primary">
-              {items.length} items / {grouped.categories.length} categories
-            </div>
-            <div className="badge badge-secondary">Cart {cartItemCount}</div>
-            <div className="badge badge-accent">${cartTotal}</div>
-            <button
-              className="btn btn-sm btn-outline"
-              onClick={() => {
-                setIsCartOpen(true);
-              }}
-              disabled={!user}
+      <div className="navbar sticky top-0 z-20 bg-base-100/95 shadow-lg backdrop-blur">
+        <div className="navbar-start">
+          <div className="dropdown lg:hidden">
+            <button tabIndex={0} className="btn btn-ghost" aria-label="Open menu">
+              <span className="text-xl">☰</span>
+            </button>
+            <ul
+              tabIndex={0}
+              className="menu dropdown-content mt-3 w-56 rounded-box bg-base-100 p-2 shadow"
             >
-              Cart
+              <li>
+                <button onClick={() => scrollToSection(menuSectionRef)}>
+                  Menu
+                </button>
+              </li>
+              {user ? (
+                <li>
+                  <button onClick={() => setIsCartOpen(true)}>Cart</button>
+                </li>
+              ) : null}
+              {user && !canViewAllOrders ? (
+                <li>
+                  <button onClick={() => scrollToSection(ordersSectionRef)}>
+                    My orders
+                  </button>
+                </li>
+              ) : null}
+              {hasManagerTools ? (
+                <li>
+                  <button onClick={() => scrollToSection(managerSectionRef)}>
+                    Manager tools
+                  </button>
+                </li>
+              ) : null}
+              <li>
+                <button onClick={() => scrollToSection(accountSectionRef)}>
+                  {user ? "Account" : "Sign in"}
+                </button>
+              </li>
+            </ul>
+          </div>
+          <button
+            className="btn btn-ghost text-xl normal-case"
+            onClick={() => scrollToSection(menuSectionRef)}
+          >
+            Breakfast Shop
+          </button>
+        </div>
+
+        <div className="navbar-center hidden lg:flex">
+          <div className="join">
+            <button
+              className="btn btn-sm join-item"
+              onClick={() => scrollToSection(menuSectionRef)}
+            >
+              Menu
             </button>
             {user ? (
               <button
-                className="btn btn-sm"
-                onClick={() => {
-                  void handleLogout();
-                }}
+                className="btn btn-sm join-item"
+                onClick={() => setIsCartOpen(true)}
               >
-                Sign out
+                Cart
               </button>
             ) : null}
+            {user && !canViewAllOrders ? (
+              <button
+                className="btn btn-sm join-item"
+                onClick={() => scrollToSection(ordersSectionRef)}
+              >
+                My orders
+              </button>
+            ) : null}
+            {hasManagerTools ? (
+              <button
+                className="btn btn-sm join-item"
+                onClick={() => scrollToSection(managerSectionRef)}
+              >
+                Manager tools
+              </button>
+            ) : null}
+            <button
+              className="btn btn-sm join-item"
+              onClick={() => scrollToSection(accountSectionRef)}
+            >
+              {user ? "Account" : "Sign in"}
+            </button>
           </div>
+        </div>
+
+        <div className="navbar-end gap-2">
+          <div className="hidden flex-wrap items-center gap-2 md:flex">
+            <span className="badge badge-primary">
+              {items.length} items / {grouped.categories.length} categories
+            </span>
+            {user ? (
+              <>
+                <span className="badge badge-secondary">Cart {cartItemCount}</span>
+                <span className="badge badge-accent">${cartTotal}</span>
+              </>
+            ) : null}
+          </div>
+          {user ? (
+            <div className="dropdown dropdown-end">
+              <button tabIndex={0} className="btn btn-sm btn-outline">
+                {user.name}
+              </button>
+              <div
+                tabIndex={0}
+                className="dropdown-content mt-3 w-64 rounded-box bg-base-100 p-4 shadow"
+              >
+                <p className="font-semibold">{user.name}</p>
+                <p className="text-xs opacity-60">{user.email}</p>
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {roles.map((role) => (
+                    <span key={role} className="badge badge-neutral">
+                      {role}
+                    </span>
+                  ))}
+                </div>
+                <button
+                  className="btn btn-sm btn-block mt-4"
+                  onClick={() => {
+                    void handleLogout();
+                  }}
+                >
+                  Sign out
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
       <main className="container mx-auto p-6">
         {!user ? (
-          <section className="max-w-xl mx-auto card bg-base-100 shadow-md mb-8">
+          <section
+            ref={accountSectionRef}
+            className="max-w-xl mx-auto card bg-base-100 shadow-md mb-8 scroll-mt-24"
+          >
             <div className="card-body">
               <h2 className="card-title">Sign in with Google</h2>
               <p className="text-sm opacity-70">
@@ -1223,7 +1366,10 @@ export default function App() {
         ) : null}
 
         {user ? (
-          <section className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <section
+            ref={accountSectionRef}
+            className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-4 scroll-mt-24"
+          >
             <div className="card bg-base-100 shadow-sm border border-base-300">
               <div className="card-body">
                 <h2 className="card-title">Your access</h2>
@@ -1297,11 +1443,177 @@ export default function App() {
           </section>
         ) : null}
 
-        {isAdmin ? (
+        {hasManagerTools ? (
+          <section
+            ref={managerSectionRef}
+            className="mb-8 scroll-mt-24 rounded-box border border-base-300 bg-base-100 shadow-md"
+          >
+            <div className="border-b border-base-300 p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold">Manager tools</h2>
+                  <p className="text-sm opacity-70">
+                    Manage orders, analytics, menu items, categories, and role
+                    requests based on your role.
+                  </p>
+                </div>
+                <div className="tabs tabs-boxed w-full overflow-x-auto lg:w-auto">
+                  {managerTabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      className={`tab whitespace-nowrap ${
+                        managerTab === tab.id ? "tab-active" : ""
+                      }`}
+                      onClick={() => setManagerTab(tab.id)}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {managerTab === "orders" && canViewAllOrders ? (
+              <div className="p-5">
+                <div className="mb-4">
+                  <h3 className="text-xl font-bold">Order operations</h3>
+                  <p className="text-sm opacity-70">
+                    Track submitted orders and update kitchen / pickup status.
+                  </p>
+                </div>
+                <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div className="stat rounded-box border border-base-300 bg-base-200">
+                    <div className="stat-title">Active orders</div>
+                    <div className="stat-value text-info">{activeOrders}</div>
+                  </div>
+                  <div className="stat rounded-box border border-base-300 bg-base-200">
+                    <div className="stat-title">Ready for pickup</div>
+                    <div className="stat-value text-primary">{readyOrders}</div>
+                  </div>
+                  <div className="stat rounded-box border border-base-300 bg-base-200">
+                    <div className="stat-title">Completed</div>
+                    <div className="stat-value text-success">
+                      {completedOrders}
+                    </div>
+                  </div>
+                </div>
+                {statusMessage ? (
+                  <div className="alert mb-4">
+                    <span>{statusMessage}</span>
+                  </div>
+                ) : null}
+                {historyLoading ? (
+                  <div className="alert">
+                    <span>Loading orders...</span>
+                  </div>
+                ) : historyOrders.length === 0 ? (
+                  <div className="alert alert-info">
+                    <span>No orders yet.</span>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {historyOrders.map((order) => {
+                      const allowedStatuses = getNextAllowedStatuses(order);
+                      const draftedStatus = orderStatusDrafts[order.id];
+                      const selectedStatus =
+                        draftedStatus && allowedStatuses.includes(draftedStatus)
+                          ? draftedStatus
+                          : allowedStatuses[0];
+
+                      return (
+                        <article
+                          key={order.id}
+                          className="rounded-box border border-base-300 bg-base-100 p-4"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h4 className="font-semibold">Order #{order.id}</h4>
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <span
+                                className={`badge ${getStatusBadgeClass(
+                                  order.status,
+                                )}`}
+                              >
+                                {order.status}
+                              </span>
+                              {allowedStatuses.length > 0 ? (
+                                <div className="join">
+                                  <select
+                                    className="select select-sm select-bordered join-item"
+                                    value={selectedStatus}
+                                    disabled={
+                                      statusUpdatingOrderId === order.id
+                                    }
+                                    onChange={(event) => {
+                                      setOrderStatusDrafts((currentDrafts) => ({
+                                        ...currentDrafts,
+                                        [order.id]: event.target
+                                          .value as OrderStatus,
+                                      }));
+                                    }}
+                                  >
+                                    {allowedStatuses.map((status) => (
+                                      <option key={status} value={status}>
+                                        {status}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    className="btn btn-sm join-item"
+                                    disabled={
+                                      statusUpdatingOrderId === order.id
+                                    }
+                                    onClick={() => {
+                                      void updateOrderStatus(
+                                        order.id,
+                                        selectedStatus,
+                                      );
+                                    }}
+                                  >
+                                    {statusUpdatingOrderId === order.id
+                                      ? "Updating..."
+                                      : "Update status"}
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                          <p className="mt-2 text-sm opacity-70">
+                            Created at{" "}
+                            {
+                              (order as Order & { createdAtTaipei?: string })
+                                .createdAtTaipei ?? order.createdAt
+                            }
+                          </p>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+                            {order.items.map((detail) => (
+                              <li key={`${order.id}-${detail.item.id}`}>
+                                {detail.item.name} x {detail.qty}
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="mt-2 text-right font-bold">
+                            ${order.total}
+                          </p>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {hasManagerTools && managerTab === "roleRequests" && isAdmin ? (
           <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="card-title">Role requests</h2>
+                <div>
+                  <h2 className="card-title">Role request review</h2>
+                  <p className="text-sm opacity-70">
+                    Approve or reject staff and chef access requests.
+                  </p>
+                </div>
                 <select
                   className="select select-bordered select-sm"
                   value={adminStatus}
@@ -1326,7 +1638,7 @@ export default function App() {
                 </div>
               ) : adminRequests.length === 0 ? (
                 <div className="alert alert-info">
-                  <span>No role requests.</span>
+                  <span>No role requests found.</span>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -1408,11 +1720,16 @@ export default function App() {
           </section>
         ) : null}
 
-        {canManageMenu ? (
+        {hasManagerTools && managerTab === "analytics" && canManageMenu ? (
           <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="card-title">Analytics</h2>
+                <div>
+                  <h2 className="card-title">Analytics</h2>
+                  <p className="text-sm opacity-70">
+                    Review category sales and top-selling menu items.
+                  </p>
+                </div>
                 <button
                   className="btn btn-sm btn-outline"
                   disabled={analyticsLoading}
@@ -1507,7 +1824,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {canManageMenu ? (
+        {hasManagerTools && managerTab === "menu" && canManageMenu ? (
           <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
             <form
               className="card-body"
@@ -1516,9 +1833,13 @@ export default function App() {
               }}
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="card-title">
-                  {editingMenuId ? "Edit menu item" : "Add menu item"}
-                </h2>
+                <div>
+                  <h2 className="card-title">Menu item editor</h2>
+                  <p className="text-sm opacity-70">
+                    Create or update menu items and connect them to primary
+                    categories.
+                  </p>
+                </div>
                 {editingMenuId ? (
                   <button
                     type="button"
@@ -1605,11 +1926,16 @@ export default function App() {
           </section>
         ) : null}
 
-        {canManageMenu ? (
+        {hasManagerTools && managerTab === "categories" && canManageMenu ? (
           <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="card-title">Category management</h2>
+                <div>
+                  <h2 className="card-title">Category management</h2>
+                  <p className="text-sm opacity-70">
+                    Create, update, and deactivate menu categories.
+                  </p>
+                </div>
                 {editingCategoryId ? (
                   <button
                     type="button"
@@ -1740,13 +2066,14 @@ export default function App() {
           </section>
         ) : null}
 
-        {items.length === 0 ? (
-          <div className="alert alert-info">
-            <span>No menu items yet.</span>
-          </div>
-        ) : (
-          grouped.categories.map((category) => (
-            <section key={category} className="mb-8">
+        <section ref={menuSectionRef} className="scroll-mt-24">
+          {items.length === 0 ? (
+            <div className="alert alert-info">
+              <span>No menu items yet.</span>
+            </div>
+          ) : (
+            grouped.categories.map((category) => (
+              <section key={category} className="mb-8">
               <h2 className="text-3xl font-bold mb-4 text-primary border-b-2 border-primary pb-2">
                 {category}
               </h2>
@@ -1877,15 +2204,14 @@ export default function App() {
                   </div>
                 ))}
               </div>
-            </section>
-          ))
-        )}
+              </section>
+            ))
+          )}
+        </section>
 
-        {user ? (
-          <section className="mt-10">
-            <h2 className="text-2xl font-bold mb-4">
-              {canViewAllOrders ? "All orders" : "Order history"}
-            </h2>
+        {user && !canViewAllOrders ? (
+          <section ref={ordersSectionRef} className="mt-10 scroll-mt-24">
+            <h2 className="text-2xl font-bold mb-4">Order history</h2>
             {statusMessage ? (
               <div className="alert mb-4">
                 <span>{statusMessage}</span>
@@ -1918,7 +2244,11 @@ export default function App() {
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                           <h3 className="font-semibold">Order #{order.id}</h3>
                           <div className="flex items-center gap-2 flex-wrap justify-end">
-                            <span className="badge badge-success">
+                            <span
+                              className={`badge ${getStatusBadgeClass(
+                                order.status,
+                              )}`}
+                            >
                               {order.status}
                             </span>
                             {allowedStatuses.length > 0 ? (

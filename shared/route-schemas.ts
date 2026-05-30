@@ -3,9 +3,12 @@ import type { Order } from "./contracts.ts";
 import {
   categorySchema,
   categorySalesSchema,
+  fulfillmentTypeSchema,
   menuItemSchema,
   orderSchema,
   orderStatusSchema,
+  paymentMethodSchema,
+  paymentStatusSchema,
   roleRequestSchema,
   roleSchema,
   sessionUserSchema,
@@ -101,6 +104,14 @@ export const updateOrderStatusBodySchema = z.object({
 /** POST /api/orders/:id/submit */
 export const submitOrderParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),
+});
+
+export const submitOrderBodySchema = z.object({
+  fulfillmentType: fulfillmentTypeSchema.default("takeout"),
+  customerNote: z.string().max(500).optional().nullable(),
+  pickupTime: z.string().optional().nullable(),
+  paymentMethod: paymentMethodSchema.default("cash"),
+  paymentStatus: paymentStatusSchema.optional(),
 });
 
 /** POST /api/users/me/role-request */

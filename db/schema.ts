@@ -83,6 +83,11 @@ export const ordersTable = appSchema.table("orders", {
     .references(() => user.id),
   total: integer("total").notNull().default(0),
   status: text("status").notNull().default("pending"),
+  fulfillmentType: text("fulfillment_type").notNull().default("takeout"),
+  customerNote: text("customer_note"),
+  pickupTime: timestamp("pickup_time", { withTimezone: true }),
+  paymentMethod: text("payment_method").notNull().default("cash"),
+  paymentStatus: text("payment_status").notNull().default("unpaid"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
 });

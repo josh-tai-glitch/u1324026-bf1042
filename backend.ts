@@ -31,6 +31,7 @@ import {
   reviewRoleRequestParamsSchema,
   roleRequestListResponseSchema,
   roleRequestResponseSchema,
+  submitOrderBodySchema,
   submitOrderParamsSchema,
   toOrderResponse,
   topItemSalesListResponseSchema,
@@ -884,10 +885,24 @@ app.patch(
 
 app.post(
   "/api/orders/:id/submit",
-  async ({ params, request, set }) => {
+  async ({ params, body, request, set }) => {
     const user = await requireUser(request);
     const orderId = parseInt(params.id, 10);
-    const result = await store.submitOrder(orderId, { userId: user.id });
+    const input = body as {
+      fulfillmentType: "dine_in" | "takeout";
+      customerNote?: string | null;
+      pickupTime?: string | null;
+      paymentMethod: "cash" | "card" | "online";
+      paymentStatus?: "unpaid" | "paid";
+    };
+    const result = await store.submitOrder(orderId, {
+      userId: user.id,
+      fulfillmentType: input.fulfillmentType,
+      customerNote: input.customerNote ?? null,
+      pickupTime: input.pickupTime ?? null,
+      paymentMethod: input.paymentMethod,
+      paymentStatus: input.paymentStatus ?? "unpaid",
+    });
 
     if (result.ok === false) {
       switch (result.code) {
@@ -913,6 +928,7 @@ app.post(
   },
   {
     params: submitOrderParamsSchema,
+    body: submitOrderBodySchema,
     detail: {
       tags: ["orders"],
       summary: "Submit order",

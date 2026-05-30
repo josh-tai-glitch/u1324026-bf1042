@@ -4,9 +4,11 @@ import type {
   ApiDataResponse,
   Category,
   CategorySales,
+  FulfillmentType,
   MenuItem,
   Order,
   OrderStatus,
+  PaymentMethod,
   Role,
   RoleRequest,
   SessionUser,
@@ -44,9 +46,16 @@ const emptyCategoryForm = {
   displayOrder: "0",
   isActive: true,
 };
+const emptyCheckoutForm = {
+  fulfillmentType: "takeout" as FulfillmentType,
+  customerNote: "",
+  pickupTime: "",
+  paymentMethod: "cash" as PaymentMethod,
+};
 
 type MenuForm = typeof emptyMenuForm;
 type CategoryForm = typeof emptyCategoryForm;
+type CheckoutForm = typeof emptyCheckoutForm;
 type ApiErrorPayload = { error?: string; message?: string };
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
 type ManagerTab = "orders" | "analytics" | "menu" | "categories" | "roleRequests";
@@ -122,6 +131,8 @@ export default function App() {
   const [cartBusyItemId, setCartBusyItemId] = useState<number | null>(null);
   const [isClearingCart, setIsClearingCart] = useState(false);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [checkoutForm, setCheckoutForm] =
+    useState<CheckoutForm>(emptyCheckoutForm);
   const [statusUpdatingOrderId, setStatusUpdatingOrderId] = useState<
     number | null
   >(null);
@@ -261,6 +272,12 @@ export default function App() {
 
   function scrollToSection(ref: React.RefObject<HTMLElement | null>) {
     ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function formatCheckoutDateTime(value?: string | null): string {
+    if (!value) return "";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
   }
 
   // Data loading helpers
@@ -840,7 +857,15 @@ export default function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({}),
+          body: JSON.stringify({
+            fulfillmentType: checkoutForm.fulfillmentType,
+            customerNote: checkoutForm.customerNote.trim() || null,
+            pickupTime: checkoutForm.pickupTime
+              ? new Date(checkoutForm.pickupTime).toISOString()
+              : null,
+            paymentMethod: checkoutForm.paymentMethod,
+            paymentStatus: "unpaid",
+          }),
         },
       );
 
@@ -849,6 +874,7 @@ export default function App() {
       }
 
       resetCartState();
+      setCheckoutForm(emptyCheckoutForm);
       setIsCartOpen(false);
       await loadOrderHistory();
     } catch (submitError) {
@@ -1753,6 +1779,23 @@ export default function App() {
                                 .createdAtTaipei ?? order.createdAt
                             }
                           </p>
+                          <div className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+                            <span>Fulfillment: {order.fulfillmentType}</span>
+                            <span>
+                              Payment: {order.paymentMethod} /{" "}
+                              {order.paymentStatus}
+                            </span>
+                            {order.pickupTime ? (
+                              <span>
+                                Pickup: {formatCheckoutDateTime(order.pickupTime)}
+                              </span>
+                            ) : null}
+                            {order.customerNote ? (
+                              <span className="md:col-span-2">
+                                Note: {order.customerNote}
+                              </span>
+                            ) : null}
+                          </div>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
                             {order.items.map((detail) => (
                               <li key={`${order.id}-${detail.item.id}`}>
@@ -2493,6 +2536,23 @@ export default function App() {
                               .createdAtTaipei ?? order.createdAt
                           }
                         </p>
+                        <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+                          <span>Fulfillment: {order.fulfillmentType}</span>
+                          <span>
+                            Payment: {order.paymentMethod} /{" "}
+                            {order.paymentStatus}
+                          </span>
+                          {order.pickupTime ? (
+                            <span>
+                              Pickup: {formatCheckoutDateTime(order.pickupTime)}
+                            </span>
+                          ) : null}
+                          {order.customerNote ? (
+                            <span className="md:col-span-2">
+                              Note: {order.customerNote}
+                            </span>
+                          ) : null}
+                        </div>
                         <ul className="text-sm list-disc pl-5 space-y-1">
                           {order.items.map((detail) => (
                             <li key={`${order.id}-${detail.item.id}`}>
@@ -2588,6 +2648,72 @@ export default function App() {
             </div>
 
             <div className="p-4 border-t border-base-300 space-y-3">
+              <div className="rounded-box border border-base-300 bg-base-100 p-3 space-y-3">
+                <h3 className="font-semibold">Checkout details</h3>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="form-control">
+                    <span className="label-text mb-1">Fulfillment</span>
+                    <select
+                      className="select select-bordered select-sm"
+                      value={checkoutForm.fulfillmentType}
+                      onChange={(event) =>
+                        setCheckoutForm((current) => ({
+                          ...current,
+                          fulfillmentType: event.target.value as FulfillmentType,
+                        }))
+                      }
+                    >
+                      <option value="takeout">Takeout</option>
+                      <option value="dine_in">Dine in</option>
+                    </select>
+                  </label>
+                  <label className="form-control">
+                    <span className="label-text mb-1">Payment</span>
+                    <select
+                      className="select select-bordered select-sm"
+                      value={checkoutForm.paymentMethod}
+                      onChange={(event) =>
+                        setCheckoutForm((current) => ({
+                          ...current,
+                          paymentMethod: event.target.value as PaymentMethod,
+                        }))
+                      }
+                    >
+                      <option value="cash">Cash</option>
+                      <option value="card">Card</option>
+                      <option value="online">Online</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="form-control">
+                  <span className="label-text mb-1">Pickup time</span>
+                  <input
+                    className="input input-bordered input-sm"
+                    type="datetime-local"
+                    value={checkoutForm.pickupTime}
+                    onChange={(event) =>
+                      setCheckoutForm((current) => ({
+                        ...current,
+                        pickupTime: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="form-control">
+                  <span className="label-text mb-1">Note</span>
+                  <textarea
+                    className="textarea textarea-bordered min-h-20"
+                    maxLength={500}
+                    value={checkoutForm.customerNote}
+                    onChange={(event) =>
+                      setCheckoutForm((current) => ({
+                        ...current,
+                        customerNote: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              </div>
               <div className="flex items-center justify-between font-semibold">
                 <span>Items</span>
                 <span>{cartItemCount}</span>

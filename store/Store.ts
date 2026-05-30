@@ -1,9 +1,12 @@
 import type {
   Category,
   CategorySales,
+  FulfillmentType,
   MenuItem,
   Order,
   OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
   TopItemSales,
 } from "../shared/contracts.ts";
 
@@ -112,7 +115,14 @@ export interface Store {
   >;
   submitOrder(
     orderId: number,
-    input: { userId: string },
+    input: {
+      userId: string;
+      fulfillmentType: FulfillmentType;
+      customerNote?: string | null;
+      pickupTime?: string | null;
+      paymentMethod: PaymentMethod;
+      paymentStatus?: PaymentStatus;
+    },
   ): Promise<
     { ok: true; order: Order } | { ok: false; code: SubmitOrderErrorCode }
   >;

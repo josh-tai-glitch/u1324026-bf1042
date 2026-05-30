@@ -2,10 +2,13 @@ import { mkdir, rename } from "node:fs/promises";
 import type {
   Category,
   CategorySales,
+  FulfillmentType,
   MenuItem,
   Order,
   OrderItem,
   OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
   TopItemSales,
 } from "../../shared/contracts.ts";
 import {
@@ -106,6 +109,18 @@ function toOrderStatus(value: string): OrderStatus {
   return validOrderStatuses.includes(value as OrderStatus)
     ? (value as OrderStatus)
     : "pending";
+}
+
+function toFulfillmentType(value: unknown): FulfillmentType {
+  return value === "dine_in" ? "dine_in" : "takeout";
+}
+
+function toPaymentMethod(value: unknown): PaymentMethod {
+  return value === "card" || value === "online" ? value : "cash";
+}
+
+function toPaymentStatus(value: unknown): PaymentStatus {
+  return value === "paid" ? "paid" : "unpaid";
 }
 
 function normalizeMenuItem(item: Partial<MenuItem>): MenuItem {
@@ -236,6 +251,11 @@ export class JsonFileStore implements Store {
             item: normalizeMenuItem(orderItem.item),
           })),
           status: toOrderStatus(order.status),
+          fulfillmentType: toFulfillmentType(order.fulfillmentType),
+          customerNote: order.customerNote ?? null,
+          pickupTime: order.pickupTime ?? null,
+          paymentMethod: toPaymentMethod(order.paymentMethod),
+          paymentStatus: toPaymentStatus(order.paymentStatus),
           submittedAt: order.status === "pending" ? undefined : order.submittedAt,
         })),
         userIdCounter: parsed.userIdCounter ?? 0,
@@ -534,6 +554,11 @@ export class JsonFileStore implements Store {
       items: [],
       total: 0,
       status: "pending",
+      fulfillmentType: "takeout",
+      customerNote: null,
+      pickupTime: null,
+      paymentMethod: "cash",
+      paymentStatus: "unpaid",
       createdAt: new Date().toISOString(),
     };
 
@@ -603,7 +628,14 @@ export class JsonFileStore implements Store {
 
   async submitOrder(
     orderId: number,
-    input: { userId: string },
+    input: {
+      userId: string;
+      fulfillmentType: FulfillmentType;
+      customerNote?: string | null;
+      pickupTime?: string | null;
+      paymentMethod: PaymentMethod;
+      paymentStatus?: PaymentStatus;
+    },
   ): Promise<
     | { ok: true; order: Order }
     | {
@@ -634,6 +666,11 @@ export class JsonFileStore implements Store {
 
     order.status = "submitted";
     order.submittedAt = new Date().toISOString();
+    order.fulfillmentType = input.fulfillmentType;
+    order.customerNote = input.customerNote?.trim() || null;
+    order.pickupTime = input.pickupTime || null;
+    order.paymentMethod = input.paymentMethod;
+    order.paymentStatus = input.paymentStatus ?? "unpaid";
     await this.persist();
 
     return { ok: true, order };

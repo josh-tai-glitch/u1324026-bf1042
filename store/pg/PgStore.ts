@@ -2,10 +2,13 @@ import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import type {
   Category,
   CategorySales,
+  FulfillmentType,
   MenuItem,
   Order,
   OrderItem,
   OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
   TopItemSales,
 } from "../../shared/contracts.ts";
 import { db } from "../../db/client.ts";
@@ -38,6 +41,11 @@ interface SeedData {
     total: number;
     createdAt: string;
     submittedAt?: string;
+    fulfillmentType?: FulfillmentType;
+    customerNote?: string | null;
+    pickupTime?: string | null;
+    paymentMethod?: PaymentMethod;
+    paymentStatus?: PaymentStatus;
     items: Array<{ item: MenuItem; qty: number }>;
   }>;
 }
@@ -470,6 +478,11 @@ export class PgStore implements Store {
       items: [],
       total: inserted.total,
       status: "pending",
+      fulfillmentType: "takeout",
+      customerNote: null,
+      pickupTime: null,
+      paymentMethod: "cash",
+      paymentStatus: "unpaid",
       createdAt:
         inserted.createdAt instanceof Date
           ? inserted.createdAt.toISOString()
@@ -557,7 +570,14 @@ export class PgStore implements Store {
 
   async submitOrder(
     orderId: number,
-    input: { userId: string },
+    input: {
+      userId: string;
+      fulfillmentType: FulfillmentType;
+      customerNote?: string | null;
+      pickupTime?: string | null;
+      paymentMethod: PaymentMethod;
+      paymentStatus?: PaymentStatus;
+    },
   ): Promise<
     | { ok: true; order: Order }
     | {
@@ -578,14 +598,29 @@ export class PgStore implements Store {
     if (order.items.length === 0) return { ok: false, code: "EMPTY_ORDER" };
 
     const submittedAt = new Date().toISOString();
+    const pickupTime = input.pickupTime ? new Date(input.pickupTime) : null;
+    const paymentStatus = input.paymentStatus ?? "unpaid";
 
     await db
       .update(ordersTable)
-      .set({ status: "submitted", submittedAt: new Date(submittedAt) })
+      .set({
+        status: "submitted",
+        submittedAt: new Date(submittedAt),
+        fulfillmentType: input.fulfillmentType,
+        customerNote: input.customerNote?.trim() || null,
+        pickupTime,
+        paymentMethod: input.paymentMethod,
+        paymentStatus,
+      })
       .where(eq(ordersTable.id, orderId));
 
     order.status = "submitted";
     order.submittedAt = submittedAt;
+    order.fulfillmentType = input.fulfillmentType;
+    order.customerNote = input.customerNote?.trim() || null;
+    order.pickupTime = pickupTime ? pickupTime.toISOString() : null;
+    order.paymentMethod = input.paymentMethod;
+    order.paymentStatus = paymentStatus;
 
     return { ok: true, order };
   }
@@ -884,6 +919,19 @@ export class PgStore implements Store {
       items: itemsByOrderId.get(row.id) ?? [],
       total: row.total,
       status: toOrderStatus(row.status),
+      fulfillmentType:
+        row.fulfillmentType === "dine_in" ? "dine_in" : "takeout",
+      customerNote: row.customerNote ?? null,
+      pickupTime: row.pickupTime
+        ? row.pickupTime instanceof Date
+          ? row.pickupTime.toISOString()
+          : new Date(row.pickupTime).toISOString()
+        : null,
+      paymentMethod:
+        row.paymentMethod === "card" || row.paymentMethod === "online"
+          ? row.paymentMethod
+          : "cash",
+      paymentStatus: row.paymentStatus === "paid" ? "paid" : "unpaid",
       createdAt:
         row.createdAt instanceof Date
           ? row.createdAt.toISOString()

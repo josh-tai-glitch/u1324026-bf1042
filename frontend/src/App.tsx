@@ -51,6 +51,7 @@ type ApiErrorPayload = { error?: string; message?: string };
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
 type ManagerTab = "orders" | "analytics" | "menu" | "categories" | "roleRequests";
 type OrderBoardFilter = (typeof orderBoardFilters)[number]["id"];
+type CategoryStatusFilter = "active" | "inactive" | "all";
 
 function buildApiUrl(path: string) {
   return `${apiBaseUrl}${path}`;
@@ -98,6 +99,11 @@ export default function App() {
   );
   const [categoryMessage, setCategoryMessage] = useState("");
   const [categoryBusy, setCategoryBusy] = useState(false);
+  const [categoryManagementItems, setCategoryManagementItems] = useState<
+    Category[]
+  >([]);
+  const [categoryManagementStatusFilter, setCategoryManagementStatusFilter] =
+    useState<CategoryStatusFilter>("active");
   const [selectedCategoryByItemId, setSelectedCategoryByItemId] = useState<
     Record<number, string>
   >({});
@@ -277,6 +283,23 @@ export default function App() {
     const payload = (await response.json()) as ApiDataResponse<Category[]>;
     setCategories(Array.isArray(payload?.data) ? payload.data : []);
   }, []);
+
+  const loadCategoryManagementItems = useCallback(
+    async (status: CategoryStatusFilter) => {
+      const response = await fetch(
+        buildApiUrl(`/api/categories?status=${status}`),
+      );
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<Category[]>;
+      setCategoryManagementItems(
+        Array.isArray(payload?.data) ? payload.data : [],
+      );
+    },
+    [],
+  );
 
   function syncCartFromOrder(order: Order) {
     const nextQtyByItemId = order.items.reduce(
@@ -489,6 +512,22 @@ export default function App() {
       setAnalyticsMessage("");
     }
   }, [canManageMenu, loadAnalytics]);
+
+  useEffect(() => {
+    if (canManageMenu) {
+      void loadCategoryManagementItems(categoryManagementStatusFilter).catch(
+        (categoryError) => {
+          setCategoryMessage(
+            categoryError instanceof Error
+              ? categoryError.message
+              : "Unable to load categories.",
+          );
+        },
+      );
+    } else {
+      setCategoryManagementItems([]);
+    }
+  }, [canManageMenu, categoryManagementStatusFilter, loadCategoryManagementItems]);
 
   useEffect(() => {
     if (!hasManagerTools) return;
@@ -1040,7 +1079,11 @@ export default function App() {
         throw new Error(await readApiError(response));
       }
 
-      await Promise.all([loadCategories(), loadMenu()]);
+      await Promise.all([
+        loadCategories(),
+        loadCategoryManagementItems(categoryManagementStatusFilter),
+        loadMenu(),
+      ]);
       resetCategoryForm();
       setCategoryMessage(
         editingCategoryId ? "Category updated." : "Category created.",
@@ -1072,7 +1115,11 @@ export default function App() {
         throw new Error(await readApiError(response));
       }
 
-      await Promise.all([loadCategories(), loadMenu()]);
+      await Promise.all([
+        loadCategories(),
+        loadCategoryManagementItems(categoryManagementStatusFilter),
+        loadMenu(),
+      ]);
       setCategoryMessage("Category deactivated.");
       if (editingCategoryId === category.id) resetCategoryForm();
     } catch (categoryError) {
@@ -1080,6 +1127,41 @@ export default function App() {
         categoryError instanceof Error
           ? categoryError.message
           : "Category deactivate failed.",
+      );
+    } finally {
+      setCategoryBusy(false);
+    }
+  }
+
+  async function reactivateCategory(category: Category) {
+    if (!canManageMenu) return;
+
+    setCategoryBusy(true);
+    setCategoryMessage("");
+    try {
+      const response = await fetch(buildApiUrl(`/api/categories/${category.id}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ isActive: true }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await Promise.all([
+        loadCategories(),
+        loadCategoryManagementItems(categoryManagementStatusFilter),
+        loadMenu(),
+      ]);
+      setCategoryMessage("Category reactivated.");
+      if (editingCategoryId === category.id) resetCategoryForm();
+    } catch (categoryError) {
+      setCategoryMessage(
+        categoryError instanceof Error
+          ? categoryError.message
+          : "Category reactivate failed.",
       );
     } finally {
       setCategoryBusy(false);
@@ -2099,9 +2181,25 @@ export default function App() {
                   <span>{categoryMessage}</span>
                 </div>
               ) : null}
-              {categories.length === 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {(["active", "inactive", "all"] as const).map((status) => (
+                  <button
+                    key={status}
+                    className={`btn btn-sm ${
+                      categoryManagementStatusFilter === status
+                        ? "btn-primary"
+                        : "btn-outline"
+                    }`}
+                    onClick={() => setCategoryManagementStatusFilter(status)}
+                  >
+                    {status[0].toUpperCase()}
+                    {status.slice(1)}
+                  </button>
+                ))}
+              </div>
+              {categoryManagementItems.length === 0 ? (
                 <div className="alert alert-info">
-                  <span>No active categories.</span>
+                  <span>No categories match this filter.</span>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -2117,7 +2215,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {categories.map((category) => (
+                      {categoryManagementItems.map((category) => (
                         <tr key={category.id}>
                           <td>{category.name}</td>
                           <td>{category.slug}</td>
@@ -2132,15 +2230,27 @@ export default function App() {
                               >
                                 Edit
                               </button>
-                              <button
-                                className="btn btn-sm btn-error btn-outline"
-                                disabled={categoryBusy}
-                                onClick={() => {
-                                  void deactivateCategory(category);
-                                }}
-                              >
-                                Deactivate
-                              </button>
+                              {category.isActive ? (
+                                <button
+                                  className="btn btn-sm btn-error btn-outline"
+                                  disabled={categoryBusy}
+                                  onClick={() => {
+                                    void deactivateCategory(category);
+                                  }}
+                                >
+                                  Deactivate
+                                </button>
+                              ) : (
+                                <button
+                                  className="btn btn-sm btn-success btn-outline"
+                                  disabled={categoryBusy}
+                                  onClick={() => {
+                                    void reactivateCategory(category);
+                                  }}
+                                >
+                                  Reactivate
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>

@@ -11,6 +11,7 @@ import type {
 import {
   CategoryNotFoundError,
   CategorySlugConflictError,
+  type CategoryStatusFilter,
   type Store,
 } from "../Store.ts";
 
@@ -351,8 +352,12 @@ export class JsonFileStore implements Store {
     return removedMenuItem ?? null;
   }
 
-  getCategories(): ReadonlyArray<Category> {
-    return this.categories.filter((category) => category.isActive);
+  getCategories(input: { status?: CategoryStatusFilter } = {}): ReadonlyArray<Category> {
+    const status = input.status ?? "active";
+    if (status === "all") return this.categories;
+    return this.categories.filter((category) =>
+      status === "active" ? category.isActive : !category.isActive,
+    );
   }
 
   async createCategory(input: {

@@ -19,6 +19,7 @@ import {
 import {
   CategoryNotFoundError,
   CategorySlugConflictError,
+  type CategoryStatusFilter,
   type Store,
 } from "../Store.ts";
 
@@ -76,6 +77,7 @@ export class PgStore implements Store {
   private readonly dataFilePath: string;
   private menu: MenuItem[] = [];
   private categories: Category[] = [];
+  private allCategories: Category[] = [];
   private orders: Order[] = [];
 
   constructor(options: PgStoreOptions = {}) {
@@ -94,8 +96,12 @@ export class PgStore implements Store {
     return this.menu;
   }
 
-  getCategories(): ReadonlyArray<Category> {
-    return this.categories;
+  getCategories(input: { status?: CategoryStatusFilter } = {}): ReadonlyArray<Category> {
+    const status = input.status ?? "active";
+    if (status === "all") return this.allCategories;
+    return this.allCategories.filter((category) =>
+      status === "active" ? category.isActive : !category.isActive,
+    );
   }
 
   async createMenuItem(input: {
@@ -246,8 +252,16 @@ export class PgStore implements Store {
     if (!inserted) throw new Error("Failed to insert category");
 
     const created = this.toCategory(inserted);
-    this.categories.push(created);
-    this.categories.sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
+    this.allCategories.push(created);
+    this.allCategories.sort(
+      (a, b) => a.displayOrder - b.displayOrder || a.id - b.id,
+    );
+    if (created.isActive) {
+      this.categories.push(created);
+      this.categories.sort(
+        (a, b) => a.displayOrder - b.displayOrder || a.id - b.id,
+      );
+    }
     return created;
   }
 
@@ -786,7 +800,6 @@ export class PgStore implements Store {
     const categoryRows = await db
       .select()
       .from(categoriesTable)
-      .where(eq(categoriesTable.isActive, true))
       .orderBy(asc(categoriesTable.displayOrder), asc(categoriesTable.id));
 
     const menuRows = await db
@@ -826,7 +839,8 @@ export class PgStore implements Store {
       .from(orderItemsTable)
       .orderBy(asc(orderItemsTable.id));
 
-    this.categories = categoryRows.map((row) => this.toCategory(row));
+    this.allCategories = categoryRows.map((row) => this.toCategory(row));
+    this.categories = this.allCategories.filter((category) => category.isActive);
 
     const categoriesByMenuId = new Map<number, Category[]>();
     for (const row of menuCategoryRows) {

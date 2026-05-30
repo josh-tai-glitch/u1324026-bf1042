@@ -38,6 +38,8 @@ export type UpdateOrderStatusErrorCode =
   | "INVALID_STATUS_TRANSITION"
   | "ORDER_STATUS_LOCKED";
 
+export type CategoryStatusFilter = "active" | "inactive" | "all";
+
 export interface Store {
   init(): Promise<void>;
 
@@ -63,7 +65,9 @@ export interface Store {
   ): Promise<MenuItem | null>;
   deleteMenuItem(menuId: number): Promise<MenuItem | null>;
 
-  getCategories(): ReadonlyArray<Category>;
+  getCategories(input?: {
+    status?: CategoryStatusFilter;
+  }): ReadonlyArray<Category>;
   createCategory(input: {
     name: string;
     slug: string;

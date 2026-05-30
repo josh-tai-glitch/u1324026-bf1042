@@ -17,6 +17,7 @@ import {
   createRoleRequestBodySchema,
   currentUserResponseSchema,
   deleteMenuItemParamsSchema,
+  getCategoriesQuerySchema,
   getAdminRoleRequestsQuerySchema,
   getOrderByIdParamsSchema,
   healthResponseSchema,
@@ -260,11 +261,16 @@ app.post("/api/sign-out", async ({ request }) => {
 });
 
 // 菜單路由
-app.get("/api/categories", () => ({ data: [...store.getCategories()] }), {
+app.get("/api/categories", ({ query }) => {
+  const status =
+    (query as { status?: "active" | "inactive" | "all" }).status ?? "active";
+  return { data: [...store.getCategories({ status })] };
+}, {
+  query: getCategoriesQuerySchema,
   detail: {
     tags: ["categories"],
     summary: "List categories",
-    description: "Return all configured menu categories.",
+    description: "Return menu categories filtered by active state.",
   },
   response: {
     200: categoryListResponseSchema,

@@ -140,6 +140,10 @@ export const topItemsAnalyticsQuerySchema = z.object({
   limit: z.string().regex(/^[0-9]+$/).optional(),
 });
 
+export const getCategoriesQuerySchema = z.object({
+  status: z.enum(["active", "inactive", "all"]).default("active"),
+});
+
 /** /api/categories/:id */
 export const categoryParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import type {
   Category,
   MenuItem,
@@ -13,7 +13,7 @@ import {
   orderItemsTable,
   ordersTable,
 } from "../../db/schema.ts";
-import type { Store } from "../Store.ts";
+import { CategorySlugConflictError, type Store } from "../Store.ts";
 
 interface PgStoreOptions {
   dataFilePath?: string;
@@ -181,6 +181,16 @@ export class PgStore implements Store {
     displayOrder?: number;
     isActive?: boolean;
   }): Promise<Category> {
+    const [existing] = await db
+      .select({ id: categoriesTable.id })
+      .from(categoriesTable)
+      .where(eq(categoriesTable.slug, input.slug))
+      .limit(1);
+
+    if (existing) {
+      throw new CategorySlugConflictError();
+    }
+
     const [inserted] = await db
       .insert(categoriesTable)
       .values({
@@ -210,6 +220,23 @@ export class PgStore implements Store {
       isActive?: boolean;
     },
   ): Promise<Category | null> {
+    if (patch.slug !== undefined) {
+      const [existing] = await db
+        .select({ id: categoriesTable.id })
+        .from(categoriesTable)
+        .where(
+          and(
+            eq(categoriesTable.slug, patch.slug),
+            ne(categoriesTable.id, categoryId),
+          ),
+        )
+        .limit(1);
+
+      if (existing) {
+        throw new CategorySlugConflictError();
+      }
+    }
+
     const [updated] = await db
       .update(categoriesTable)
       .set({

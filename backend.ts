@@ -42,6 +42,7 @@ import {
 } from "./shared/route-schemas.ts";
 import type { Role, RoleRequest } from "./shared/contracts.ts";
 import { hasAnyRole, requireAnyRole, requireRole } from "./shared/guards.ts";
+import { CategorySlugConflictError } from "./store/Store.ts";
 import { createStore } from "./store/index.ts";
 import { auth, getCurrentUser } from "./auth/better-auth.ts";
 import { db } from "./db/client.ts";
@@ -238,7 +239,17 @@ app.post(
       displayOrder?: number;
       isActive?: boolean;
     };
-    const category = await store.createCategory(input);
+    let category;
+    try {
+      category = await store.createCategory(input);
+    } catch (error) {
+      if (error instanceof CategorySlugConflictError) {
+        set.status = 409;
+        return { error: "Category slug already exists" };
+      }
+      throw error;
+    }
+
     set.status = 201;
     return { data: category };
   },
@@ -253,6 +264,7 @@ app.post(
       201: categoryResponseSchema,
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
+      409: apiErrorResponseSchema,
     },
   },
 );
@@ -271,7 +283,16 @@ app.patch(
       displayOrder?: number;
       isActive?: boolean;
     };
-    const category = await store.updateCategory(categoryId, patch);
+    let category;
+    try {
+      category = await store.updateCategory(categoryId, patch);
+    } catch (error) {
+      if (error instanceof CategorySlugConflictError) {
+        set.status = 409;
+        return { error: "Category slug already exists" };
+      }
+      throw error;
+    }
 
     if (!category) {
       set.status = 404;
@@ -293,6 +314,7 @@ app.patch(
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
+      409: apiErrorResponseSchema,
     },
   },
 );

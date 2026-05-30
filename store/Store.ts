@@ -1,5 +1,12 @@
 import type { Category, MenuItem, Order } from "../shared/contracts.ts";
 
+export class CategorySlugConflictError extends Error {
+  constructor() {
+    super("Category slug already exists");
+    this.name = "CategorySlugConflictError";
+  }
+}
+
 export type UpdateOrderItemErrorCode =
   | "ORDER_NOT_FOUND"
   | "MENU_ITEM_NOT_FOUND"

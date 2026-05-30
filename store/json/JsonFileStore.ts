@@ -5,7 +5,7 @@ import type {
   Order,
   OrderItem,
 } from "../../shared/contracts.ts";
-import type { Store } from "../Store.ts";
+import { CategorySlugConflictError, type Store } from "../Store.ts";
 
 interface StoredUser {
   id: string;
@@ -294,6 +294,10 @@ export class JsonFileStore implements Store {
     displayOrder?: number;
     isActive?: boolean;
   }): Promise<Category> {
+    if (this.categories.some((category) => category.slug === input.slug)) {
+      throw new CategorySlugConflictError();
+    }
+
     const now = new Date().toISOString();
     const nextId =
       this.categories.reduce((max, category) => Math.max(max, category.id), 0) +
@@ -327,6 +331,14 @@ export class JsonFileStore implements Store {
   ): Promise<Category | null> {
     const category = this.categories.find((item) => item.id === categoryId);
     if (!category) return null;
+    if (
+      patch.slug !== undefined &&
+      this.categories.some(
+        (item) => item.id !== categoryId && item.slug === patch.slug,
+      )
+    ) {
+      throw new CategorySlugConflictError();
+    }
 
     category.name = patch.name ?? category.name;
     category.slug = patch.slug ?? category.slug;

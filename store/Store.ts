@@ -56,6 +56,11 @@ export type UpdateOrderIssueErrorCode =
   | "ORDER_NOT_FOUND"
   | "ORDER_ISSUE_NOT_EDITABLE";
 
+export type UpdateOrderRatingErrorCode =
+  | "ORDER_NOT_FOUND"
+  | "ORDER_NOT_OWNED"
+  | "ORDER_NOT_COMPLETED";
+
 export type CreateWalkInOrderErrorCode =
   | "EMPTY_ORDER"
   | "MENU_ITEM_NOT_FOUND";
@@ -203,6 +208,17 @@ export interface Store {
   ): Promise<
     | { ok: true; order: Order }
     | { ok: false; code: UpdateOrderIssueErrorCode }
+  >;
+  updateOrderRating(
+    orderId: number,
+    input: {
+      userId: string;
+      rating: number;
+      ratingComment?: string | null;
+    },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: UpdateOrderRatingErrorCode }
   >;
 
   getCategorySalesAnalytics(): ReadonlyArray<CategorySales>;

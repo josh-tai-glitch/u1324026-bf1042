@@ -95,6 +95,9 @@ export const ordersTable = appSchema.table("orders", {
   issueNote: text("issue_note"),
   issueReportedBy: text("issue_reported_by").references(() => user.id),
   issueReportedAt: timestamp("issue_reported_at", { withTimezone: true }),
+  rating: integer("rating"),
+  ratingComment: text("rating_comment"),
+  ratedAt: timestamp("rated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
 });

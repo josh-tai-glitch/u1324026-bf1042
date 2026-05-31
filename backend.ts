@@ -47,6 +47,8 @@ import {
   updateOrderBodySchema,
   updateOrderPaymentBodySchema,
   updateOrderPaymentParamsSchema,
+  updateOrderRatingBodySchema,
+  updateOrderRatingParamsSchema,
   updateOrderParamsSchema,
   updateOrderStatusBodySchema,
   updateOrderStatusParamsSchema,
@@ -1152,6 +1154,60 @@ app.delete(
       tags: ["orders"],
       summary: "Clear order issue",
       description: "Clear an internal order issue from the counter.",
+    },
+    response: {
+      200: orderResponseEnvelopeSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+      409: apiErrorResponseSchema,
+      500: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.patch(
+  "/api/orders/:id/rating",
+  async ({ params, body, request, set }) => {
+    const user = await requireUser(request);
+    const orderId = parseInt(params.id, 10);
+    const input = body as {
+      rating: number;
+      ratingComment?: string | null;
+    };
+
+    const result = await store.updateOrderRating(orderId, {
+      userId: user.id,
+      rating: input.rating,
+      ratingComment: input.ratingComment ?? null,
+    });
+
+    if (result.ok === false) {
+      switch (result.code) {
+        case "ORDER_NOT_FOUND":
+          set.status = 404;
+          return { error: "Order not found" };
+        case "ORDER_NOT_OWNED":
+          set.status = 403;
+          return { error: "Forbidden" };
+        case "ORDER_NOT_COMPLETED":
+          set.status = 409;
+          return { error: "Order is not completed" };
+        default:
+          set.status = 500;
+          return { error: "Unexpected store state" };
+      }
+    }
+
+    return { data: toVisibleOrderResponse(result.order, user) };
+  },
+  {
+    params: updateOrderRatingParamsSchema,
+    body: updateOrderRatingBodySchema,
+    detail: {
+      tags: ["orders"],
+      summary: "Update order rating",
+      description: "Save or update a customer rating for a completed order.",
     },
     response: {
       200: orderResponseEnvelopeSchema,

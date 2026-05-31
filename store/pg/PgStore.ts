@@ -517,6 +517,9 @@ export class PgStore implements Store {
       issueNote: null,
       issueReportedBy: null,
       issueReportedAt: null,
+      rating: null,
+      ratingComment: null,
+      ratedAt: null,
       createdAt:
         inserted.createdAt instanceof Date
           ? inserted.createdAt.toISOString()
@@ -612,6 +615,9 @@ export class PgStore implements Store {
       issueNote: null,
       issueReportedBy: null,
       issueReportedAt: null,
+      rating: null,
+      ratingComment: null,
+      ratedAt: null,
       createdAt: submittedAt,
       submittedAt,
     };
@@ -930,6 +936,48 @@ export class PgStore implements Store {
     return { ok: true, order };
   }
 
+  async updateOrderRating(
+    orderId: number,
+    input: {
+      userId: string;
+      rating: number;
+      ratingComment?: string | null;
+    },
+  ): Promise<
+    | { ok: true; order: Order }
+    | {
+        ok: false;
+        code: "ORDER_NOT_FOUND" | "ORDER_NOT_OWNED" | "ORDER_NOT_COMPLETED";
+      }
+  > {
+    const order = this.orders.find((item) => item.id === orderId);
+    if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+    if (order.userId !== input.userId) {
+      return { ok: false, code: "ORDER_NOT_OWNED" };
+    }
+    if (order.status !== "completed") {
+      return { ok: false, code: "ORDER_NOT_COMPLETED" };
+    }
+
+    const safeRating = Math.max(1, Math.min(5, Math.trunc(input.rating)));
+    const ratingComment = input.ratingComment?.trim() || null;
+    const ratedAt = new Date();
+
+    await db
+      .update(ordersTable)
+      .set({
+        rating: safeRating,
+        ratingComment,
+        ratedAt,
+      })
+      .where(eq(ordersTable.id, orderId));
+
+    order.rating = safeRating;
+    order.ratingComment = ratingComment;
+    order.ratedAt = ratedAt.toISOString();
+    return { ok: true, order };
+  }
+
   getCategorySalesAnalytics(): ReadonlyArray<CategorySales> {
     const salesByCategory = new Map<
       string,
@@ -1210,6 +1258,16 @@ export class PgStore implements Store {
         ? row.issueReportedAt instanceof Date
           ? row.issueReportedAt.toISOString()
           : new Date(row.issueReportedAt).toISOString()
+        : null,
+      rating:
+        typeof row.rating === "number" && row.rating >= 1 && row.rating <= 5
+          ? row.rating
+          : null,
+      ratingComment: row.ratingComment ?? null,
+      ratedAt: row.ratedAt
+        ? row.ratedAt instanceof Date
+          ? row.ratedAt.toISOString()
+          : new Date(row.ratedAt).toISOString()
         : null,
       createdAt:
         row.createdAt instanceof Date

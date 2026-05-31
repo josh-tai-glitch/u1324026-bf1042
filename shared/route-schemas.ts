@@ -122,6 +122,16 @@ export const clearOrderIssueParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),
 });
 
+/** PATCH /api/orders/:id/rating */
+export const updateOrderRatingParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
+export const updateOrderRatingBodySchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  ratingComment: z.string().max(500).optional().nullable(),
+});
+
 /** PATCH /api/orders/:id/payment */
 export const updateOrderPaymentParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),

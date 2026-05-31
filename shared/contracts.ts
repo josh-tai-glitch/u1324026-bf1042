@@ -122,6 +122,9 @@ export const orderSchema = z.object({
   issueNote: z.string().nullable().default(null),
   issueReportedBy: z.string().nullable().default(null),
   issueReportedAt: z.string().nullable().default(null),
+  rating: z.number().int().min(1).max(5).nullable().default(null),
+  ratingComment: z.string().nullable().default(null),
+  ratedAt: z.string().nullable().default(null),
   createdAt: z.string().min(1),
   submittedAt: z.string().min(1).optional(),
 });

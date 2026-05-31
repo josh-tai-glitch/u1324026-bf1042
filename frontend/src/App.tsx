@@ -75,6 +75,7 @@ type CheckoutForm = typeof emptyCheckoutForm;
 type WalkInOrderForm = typeof emptyWalkInOrderForm;
 type WalkInOrderItem = { itemId: number; qty: number };
 type OrderIssueDraft = { issueType: OrderIssueType; issueNote: string };
+type OrderRatingDraft = { rating: string; ratingComment: string };
 type ApiErrorPayload = { error?: string; message?: string };
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
 type ManagerTab = "orders" | "analytics" | "menu" | "categories" | "roleRequests";
@@ -172,12 +173,18 @@ export default function App() {
   const [issueUpdatingOrderId, setIssueUpdatingOrderId] = useState<
     number | null
   >(null);
+  const [ratingUpdatingOrderId, setRatingUpdatingOrderId] = useState<
+    number | null
+  >(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [orderStatusDrafts, setOrderStatusDrafts] = useState<
     Record<number, OrderStatus>
   >({});
   const [issueDrafts, setIssueDrafts] = useState<
     Record<number, OrderIssueDraft>
+  >({});
+  const [ratingDrafts, setRatingDrafts] = useState<
+    Record<number, OrderRatingDraft>
   >({});
   const [orderStatusFilter, setOrderStatusFilter] =
     useState<OrderBoardFilter>("active");
@@ -246,6 +253,7 @@ export default function App() {
   const completedOrders = historyOrders.filter(
     (order) => order.status === "completed",
   ).length;
+  const ratedOrders = historyOrders.filter((order) => order.rating !== null);
   const filteredBoardOrders = useMemo(() => {
     if (orderStatusFilter === "all") {
       return historyOrders;
@@ -1278,6 +1286,68 @@ export default function App() {
       );
     } finally {
       setIssueUpdatingOrderId(null);
+    }
+  }
+
+  async function updateOrderRating(targetOrderId: number): Promise<void> {
+    const draft = ratingDrafts[targetOrderId] ?? {
+      rating: "",
+      ratingComment: "",
+    };
+    const rating = Number(draft.rating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      setStatusMessage("Choose a rating from 1 to 5.");
+      return;
+    }
+
+    setRatingUpdatingOrderId(targetOrderId);
+    setStatusMessage("");
+
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/orders/${targetOrderId}/rating`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            rating,
+            ratingComment: draft.ratingComment.trim() || null,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<Order>;
+      const updatedOrder = payload?.data;
+      if (!updatedOrder) {
+        throw new Error("Update rating failed: invalid payload");
+      }
+
+      setHistoryOrders((currentOrders) =>
+        currentOrders.map((order) =>
+          order.id === updatedOrder.id ? updatedOrder : order,
+        ),
+      );
+      setRatingDrafts((currentDrafts) => ({
+        ...currentDrafts,
+        [updatedOrder.id]: {
+          rating: String(updatedOrder.rating ?? rating),
+          ratingComment: updatedOrder.ratingComment ?? "",
+        },
+      }));
+      setStatusMessage(`Order #${updatedOrder.id} rating saved.`);
+    } catch (ratingError) {
+      setStatusMessage(
+        ratingError instanceof Error
+          ? ratingError.message
+          : "Unable to update rating.",
+      );
+    } finally {
+      setRatingUpdatingOrderId(null);
     }
   }
 
@@ -2854,6 +2924,45 @@ export default function App() {
                   )}
                 </div>
               </div>
+              <div className="mt-4">
+                <h3 className="font-semibold mb-2">Customer ratings</h3>
+                {ratedOrders.length === 0 ? (
+                  <div className="alert">
+                    <span>No ratings yet.</span>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Pickup</th>
+                          <th>Order</th>
+                          <th>Rating</th>
+                          <th>Comment</th>
+                          <th>Rated at</th>
+                          <th>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ratedOrders.map((order) => (
+                          <tr key={order.id}>
+                            <td>{formatPickupNumber(order.id)}</td>
+                            <td>#{order.id}</td>
+                            <td>{order.rating}/5</td>
+                            <td>{order.ratingComment || "-"}</td>
+                            <td>
+                              {order.ratedAt
+                                ? formatCheckoutDateTime(order.ratedAt)
+                                : "-"}
+                            </td>
+                            <td>${order.total}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           </section>
         ) : null}
@@ -3298,6 +3407,10 @@ export default function App() {
                       : allowedStatuses[0];
                   const canCancelOwnOrder =
                     order.status === "submitted" && order.userId === user.id;
+                  const ratingDraft = ratingDrafts[order.id] ?? {
+                    rating: order.rating ? String(order.rating) : "",
+                    ratingComment: order.ratingComment ?? "",
+                  };
 
                   return (
                     <article
@@ -3417,6 +3530,73 @@ export default function App() {
                             </li>
                           ))}
                         </ul>
+                        {order.status === "completed" ? (
+                          <div className="rounded-box border border-base-300 bg-base-200 p-3">
+                            <div className="mb-2 text-sm font-semibold">
+                              Your rating
+                            </div>
+                            {order.rating ? (
+                              <p className="mb-2 text-sm">
+                                Current rating: {order.rating}/5
+                                {order.ratingComment
+                                  ? ` - ${order.ratingComment}`
+                                  : ""}
+                                {order.ratedAt
+                                  ? ` (${formatCheckoutDateTime(order.ratedAt)})`
+                                  : ""}
+                              </p>
+                            ) : null}
+                            <div className="grid grid-cols-1 gap-2 md:grid-cols-[140px_1fr_auto]">
+                              <select
+                                className="select select-sm select-bordered"
+                                value={ratingDraft.rating}
+                                disabled={ratingUpdatingOrderId === order.id}
+                                onChange={(event) => {
+                                  setRatingDrafts((currentDrafts) => ({
+                                    ...currentDrafts,
+                                    [order.id]: {
+                                      ...ratingDraft,
+                                      rating: event.target.value,
+                                    },
+                                  }));
+                                }}
+                              >
+                                <option value="">Rating</option>
+                                {[1, 2, 3, 4, 5].map((rating) => (
+                                  <option key={rating} value={rating}>
+                                    {rating}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                className="input input-sm input-bordered"
+                                placeholder="Optional comment"
+                                value={ratingDraft.ratingComment}
+                                disabled={ratingUpdatingOrderId === order.id}
+                                onChange={(event) => {
+                                  setRatingDrafts((currentDrafts) => ({
+                                    ...currentDrafts,
+                                    [order.id]: {
+                                      ...ratingDraft,
+                                      ratingComment: event.target.value,
+                                    },
+                                  }));
+                                }}
+                              />
+                              <button
+                                className="btn btn-sm btn-primary"
+                                disabled={ratingUpdatingOrderId === order.id}
+                                onClick={() => {
+                                  void updateOrderRating(order.id);
+                                }}
+                              >
+                                {ratingUpdatingOrderId === order.id
+                                  ? "Saving..."
+                                  : "Save rating"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                         <p className="font-bold text-right">${order.total}</p>
                       </div>
                     </article>

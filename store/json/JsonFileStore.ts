@@ -282,6 +282,14 @@ export class JsonFileStore implements Store {
           issueNote: order.issueNote ?? null,
           issueReportedBy: order.issueReportedBy ?? null,
           issueReportedAt: order.issueReportedAt ?? null,
+          rating:
+            typeof order.rating === "number" &&
+            order.rating >= 1 &&
+            order.rating <= 5
+              ? order.rating
+              : null,
+          ratingComment: order.ratingComment ?? null,
+          ratedAt: order.ratedAt ?? null,
           submittedAt: order.status === "pending" ? undefined : order.submittedAt,
         })),
         userIdCounter: parsed.userIdCounter ?? 0,
@@ -593,6 +601,9 @@ export class JsonFileStore implements Store {
       issueNote: null,
       issueReportedBy: null,
       issueReportedAt: null,
+      rating: null,
+      ratingComment: null,
+      ratedAt: null,
       createdAt: new Date().toISOString(),
     };
 
@@ -648,6 +659,9 @@ export class JsonFileStore implements Store {
       issueNote: null,
       issueReportedBy: null,
       issueReportedAt: null,
+      rating: null,
+      ratingComment: null,
+      ratedAt: null,
       createdAt: submittedAt,
       submittedAt,
     };
@@ -906,6 +920,36 @@ export class JsonFileStore implements Store {
     order.issueNote = null;
     order.issueReportedBy = null;
     order.issueReportedAt = null;
+    await this.persist();
+    return { ok: true, order };
+  }
+
+  async updateOrderRating(
+    orderId: number,
+    input: {
+      userId: string;
+      rating: number;
+      ratingComment?: string | null;
+    },
+  ): Promise<
+    | { ok: true; order: Order }
+    | {
+        ok: false;
+        code: "ORDER_NOT_FOUND" | "ORDER_NOT_OWNED" | "ORDER_NOT_COMPLETED";
+      }
+  > {
+    const order = this.orders.find((targetOrder) => targetOrder.id === orderId);
+    if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+    if (order.userId !== input.userId) {
+      return { ok: false, code: "ORDER_NOT_OWNED" };
+    }
+    if (order.status !== "completed") {
+      return { ok: false, code: "ORDER_NOT_COMPLETED" };
+    }
+
+    order.rating = Math.max(1, Math.min(5, Math.trunc(input.rating)));
+    order.ratingComment = input.ratingComment?.trim() || null;
+    order.ratedAt = new Date().toISOString();
     await this.persist();
     return { ok: true, order };
   }

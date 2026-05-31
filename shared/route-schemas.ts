@@ -101,6 +101,11 @@ export const updateOrderStatusBodySchema = z.object({
   status: orderStatusSchema,
 });
 
+/** PATCH /api/orders/:id/cancel */
+export const cancelOrderParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
 /** PATCH /api/orders/:id/payment */
 export const updateOrderPaymentParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),

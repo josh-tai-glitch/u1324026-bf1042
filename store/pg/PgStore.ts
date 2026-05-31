@@ -63,6 +63,7 @@ const validOrderStatuses = [
   "preparing",
   "ready",
   "completed",
+  "cancelled",
 ] satisfies OrderStatus[];
 
 const revenueOrderStatuses = [
@@ -70,6 +71,14 @@ const revenueOrderStatuses = [
   "preparing",
   "ready",
   "completed",
+] satisfies OrderStatus[];
+
+const visibleOrderHistoryStatuses = [
+  "submitted",
+  "preparing",
+  "ready",
+  "completed",
+  "cancelled",
 ] satisfies OrderStatus[];
 
 const nextOrderStatusByStatus: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -451,7 +460,8 @@ export class PgStore implements Store {
   getOrderHistoryByUserId(userId: string): ReadonlyArray<Order> {
     return this.orders
       .filter(
-        (o) => o.userId === userId && revenueOrderStatuses.includes(o.status),
+        (o) =>
+          o.userId === userId && visibleOrderHistoryStatuses.includes(o.status),
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
@@ -776,6 +786,53 @@ export class PgStore implements Store {
       .where(eq(ordersTable.id, orderId));
 
     order.paymentStatus = input.paymentStatus;
+    return { ok: true, order };
+  }
+
+  async cancelOrder(
+    orderId: number,
+    input: { userId: string; allowManagerCancel?: boolean },
+  ): Promise<
+    | { ok: true; order: Order }
+    | {
+        ok: false;
+        code:
+          | "ORDER_NOT_FOUND"
+          | "ORDER_NOT_OWNED"
+          | "ORDER_NOT_CANCELLABLE"
+          | "ORDER_ALREADY_CANCELLED";
+      }
+  > {
+    const order = this.orders.find((item) => item.id === orderId);
+    if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+    if (order.status === "cancelled") {
+      return { ok: false, code: "ORDER_ALREADY_CANCELLED" };
+    }
+    if (order.status === "pending" || order.status === "completed") {
+      return { ok: false, code: "ORDER_NOT_CANCELLABLE" };
+    }
+
+    if (!input.allowManagerCancel) {
+      if (order.userId !== input.userId) {
+        return { ok: false, code: "ORDER_NOT_OWNED" };
+      }
+      if (order.status !== "submitted") {
+        return { ok: false, code: "ORDER_NOT_CANCELLABLE" };
+      }
+    } else if (
+      order.status !== "submitted" &&
+      order.status !== "preparing" &&
+      order.status !== "ready"
+    ) {
+      return { ok: false, code: "ORDER_NOT_CANCELLABLE" };
+    }
+
+    await db
+      .update(ordersTable)
+      .set({ status: "cancelled" })
+      .where(eq(ordersTable.id, orderId));
+
+    order.status = "cancelled";
     return { ok: true, order };
   }
 

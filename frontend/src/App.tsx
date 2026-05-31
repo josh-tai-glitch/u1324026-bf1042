@@ -30,6 +30,7 @@ const orderBoardFilters = [
   { id: "preparing", label: "Preparing" },
   { id: "ready", label: "Ready" },
   { id: "completed", label: "Completed" },
+  { id: "cancelled", label: "Cancelled" },
   { id: "all", label: "All" },
 ] as const;
 const emptyMenuForm = {
@@ -157,6 +158,9 @@ export default function App() {
   const [paymentUpdatingOrderId, setPaymentUpdatingOrderId] = useState<
     number | null
   >(null);
+  const [cancelUpdatingOrderId, setCancelUpdatingOrderId] = useState<
+    number | null
+  >(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [orderStatusDrafts, setOrderStatusDrafts] = useState<
     Record<number, OrderStatus>
@@ -206,6 +210,7 @@ export default function App() {
   const canManageMenu = hasAnyRole(["owner", "admin"]);
   const canViewAllOrders = hasAnyRole(["staff", "chef", "owner", "admin"]);
   const canUpdatePaymentStatus = hasAnyRole(["staff", "owner", "admin"]);
+  const canCancelManagerOrder = canUpdatePaymentStatus;
   const canCreateWalkInOrder = canUpdatePaymentStatus;
   const isAdmin = hasRole("admin");
   const managerTabs = [
@@ -291,6 +296,8 @@ export default function App() {
         return "badge-primary";
       case "completed":
         return "badge-success";
+      case "cancelled":
+        return "badge-error";
       default:
         return "badge-neutral";
     }
@@ -1038,6 +1045,50 @@ export default function App() {
       );
     } finally {
       setPaymentUpdatingOrderId(null);
+    }
+  }
+
+  async function cancelOrder(targetOrderId: number): Promise<void> {
+    setCancelUpdatingOrderId(targetOrderId);
+    setStatusMessage("");
+
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/orders/${targetOrderId}/cancel`),
+        {
+          method: "PATCH",
+          credentials: "include",
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<Order>;
+      const updatedOrder = payload?.data;
+      if (!updatedOrder) {
+        throw new Error("Cancel order failed: invalid payload");
+      }
+
+      setHistoryOrders((currentOrders) =>
+        currentOrders.map((order) =>
+          order.id === updatedOrder.id ? updatedOrder : order,
+        ),
+      );
+      setStatusMessage(`Order #${updatedOrder.id} cancelled.`);
+
+      if (canManageMenu) {
+        await loadAnalytics();
+      }
+    } catch (cancelError) {
+      setStatusMessage(
+        cancelError instanceof Error
+          ? cancelError.message
+          : "Unable to cancel order.",
+      );
+    } finally {
+      setCancelUpdatingOrderId(null);
     }
   }
 
@@ -2044,6 +2095,11 @@ export default function App() {
                         draftedStatus && allowedStatuses.includes(draftedStatus)
                           ? draftedStatus
                           : allowedStatuses[0];
+                      const canCancelThisOrder =
+                        canCancelManagerOrder &&
+                        (order.status === "submitted" ||
+                          order.status === "preparing" ||
+                          order.status === "ready");
 
                       return (
                         <article
@@ -2064,6 +2120,21 @@ export default function App() {
                                 <span className="badge badge-error">
                                   Urgent {orderAgeMinutes}m
                                 </span>
+                              ) : null}
+                              {canCancelThisOrder ? (
+                                <button
+                                  className="btn btn-sm btn-error btn-outline"
+                                  disabled={
+                                    cancelUpdatingOrderId === order.id
+                                  }
+                                  onClick={() => {
+                                    void cancelOrder(order.id);
+                                  }}
+                                >
+                                  {cancelUpdatingOrderId === order.id
+                                    ? "Cancelling..."
+                                    : "Void order"}
+                                </button>
                               ) : null}
                               {primaryAction ? (
                                 <button
@@ -2914,6 +2985,8 @@ export default function App() {
                     draftedStatus && allowedStatuses.includes(draftedStatus)
                       ? draftedStatus
                       : allowedStatuses[0];
+                  const canCancelOwnOrder =
+                    order.status === "submitted" && order.userId === user.id;
 
                   return (
                     <article
@@ -2931,6 +3004,19 @@ export default function App() {
                             >
                               {order.status}
                             </span>
+                            {canCancelOwnOrder ? (
+                              <button
+                                className="btn btn-sm btn-error btn-outline"
+                                disabled={cancelUpdatingOrderId === order.id}
+                                onClick={() => {
+                                  void cancelOrder(order.id);
+                                }}
+                              >
+                                {cancelUpdatingOrderId === order.id
+                                  ? "Cancelling..."
+                                  : "Cancel order"}
+                              </button>
+                            ) : null}
                             {allowedStatuses.length > 0 ? (
                               <div className="join">
                                 <select

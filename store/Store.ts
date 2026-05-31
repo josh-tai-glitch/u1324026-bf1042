@@ -45,6 +45,12 @@ export type UpdateOrderPaymentStatusErrorCode =
   | "ORDER_NOT_FOUND"
   | "ORDER_NOT_SUBMITTED";
 
+export type CancelOrderErrorCode =
+  | "ORDER_NOT_FOUND"
+  | "ORDER_NOT_OWNED"
+  | "ORDER_NOT_CANCELLABLE"
+  | "ORDER_ALREADY_CANCELLED";
+
 export type CreateWalkInOrderErrorCode =
   | "EMPTY_ORDER"
   | "MENU_ITEM_NOT_FOUND";
@@ -163,6 +169,16 @@ export interface Store {
   ): Promise<
     | { ok: true; order: Order }
     | { ok: false; code: UpdateOrderPaymentStatusErrorCode }
+  >;
+  cancelOrder(
+    orderId: number,
+    input: {
+      userId: string;
+      allowManagerCancel?: boolean;
+    },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: CancelOrderErrorCode }
   >;
 
   getCategorySalesAnalytics(): ReadonlyArray<CategorySales>;

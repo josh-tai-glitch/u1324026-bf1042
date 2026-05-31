@@ -8,6 +8,7 @@ import {
   apiErrorResponseSchema,
   assignMenuItemCategoryBodySchema,
   assignMenuItemCategoryParamsSchema,
+  cancelOrderParamsSchema,
   categoryListResponseSchema,
   categoryParamsSchema,
   categoryResponseSchema,
@@ -75,6 +76,7 @@ const orderEditorRoles = ["staff", "owner", "admin"] satisfies Role[];
 const statusUpdaterRoles = ["staff", "chef", "owner", "admin"] satisfies Role[];
 const paymentUpdaterRoles = ["staff", "owner", "admin"] satisfies Role[];
 const walkInOrderRoles = ["staff", "owner", "admin"] satisfies Role[];
+const orderCancelManagerRoles = ["staff", "owner", "admin"] satisfies Role[];
 const nextOrderStatusByStatus: Partial<Record<OrderStatus, OrderStatus>> = {
   submitted: "preparing",
   preparing: "ready",
@@ -892,6 +894,11 @@ app.patch(
     const input = body as { status: OrderStatus };
     const allowAnyTransition = hasAnyRole(user, menuManagerRoles);
 
+    if (input.status === "cancelled") {
+      set.status = 409;
+      return { error: "Use the cancel order endpoint" };
+    }
+
     if (!allowAnyTransition && !hasAnyRole(user, statusUpdaterRoles)) {
       set.status = 403;
       return { error: "Forbidden" };
@@ -937,6 +944,70 @@ app.patch(
       tags: ["orders"],
       summary: "Update order status",
       description: "Move a submitted order through kitchen and pickup states.",
+    },
+    response: {
+      200: orderResponseEnvelopeSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+      409: apiErrorResponseSchema,
+      500: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.patch(
+  "/api/orders/:id/cancel",
+  async ({ params, request, set }) => {
+    const user = await requireUser(request);
+    const orderId = parseInt(params.id, 10);
+    const order = store.getOrderById(orderId);
+
+    if (!order) {
+      set.status = 404;
+      return { error: "Order not found" };
+    }
+
+    const allowManagerCancel = hasAnyRole(user, orderCancelManagerRoles);
+    if (!allowManagerCancel && user.roles.includes("chef")) {
+      set.status = 403;
+      return { error: "Forbidden" };
+    }
+
+    const result = await store.cancelOrder(orderId, {
+      userId: user.id,
+      allowManagerCancel,
+    });
+
+    if (result.ok === false) {
+      switch (result.code) {
+        case "ORDER_NOT_FOUND":
+          set.status = 404;
+          return { error: "Order not found" };
+        case "ORDER_NOT_OWNED":
+          set.status = 403;
+          return { error: "Forbidden" };
+        case "ORDER_NOT_CANCELLABLE":
+          set.status = 409;
+          return { error: "Order cannot be cancelled" };
+        case "ORDER_ALREADY_CANCELLED":
+          set.status = 409;
+          return { error: "Order already cancelled" };
+        default:
+          set.status = 500;
+          return { error: "Unexpected store state" };
+      }
+    }
+
+    return { data: toOrderResponse(result.order) };
+  },
+  {
+    params: cancelOrderParamsSchema,
+    detail: {
+      tags: ["orders"],
+      summary: "Cancel order",
+      description:
+        "Cancel a submitted order by the customer, or void an active order from the counter.",
     },
     response: {
       200: orderResponseEnvelopeSchema,

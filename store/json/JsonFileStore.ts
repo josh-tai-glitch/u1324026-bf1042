@@ -90,6 +90,7 @@ const validOrderStatuses = [
   "preparing",
   "ready",
   "completed",
+  "cancelled",
 ] satisfies OrderStatus[];
 
 const revenueOrderStatuses = [
@@ -97,6 +98,14 @@ const revenueOrderStatuses = [
   "preparing",
   "ready",
   "completed",
+] satisfies OrderStatus[];
+
+const visibleOrderHistoryStatuses = [
+  "submitted",
+  "preparing",
+  "ready",
+  "completed",
+  "cancelled",
 ] satisfies OrderStatus[];
 
 const nextOrderStatusByStatus: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -536,7 +545,8 @@ export class JsonFileStore implements Store {
     return this.orders
       .filter(
         (order) =>
-          order.userId === userId && revenueOrderStatuses.includes(order.status),
+          order.userId === userId &&
+          visibleOrderHistoryStatuses.includes(order.status),
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
@@ -780,6 +790,49 @@ export class JsonFileStore implements Store {
     }
 
     order.paymentStatus = input.paymentStatus;
+    await this.persist();
+    return { ok: true, order };
+  }
+
+  async cancelOrder(
+    orderId: number,
+    input: { userId: string; allowManagerCancel?: boolean },
+  ): Promise<
+    | { ok: true; order: Order }
+    | {
+        ok: false;
+        code:
+          | "ORDER_NOT_FOUND"
+          | "ORDER_NOT_OWNED"
+          | "ORDER_NOT_CANCELLABLE"
+          | "ORDER_ALREADY_CANCELLED";
+      }
+  > {
+    const order = this.orders.find((targetOrder) => targetOrder.id === orderId);
+    if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+    if (order.status === "cancelled") {
+      return { ok: false, code: "ORDER_ALREADY_CANCELLED" };
+    }
+    if (order.status === "pending" || order.status === "completed") {
+      return { ok: false, code: "ORDER_NOT_CANCELLABLE" };
+    }
+
+    if (!input.allowManagerCancel) {
+      if (order.userId !== input.userId) {
+        return { ok: false, code: "ORDER_NOT_OWNED" };
+      }
+      if (order.status !== "submitted") {
+        return { ok: false, code: "ORDER_NOT_CANCELLABLE" };
+      }
+    } else if (
+      order.status !== "submitted" &&
+      order.status !== "preparing" &&
+      order.status !== "ready"
+    ) {
+      return { ok: false, code: "ORDER_NOT_CANCELLABLE" };
+    }
+
+    order.status = "cancelled";
     await this.persist();
     return { ok: true, order };
   }

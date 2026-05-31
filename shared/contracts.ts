@@ -90,6 +90,7 @@ export const orderStatusSchema = z.enum([
   "preparing",
   "ready",
   "completed",
+  "cancelled",
 ]);
 
 export const fulfillmentTypeSchema = z.enum(["dine_in", "takeout"]);

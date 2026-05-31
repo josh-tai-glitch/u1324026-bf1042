@@ -317,6 +317,79 @@ export default function App() {
     return `#${String(orderId).padStart(4, "0")}`;
   }
 
+  function formatReceiptText(order: Order): string {
+    const lines = [
+      "Breakfast Shop Receipt",
+      "======================",
+      `Pickup number: ${formatPickupNumber(order.id)}`,
+      `Order ID: ${order.id}`,
+      `Source: ${order.orderSource}`,
+    ];
+
+    if (order.guestName) {
+      lines.push(`Guest name: ${order.guestName}`);
+    }
+
+    lines.push(
+      `Status: ${order.status}`,
+      `Fulfillment: ${order.fulfillmentType}`,
+    );
+
+    if (order.pickupTime) {
+      lines.push(`Pickup time: ${formatCheckoutDateTime(order.pickupTime)}`);
+    }
+
+    lines.push(
+      `Payment: ${order.paymentMethod} / ${order.paymentStatus}`,
+    );
+
+    if (order.customerNote) {
+      lines.push(`Note: ${order.customerNote}`);
+    }
+
+    lines.push("", "Items:");
+    for (const detail of order.items) {
+      lines.push(
+        `${detail.item.name} x ${detail.qty} = $${
+          detail.item.price * detail.qty
+        }`,
+      );
+    }
+
+    lines.push("", `Total: $${order.total}`);
+    return lines.join("\n");
+  }
+
+  function printReceipt(order: Order): void {
+    const receiptText = formatReceiptText(order);
+    const printWindow = window.open("", "_blank", "width=420,height=640");
+
+    if (!printWindow) {
+      setStatusMessage("Unable to open print window.");
+      return;
+    }
+
+    printWindow.document.write(`<!doctype html>
+<html>
+<head>
+  <title>Receipt ${formatPickupNumber(order.id)}</title>
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 16px; }
+    pre { white-space: pre-wrap; font-size: 14px; line-height: 1.45; }
+  </style>
+</head>
+<body>
+  <pre>${receiptText
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")}</pre>
+</body>
+</html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }
+
   function getOrderAgeMinutes(order: Order): number {
     const date = new Date(order.submittedAt ?? order.createdAt);
     if (Number.isNaN(date.getTime())) return 0;
@@ -2136,6 +2209,14 @@ export default function App() {
                                 <span className="badge badge-primary">
                                   Ready for pickup
                                 </span>
+                              ) : null}
+                              {canUpdatePaymentStatus ? (
+                                <button
+                                  className="btn btn-sm btn-outline"
+                                  onClick={() => printReceipt(order)}
+                                >
+                                  Print receipt
+                                </button>
                               ) : null}
                               {canCancelThisOrder ? (
                                 <button

@@ -97,6 +97,12 @@ export const fulfillmentTypeSchema = z.enum(["dine_in", "takeout"]);
 export const paymentMethodSchema = z.enum(["cash", "card", "online"]);
 export const paymentStatusSchema = z.enum(["unpaid", "paid"]);
 export const orderSourceSchema = z.enum(["customer", "walk_in"]);
+export const orderIssueTypeSchema = z.enum([
+  "out_of_stock",
+  "need_customer_confirmation",
+  "special_request_problem",
+  "other",
+]);
 
 export const orderSchema = z.object({
   id: z.number().int().min(1),
@@ -112,6 +118,10 @@ export const orderSchema = z.object({
   pickupTime: z.string().nullable().default(null),
   paymentMethod: paymentMethodSchema.default("cash"),
   paymentStatus: paymentStatusSchema.default("unpaid"),
+  issueType: orderIssueTypeSchema.nullable().default(null),
+  issueNote: z.string().nullable().default(null),
+  issueReportedBy: z.string().nullable().default(null),
+  issueReportedAt: z.string().nullable().default(null),
   createdAt: z.string().min(1),
   submittedAt: z.string().min(1).optional(),
 });
@@ -146,6 +156,7 @@ export type FulfillmentType = z.infer<typeof fulfillmentTypeSchema>;
 export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
 export type PaymentStatus = z.infer<typeof paymentStatusSchema>;
 export type OrderSource = z.infer<typeof orderSourceSchema>;
+export type OrderIssueType = z.infer<typeof orderIssueTypeSchema>;
 export type Order = z.infer<typeof orderSchema>;
 export type CategorySales = z.infer<typeof categorySalesSchema>;
 export type TopItemSales = z.infer<typeof topItemSalesSchema>;

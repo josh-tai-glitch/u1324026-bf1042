@@ -4,6 +4,7 @@ import type {
   FulfillmentType,
   MenuItem,
   Order,
+  OrderIssueType,
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
@@ -50,6 +51,10 @@ export type CancelOrderErrorCode =
   | "ORDER_NOT_OWNED"
   | "ORDER_NOT_CANCELLABLE"
   | "ORDER_ALREADY_CANCELLED";
+
+export type UpdateOrderIssueErrorCode =
+  | "ORDER_NOT_FOUND"
+  | "ORDER_ISSUE_NOT_EDITABLE";
 
 export type CreateWalkInOrderErrorCode =
   | "EMPTY_ORDER"
@@ -179,6 +184,25 @@ export interface Store {
   ): Promise<
     | { ok: true; order: Order }
     | { ok: false; code: CancelOrderErrorCode }
+  >;
+  setOrderIssue(
+    orderId: number,
+    input: {
+      issueType: OrderIssueType;
+      issueNote?: string | null;
+      reportedBy: string;
+      allowManagerIssue?: boolean;
+    },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: UpdateOrderIssueErrorCode }
+  >;
+  clearOrderIssue(
+    orderId: number,
+    input: { userId: string },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: UpdateOrderIssueErrorCode }
   >;
 
   getCategorySalesAnalytics(): ReadonlyArray<CategorySales>;

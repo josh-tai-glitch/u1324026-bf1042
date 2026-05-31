@@ -7,6 +7,7 @@ import type {
   FulfillmentType,
   MenuItem,
   Order,
+  OrderIssueType,
   OrderStatus,
   PaymentMethod,
   Role,
@@ -23,6 +24,12 @@ const managerOrderStatuses: OrderStatus[] = [
   "preparing",
   "ready",
   "completed",
+];
+const orderIssueTypeOptions: OrderIssueType[] = [
+  "out_of_stock",
+  "need_customer_confirmation",
+  "special_request_problem",
+  "other",
 ];
 const orderBoardFilters = [
   { id: "active", label: "Active" },
@@ -67,6 +74,7 @@ type CategoryForm = typeof emptyCategoryForm;
 type CheckoutForm = typeof emptyCheckoutForm;
 type WalkInOrderForm = typeof emptyWalkInOrderForm;
 type WalkInOrderItem = { itemId: number; qty: number };
+type OrderIssueDraft = { issueType: OrderIssueType; issueNote: string };
 type ApiErrorPayload = { error?: string; message?: string };
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
 type ManagerTab = "orders" | "analytics" | "menu" | "categories" | "roleRequests";
@@ -161,9 +169,15 @@ export default function App() {
   const [cancelUpdatingOrderId, setCancelUpdatingOrderId] = useState<
     number | null
   >(null);
+  const [issueUpdatingOrderId, setIssueUpdatingOrderId] = useState<
+    number | null
+  >(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [orderStatusDrafts, setOrderStatusDrafts] = useState<
     Record<number, OrderStatus>
+  >({});
+  const [issueDrafts, setIssueDrafts] = useState<
+    Record<number, OrderIssueDraft>
   >({});
   const [orderStatusFilter, setOrderStatusFilter] =
     useState<OrderBoardFilter>("active");
@@ -212,6 +226,8 @@ export default function App() {
   const canUpdatePaymentStatus = hasAnyRole(["staff", "owner", "admin"]);
   const canCancelManagerOrder = canUpdatePaymentStatus;
   const canCreateWalkInOrder = canUpdatePaymentStatus;
+  const canReportOrderIssue = hasAnyRole(["chef", "staff", "owner", "admin"]);
+  const canClearOrderIssue = canUpdatePaymentStatus;
   const isAdmin = hasRole("admin");
   const managerTabs = [
     { id: "orders" as const, label: "Orders", visible: canViewAllOrders },
@@ -1166,6 +1182,102 @@ export default function App() {
       );
     } finally {
       setCancelUpdatingOrderId(null);
+    }
+  }
+
+  async function setOrderIssue(targetOrderId: number): Promise<void> {
+    const draft = issueDrafts[targetOrderId] ?? {
+      issueType: "out_of_stock" as OrderIssueType,
+      issueNote: "",
+    };
+    setIssueUpdatingOrderId(targetOrderId);
+    setStatusMessage("");
+
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/orders/${targetOrderId}/issue`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            issueType: draft.issueType,
+            issueNote: draft.issueNote.trim() || null,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<Order>;
+      const updatedOrder = payload?.data;
+      if (!updatedOrder) {
+        throw new Error("Set order issue failed: invalid payload");
+      }
+
+      setHistoryOrders((currentOrders) =>
+        currentOrders.map((order) =>
+          order.id === updatedOrder.id ? updatedOrder : order,
+        ),
+      );
+      setIssueDrafts((currentDrafts) => ({
+        ...currentDrafts,
+        [updatedOrder.id]: {
+          issueType: updatedOrder.issueType ?? draft.issueType,
+          issueNote: "",
+        },
+      }));
+      setStatusMessage(`Order #${updatedOrder.id} issue updated.`);
+    } catch (issueError) {
+      setStatusMessage(
+        issueError instanceof Error
+          ? issueError.message
+          : "Unable to update order issue.",
+      );
+    } finally {
+      setIssueUpdatingOrderId(null);
+    }
+  }
+
+  async function clearOrderIssue(targetOrderId: number): Promise<void> {
+    setIssueUpdatingOrderId(targetOrderId);
+    setStatusMessage("");
+
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/orders/${targetOrderId}/issue`),
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<Order>;
+      const updatedOrder = payload?.data;
+      if (!updatedOrder) {
+        throw new Error("Clear order issue failed: invalid payload");
+      }
+
+      setHistoryOrders((currentOrders) =>
+        currentOrders.map((order) =>
+          order.id === updatedOrder.id ? updatedOrder : order,
+        ),
+      );
+      setStatusMessage(`Order #${updatedOrder.id} issue cleared.`);
+    } catch (issueError) {
+      setStatusMessage(
+        issueError instanceof Error
+          ? issueError.message
+          : "Unable to clear order issue.",
+      );
+    } finally {
+      setIssueUpdatingOrderId(null);
     }
   }
 
@@ -2177,6 +2289,14 @@ export default function App() {
                         (order.status === "submitted" ||
                           order.status === "preparing" ||
                           order.status === "ready");
+                      const canSetIssueForOrder =
+                        canReportOrderIssue &&
+                        (order.status === "submitted" ||
+                          order.status === "preparing");
+                      const issueDraft = issueDrafts[order.id] ?? {
+                        issueType: order.issueType ?? "out_of_stock",
+                        issueNote: "",
+                      };
 
                       return (
                         <article
@@ -2354,6 +2474,100 @@ export default function App() {
                               </span>
                             ) : null}
                           </div>
+                          {order.issueType ? (
+                            <div className="alert alert-warning mt-3 items-start">
+                              <div>
+                                <div className="font-semibold">
+                                  Issue: {order.issueType}
+                                </div>
+                                {order.issueNote ? (
+                                  <div className="text-sm">
+                                    Note: {order.issueNote}
+                                  </div>
+                                ) : null}
+                                {order.issueReportedAt ? (
+                                  <div className="text-sm opacity-70">
+                                    Reported at:{" "}
+                                    {formatCheckoutDateTime(
+                                      order.issueReportedAt,
+                                    )}
+                                  </div>
+                                ) : null}
+                              </div>
+                              {canClearOrderIssue &&
+                              order.status !== "pending" &&
+                              order.status !== "completed" &&
+                              order.status !== "cancelled" ? (
+                                <button
+                                  className="btn btn-sm btn-outline"
+                                  disabled={issueUpdatingOrderId === order.id}
+                                  onClick={() => {
+                                    void clearOrderIssue(order.id);
+                                  }}
+                                >
+                                  {issueUpdatingOrderId === order.id
+                                    ? "Updating..."
+                                    : "Clear issue"}
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {canSetIssueForOrder ? (
+                            <div className="mt-3 rounded-box border border-base-300 bg-base-200 p-3">
+                              <div className="mb-2 text-sm font-semibold">
+                                Internal issue
+                              </div>
+                              <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,220px)_1fr_auto]">
+                                <select
+                                  className="select select-sm select-bordered"
+                                  value={issueDraft.issueType}
+                                  disabled={issueUpdatingOrderId === order.id}
+                                  onChange={(event) => {
+                                    setIssueDrafts((currentDrafts) => ({
+                                      ...currentDrafts,
+                                      [order.id]: {
+                                        ...issueDraft,
+                                        issueType: event.target
+                                          .value as OrderIssueType,
+                                      },
+                                    }));
+                                  }}
+                                >
+                                  {orderIssueTypeOptions.map((issueType) => (
+                                    <option key={issueType} value={issueType}>
+                                      {issueType}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  className="input input-sm input-bordered"
+                                  placeholder="Issue note"
+                                  value={issueDraft.issueNote}
+                                  disabled={issueUpdatingOrderId === order.id}
+                                  onChange={(event) => {
+                                    setIssueDrafts((currentDrafts) => ({
+                                      ...currentDrafts,
+                                      [order.id]: {
+                                        ...issueDraft,
+                                        issueNote: event.target.value,
+                                      },
+                                    }));
+                                  }}
+                                />
+                                <button
+                                  className="btn btn-sm btn-warning"
+                                  disabled={issueUpdatingOrderId === order.id}
+                                  onClick={() => {
+                                    void setOrderIssue(order.id);
+                                  }}
+                                >
+                                  {issueUpdatingOrderId === order.id
+                                    ? "Saving..."
+                                    : "Set issue"}
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
                             {order.items.map((detail) => (
                               <li key={`${order.id}-${detail.item.id}`}>

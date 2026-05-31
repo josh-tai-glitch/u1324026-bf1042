@@ -5,6 +5,7 @@ import type {
   FulfillmentType,
   MenuItem,
   Order,
+  OrderIssueType,
   OrderItem,
   OrderStatus,
   PaymentMethod,
@@ -118,6 +119,15 @@ function toOrderStatus(value: string): OrderStatus {
   return validOrderStatuses.includes(value as OrderStatus)
     ? (value as OrderStatus)
     : "pending";
+}
+
+function toOrderIssueType(value: unknown): OrderIssueType | null {
+  return value === "out_of_stock" ||
+    value === "need_customer_confirmation" ||
+    value === "special_request_problem" ||
+    value === "other"
+    ? value
+    : null;
 }
 
 function toFulfillmentType(value: unknown): FulfillmentType {
@@ -268,6 +278,10 @@ export class JsonFileStore implements Store {
           pickupTime: order.pickupTime ?? null,
           paymentMethod: toPaymentMethod(order.paymentMethod),
           paymentStatus: toPaymentStatus(order.paymentStatus),
+          issueType: toOrderIssueType(order.issueType),
+          issueNote: order.issueNote ?? null,
+          issueReportedBy: order.issueReportedBy ?? null,
+          issueReportedAt: order.issueReportedAt ?? null,
           submittedAt: order.status === "pending" ? undefined : order.submittedAt,
         })),
         userIdCounter: parsed.userIdCounter ?? 0,
@@ -575,6 +589,10 @@ export class JsonFileStore implements Store {
       pickupTime: null,
       paymentMethod: "cash",
       paymentStatus: "unpaid",
+      issueType: null,
+      issueNote: null,
+      issueReportedBy: null,
+      issueReportedAt: null,
       createdAt: new Date().toISOString(),
     };
 
@@ -626,6 +644,10 @@ export class JsonFileStore implements Store {
       pickupTime: input.pickupTime || null,
       paymentMethod: input.paymentMethod,
       paymentStatus: input.paymentStatus ?? "unpaid",
+      issueType: null,
+      issueNote: null,
+      issueReportedBy: null,
+      issueReportedAt: null,
       createdAt: submittedAt,
       submittedAt,
     };
@@ -833,6 +855,57 @@ export class JsonFileStore implements Store {
     }
 
     order.status = "cancelled";
+    await this.persist();
+    return { ok: true, order };
+  }
+
+  async setOrderIssue(
+    orderId: number,
+    input: {
+      issueType: OrderIssueType;
+      issueNote?: string | null;
+      reportedBy: string;
+      allowManagerIssue?: boolean;
+    },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: "ORDER_NOT_FOUND" | "ORDER_ISSUE_NOT_EDITABLE" }
+  > {
+    const order = this.orders.find((targetOrder) => targetOrder.id === orderId);
+    if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+    if (order.status !== "submitted" && order.status !== "preparing") {
+      return { ok: false, code: "ORDER_ISSUE_NOT_EDITABLE" };
+    }
+
+    order.issueType = input.issueType;
+    order.issueNote = input.issueNote?.trim() || null;
+    order.issueReportedBy = input.reportedBy;
+    order.issueReportedAt = new Date().toISOString();
+    await this.persist();
+    return { ok: true, order };
+  }
+
+  async clearOrderIssue(
+    orderId: number,
+    _input: { userId: string },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: "ORDER_NOT_FOUND" | "ORDER_ISSUE_NOT_EDITABLE" }
+  > {
+    const order = this.orders.find((targetOrder) => targetOrder.id === orderId);
+    if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+    if (
+      order.status === "pending" ||
+      order.status === "completed" ||
+      order.status === "cancelled"
+    ) {
+      return { ok: false, code: "ORDER_ISSUE_NOT_EDITABLE" };
+    }
+
+    order.issueType = null;
+    order.issueNote = null;
+    order.issueReportedBy = null;
+    order.issueReportedAt = null;
     await this.persist();
     return { ok: true, order };
   }

@@ -6,6 +6,7 @@ import {
   fulfillmentTypeSchema,
   menuItemSchema,
   orderSchema,
+  orderIssueTypeSchema,
   orderStatusSchema,
   paymentMethodSchema,
   paymentStatusSchema,
@@ -103,6 +104,21 @@ export const updateOrderStatusBodySchema = z.object({
 
 /** PATCH /api/orders/:id/cancel */
 export const cancelOrderParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
+/** PATCH /api/orders/:id/issue */
+export const setOrderIssueParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
+export const setOrderIssueBodySchema = z.object({
+  issueType: orderIssueTypeSchema,
+  issueNote: z.string().max(500).optional().nullable(),
+});
+
+/** DELETE /api/orders/:id/issue */
+export const clearOrderIssueParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),
 });
 

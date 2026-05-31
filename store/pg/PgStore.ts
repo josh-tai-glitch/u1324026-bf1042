@@ -5,6 +5,7 @@ import type {
   FulfillmentType,
   MenuItem,
   Order,
+  OrderIssueType,
   OrderItem,
   OrderStatus,
   PaymentMethod,
@@ -46,6 +47,10 @@ interface SeedData {
     pickupTime?: string | null;
     paymentMethod?: PaymentMethod;
     paymentStatus?: PaymentStatus;
+    issueType?: OrderIssueType | null;
+    issueNote?: string | null;
+    issueReportedBy?: string | null;
+    issueReportedAt?: string | null;
     orderSource?: "customer" | "walk_in";
     guestName?: string | null;
     createdByStaffId?: string | null;
@@ -91,6 +96,15 @@ function toOrderStatus(value: string): OrderStatus {
   return validOrderStatuses.includes(value as OrderStatus)
     ? (value as OrderStatus)
     : "pending";
+}
+
+function toOrderIssueType(value: unknown): OrderIssueType | null {
+  return value === "out_of_stock" ||
+    value === "need_customer_confirmation" ||
+    value === "special_request_problem" ||
+    value === "other"
+    ? value
+    : null;
 }
 
 export class PgStore implements Store {
@@ -499,6 +513,10 @@ export class PgStore implements Store {
       pickupTime: null,
       paymentMethod: "cash",
       paymentStatus: "unpaid",
+      issueType: null,
+      issueNote: null,
+      issueReportedBy: null,
+      issueReportedAt: null,
       createdAt:
         inserted.createdAt instanceof Date
           ? inserted.createdAt.toISOString()
@@ -590,6 +608,10 @@ export class PgStore implements Store {
       pickupTime: pickupTime ? pickupTime.toISOString() : null,
       paymentMethod: input.paymentMethod,
       paymentStatus,
+      issueType: null,
+      issueNote: null,
+      issueReportedBy: null,
+      issueReportedAt: null,
       createdAt: submittedAt,
       submittedAt,
     };
@@ -833,6 +855,78 @@ export class PgStore implements Store {
       .where(eq(ordersTable.id, orderId));
 
     order.status = "cancelled";
+    return { ok: true, order };
+  }
+
+  async setOrderIssue(
+    orderId: number,
+    input: {
+      issueType: OrderIssueType;
+      issueNote?: string | null;
+      reportedBy: string;
+      allowManagerIssue?: boolean;
+    },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: "ORDER_NOT_FOUND" | "ORDER_ISSUE_NOT_EDITABLE" }
+  > {
+    const order = this.orders.find((item) => item.id === orderId);
+    if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+    if (order.status !== "submitted" && order.status !== "preparing") {
+      return { ok: false, code: "ORDER_ISSUE_NOT_EDITABLE" };
+    }
+
+    const reportedAt = new Date();
+    const issueNote = input.issueNote?.trim() || null;
+
+    await db
+      .update(ordersTable)
+      .set({
+        issueType: input.issueType,
+        issueNote,
+        issueReportedBy: input.reportedBy,
+        issueReportedAt: reportedAt,
+      })
+      .where(eq(ordersTable.id, orderId));
+
+    order.issueType = input.issueType;
+    order.issueNote = issueNote;
+    order.issueReportedBy = input.reportedBy;
+    order.issueReportedAt = reportedAt.toISOString();
+    return { ok: true, order };
+  }
+
+  async clearOrderIssue(
+    orderId: number,
+    _input: { userId: string },
+  ): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: "ORDER_NOT_FOUND" | "ORDER_ISSUE_NOT_EDITABLE" }
+  > {
+    const order = this.orders.find((item) => item.id === orderId);
+    if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+    if (
+      order.status === "pending" ||
+      order.status === "completed" ||
+      order.status === "cancelled"
+    ) {
+      return { ok: false, code: "ORDER_ISSUE_NOT_EDITABLE" };
+    }
+
+    await db
+      .update(ordersTable)
+      .set({
+        issueType: null,
+        issueNote: null,
+        issueReportedBy: null,
+        issueReportedAt: null,
+      })
+      .where(eq(ordersTable.id, orderId));
+
+    order.issueType = null;
+    order.issueNote = null;
+    order.issueReportedBy = null;
+    order.issueReportedAt = null;
     return { ok: true, order };
   }
 
@@ -1109,6 +1203,14 @@ export class PgStore implements Store {
           ? row.paymentMethod
           : "cash",
       paymentStatus: row.paymentStatus === "paid" ? "paid" : "unpaid",
+      issueType: toOrderIssueType(row.issueType),
+      issueNote: row.issueNote ?? null,
+      issueReportedBy: row.issueReportedBy ?? null,
+      issueReportedAt: row.issueReportedAt
+        ? row.issueReportedAt instanceof Date
+          ? row.issueReportedAt.toISOString()
+          : new Date(row.issueReportedAt).toISOString()
+        : null,
       createdAt:
         row.createdAt instanceof Date
           ? row.createdAt.toISOString()

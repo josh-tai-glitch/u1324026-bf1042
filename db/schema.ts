@@ -91,6 +91,10 @@ export const ordersTable = appSchema.table("orders", {
   pickupTime: timestamp("pickup_time", { withTimezone: true }),
   paymentMethod: text("payment_method").notNull().default("cash"),
   paymentStatus: text("payment_status").notNull().default("unpaid"),
+  issueType: text("issue_type"),
+  issueNote: text("issue_note"),
+  issueReportedBy: text("issue_reported_by").references(() => user.id),
+  issueReportedAt: timestamp("issue_reported_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
 });

@@ -18,6 +18,7 @@ import {
   createRoleRequestBodySchema,
   createWalkInOrderBodySchema,
   currentUserResponseSchema,
+  clearOrderIssueParamsSchema,
   deleteMenuItemParamsSchema,
   getCategoriesQuerySchema,
   getAdminRoleRequestsQuerySchema,
@@ -35,6 +36,8 @@ import {
   roleRequestResponseSchema,
   submitOrderBodySchema,
   submitOrderParamsSchema,
+  setOrderIssueBodySchema,
+  setOrderIssueParamsSchema,
   toOrderResponse,
   topItemSalesListResponseSchema,
   topItemsAnalyticsQuerySchema,
@@ -51,7 +54,12 @@ import {
   updateUserRolesParamsSchema,
   userRolesResponseSchema,
 } from "./shared/route-schemas.ts";
-import type { OrderStatus, Role, RoleRequest } from "./shared/contracts.ts";
+import type {
+  OrderIssueType,
+  OrderStatus,
+  Role,
+  RoleRequest,
+} from "./shared/contracts.ts";
 import { hasAnyRole, requireAnyRole, requireRole } from "./shared/guards.ts";
 import {
   CategoryNotFoundError,
@@ -77,6 +85,13 @@ const statusUpdaterRoles = ["staff", "chef", "owner", "admin"] satisfies Role[];
 const paymentUpdaterRoles = ["staff", "owner", "admin"] satisfies Role[];
 const walkInOrderRoles = ["staff", "owner", "admin"] satisfies Role[];
 const orderCancelManagerRoles = ["staff", "owner", "admin"] satisfies Role[];
+const orderIssueReporterRoles = [
+  "chef",
+  "staff",
+  "owner",
+  "admin",
+] satisfies Role[];
+const orderIssueManagerRoles = ["staff", "owner", "admin"] satisfies Role[];
 const nextOrderStatusByStatus: Partial<Record<OrderStatus, OrderStatus>> = {
   submitted: "preparing",
   preparing: "ready",
@@ -112,6 +127,23 @@ function isStandardOrderStatusTransition(
   nextStatus: OrderStatus,
 ): boolean {
   return nextOrderStatusByStatus[currentStatus] === nextStatus;
+}
+
+function toVisibleOrderResponse(
+  order: Parameters<typeof toOrderResponse>[0],
+  user: { roles: readonly Role[] },
+) {
+  if (user.roles.some((role) => orderViewerRoles.includes(role))) {
+    return toOrderResponse(order);
+  }
+
+  return toOrderResponse({
+    ...order,
+    issueType: null,
+    issueNote: null,
+    issueReportedBy: null,
+    issueReportedAt: null,
+  });
 }
 
 function toRoleRequestResponse(
@@ -624,7 +656,7 @@ app.get(
     const submittedOrders = orders.filter((order) => order.status !== "pending");
 
     return {
-      data: submittedOrders.map(toOrderResponse),
+      data: submittedOrders.map((order) => toVisibleOrderResponse(order, user)),
     };
   },
   {
@@ -647,7 +679,9 @@ app.get(
   async ({ request }) => {
     const user = await requireUser(request);
     const currentOrder = store.getCurrentOrderByUserId(user.id);
-    return { data: currentOrder ? toOrderResponse(currentOrder) : null };
+    return {
+      data: currentOrder ? toVisibleOrderResponse(currentOrder, user) : null,
+    };
   },
   {
     detail: {
@@ -669,7 +703,9 @@ app.get(
   async ({ request }) => {
     const user = await requireUser(request);
     return {
-      data: store.getOrderHistoryByUserId(user.id).map(toOrderResponse),
+      data: store
+        .getOrderHistoryByUserId(user.id)
+        .map((order) => toVisibleOrderResponse(order, user)),
     };
   },
   {
@@ -693,12 +729,12 @@ app.post(
     const user = await requireUser(request);
     const existingOrder = store.getCurrentOrderByUserId(user.id);
     if (existingOrder) {
-      return { data: toOrderResponse(existingOrder) };
+      return { data: toVisibleOrderResponse(existingOrder, user) };
     }
 
     const newOrder = await store.createOrder({ userId: user.id });
     set.status = 201;
-    return { data: toOrderResponse(newOrder) };
+    return { data: toVisibleOrderResponse(newOrder, user) };
   },
   {
     detail: {
@@ -757,7 +793,7 @@ app.post(
     }
 
     set.status = 201;
-    return { data: toOrderResponse(result.order) };
+    return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
     body: createWalkInOrderBodySchema,
@@ -794,7 +830,7 @@ app.get(
       return { error: "Forbidden" };
     }
 
-    return { data: toOrderResponse(order) };
+    return { data: toVisibleOrderResponse(order, user) };
   },
   {
     params: getOrderByIdParamsSchema,
@@ -858,7 +894,7 @@ app.patch(
       }
     }
 
-    return { data: toOrderResponse(result.order) };
+    return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
     params: updateOrderParamsSchema,
@@ -941,7 +977,7 @@ app.patch(
       }
     }
 
-    return { data: toOrderResponse(result.order) };
+    return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
     params: updateOrderStatusParamsSchema,
@@ -1005,7 +1041,7 @@ app.patch(
       }
     }
 
-    return { data: toOrderResponse(result.order) };
+    return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
     params: cancelOrderParamsSchema,
@@ -1014,6 +1050,108 @@ app.patch(
       summary: "Cancel order",
       description:
         "Cancel a submitted order by the customer, or void an active order from the counter.",
+    },
+    response: {
+      200: orderResponseEnvelopeSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+      409: apiErrorResponseSchema,
+      500: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.patch(
+  "/api/orders/:id/issue",
+  async ({ params, body, request, set }) => {
+    const user = await requireUser(request);
+    if (!hasAnyRole(user, orderIssueReporterRoles)) {
+      set.status = 403;
+      return { error: "Forbidden" };
+    }
+
+    const orderId = parseInt(params.id, 10);
+    const input = body as {
+      issueType: OrderIssueType;
+      issueNote?: string | null;
+    };
+    const allowManagerIssue = hasAnyRole(user, orderIssueManagerRoles);
+
+    const result = await store.setOrderIssue(orderId, {
+      issueType: input.issueType,
+      issueNote: input.issueNote ?? null,
+      reportedBy: user.id,
+      allowManagerIssue,
+    });
+
+    if (result.ok === false) {
+      switch (result.code) {
+        case "ORDER_NOT_FOUND":
+          set.status = 404;
+          return { error: "Order not found" };
+        case "ORDER_ISSUE_NOT_EDITABLE":
+          set.status = 409;
+          return { error: "Order issue is not editable" };
+        default:
+          set.status = 500;
+          return { error: "Unexpected store state" };
+      }
+    }
+
+    return { data: toVisibleOrderResponse(result.order, user) };
+  },
+  {
+    params: setOrderIssueParamsSchema,
+    body: setOrderIssueBodySchema,
+    detail: {
+      tags: ["orders"],
+      summary: "Set order issue",
+      description:
+        "Report an internal kitchen or counter issue for an active order.",
+    },
+    response: {
+      200: orderResponseEnvelopeSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+      409: apiErrorResponseSchema,
+      500: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.delete(
+  "/api/orders/:id/issue",
+  async ({ params, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, orderIssueManagerRoles);
+
+    const orderId = parseInt(params.id, 10);
+    const result = await store.clearOrderIssue(orderId, { userId: user.id });
+
+    if (result.ok === false) {
+      switch (result.code) {
+        case "ORDER_NOT_FOUND":
+          set.status = 404;
+          return { error: "Order not found" };
+        case "ORDER_ISSUE_NOT_EDITABLE":
+          set.status = 409;
+          return { error: "Order issue is not editable" };
+        default:
+          set.status = 500;
+          return { error: "Unexpected store state" };
+      }
+    }
+
+    return { data: toVisibleOrderResponse(result.order, user) };
+  },
+  {
+    params: clearOrderIssueParamsSchema,
+    detail: {
+      tags: ["orders"],
+      summary: "Clear order issue",
+      description: "Clear an internal order issue from the counter.",
     },
     response: {
       200: orderResponseEnvelopeSchema,
@@ -1052,7 +1190,7 @@ app.patch(
       }
     }
 
-    return { data: toOrderResponse(result.order) };
+    return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
     params: updateOrderPaymentParamsSchema,
@@ -1114,7 +1252,7 @@ app.post(
       }
     }
 
-    return { data: toOrderResponse(result.order) };
+    return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
     params: submitOrderParamsSchema,

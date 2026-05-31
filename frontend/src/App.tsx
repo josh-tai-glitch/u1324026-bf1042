@@ -313,6 +313,10 @@ export default function App() {
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
   }
 
+  function formatPickupNumber(orderId: number): string {
+    return `#${String(orderId).padStart(4, "0")}`;
+  }
+
   function getOrderAgeMinutes(order: Order): number {
     const date = new Date(order.submittedAt ?? order.createdAt);
     if (Number.isNaN(date.getTime())) return 0;
@@ -2107,7 +2111,14 @@ export default function App() {
                           className="rounded-box border border-base-300 bg-base-100 p-4"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h4 className="font-semibold">Order #{order.id}</h4>
+                            <div>
+                              <h4 className="font-semibold">
+                                Order #{order.id}
+                              </h4>
+                              <p className="text-sm font-medium text-primary">
+                                Pickup {formatPickupNumber(order.id)}
+                              </p>
+                            </div>
                             <div className="flex flex-wrap items-center justify-end gap-2">
                               <span
                                 className={`badge ${getStatusBadgeClass(
@@ -2119,6 +2130,11 @@ export default function App() {
                               {urgent ? (
                                 <span className="badge badge-error">
                                   Urgent {orderAgeMinutes}m
+                                </span>
+                              ) : null}
+                              {order.status === "ready" ? (
+                                <span className="badge badge-primary">
+                                  Ready for pickup
                                 </span>
                               ) : null}
                               {canCancelThisOrder ? (
@@ -2995,7 +3011,27 @@ export default function App() {
                     >
                       <div className="card-body p-4">
                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <h3 className="font-semibold">Order #{order.id}</h3>
+                          <div>
+                            <h3 className="font-semibold">Order #{order.id}</h3>
+                            <p className="text-sm font-medium text-primary">
+                              Pickup number: {formatPickupNumber(order.id)}
+                            </p>
+                            {order.status === "ready" ? (
+                              <p className="text-sm font-semibold text-primary">
+                                Ready for pickup
+                              </p>
+                            ) : null}
+                            {order.status === "completed" ? (
+                              <p className="text-sm font-semibold text-success">
+                                Picked up
+                              </p>
+                            ) : null}
+                            {order.status === "cancelled" ? (
+                              <p className="text-sm font-semibold text-error">
+                                Cancelled
+                              </p>
+                            ) : null}
+                          </div>
                           <div className="flex items-center gap-2 flex-wrap justify-end">
                             <span
                               className={`badge ${getStatusBadgeClass(

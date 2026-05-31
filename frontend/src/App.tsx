@@ -52,10 +52,19 @@ const emptyCheckoutForm = {
   pickupTime: "",
   paymentMethod: "cash" as PaymentMethod,
 };
+const emptyWalkInOrderForm = {
+  guestName: "",
+  fulfillmentType: "takeout" as FulfillmentType,
+  customerNote: "",
+  pickupTime: "",
+  paymentMethod: "cash" as PaymentMethod,
+};
 
 type MenuForm = typeof emptyMenuForm;
 type CategoryForm = typeof emptyCategoryForm;
 type CheckoutForm = typeof emptyCheckoutForm;
+type WalkInOrderForm = typeof emptyWalkInOrderForm;
+type WalkInOrderItem = { itemId: number; qty: number };
 type ApiErrorPayload = { error?: string; message?: string };
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
 type ManagerTab = "orders" | "analytics" | "menu" | "categories" | "roleRequests";
@@ -133,6 +142,14 @@ export default function App() {
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [checkoutForm, setCheckoutForm] =
     useState<CheckoutForm>(emptyCheckoutForm);
+  const [walkInOrderForm, setWalkInOrderForm] =
+    useState<WalkInOrderForm>(emptyWalkInOrderForm);
+  const [walkInOrderItems, setWalkInOrderItems] = useState<WalkInOrderItem[]>(
+    [],
+  );
+  const [walkInSelectedItemId, setWalkInSelectedItemId] = useState("");
+  const [walkInQty, setWalkInQty] = useState("1");
+  const [walkInBusy, setWalkInBusy] = useState(false);
   const [statusUpdatingOrderId, setStatusUpdatingOrderId] = useState<
     number | null
   >(null);
@@ -185,6 +202,7 @@ export default function App() {
   const canManageMenu = hasAnyRole(["owner", "admin"]);
   const canViewAllOrders = hasAnyRole(["staff", "chef", "owner", "admin"]);
   const canUpdatePaymentStatus = hasAnyRole(["staff", "owner", "admin"]);
+  const canCreateWalkInOrder = canUpdatePaymentStatus;
   const isAdmin = hasRole("admin");
   const managerTabs = [
     { id: "orders" as const, label: "Orders", visible: canViewAllOrders },
@@ -602,6 +620,27 @@ export default function App() {
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }, [cartQtyByItemId, items]);
 
+  const walkInOrderDetails = useMemo(() => {
+    const itemById = new Map(items.map((item) => [item.id, item]));
+
+    return walkInOrderItems
+      .map((entry) => {
+        const item = itemById.get(entry.itemId);
+        if (!item) return null;
+        return {
+          ...entry,
+          item,
+          subtotal: item.price * entry.qty,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  }, [items, walkInOrderItems]);
+
+  const walkInOrderTotal = useMemo(
+    () => walkInOrderDetails.reduce((sum, entry) => sum + entry.subtotal, 0),
+    [walkInOrderDetails],
+  );
+
   // Event handlers
   async function ensureOrder(): Promise<number> {
     if (!user) {
@@ -982,6 +1021,77 @@ export default function App() {
       );
     } finally {
       setPaymentUpdatingOrderId(null);
+    }
+  }
+
+  function addWalkInItem() {
+    const itemId = Number(walkInSelectedItemId);
+    const qty = Number(walkInQty);
+    if (!itemId || !Number.isInteger(qty) || qty <= 0) {
+      setStatusMessage("Select a menu item and quantity first.");
+      return;
+    }
+
+    setWalkInOrderItems((currentItems) => {
+      const existing = currentItems.find((item) => item.itemId === itemId);
+      if (existing) {
+        return currentItems.map((item) =>
+          item.itemId === itemId ? { ...item, qty: item.qty + qty } : item,
+        );
+      }
+      return [...currentItems, { itemId, qty }];
+    });
+    setWalkInSelectedItemId("");
+    setWalkInQty("1");
+  }
+
+  function removeWalkInItem(itemId: number) {
+    setWalkInOrderItems((currentItems) =>
+      currentItems.filter((item) => item.itemId !== itemId),
+    );
+  }
+
+  async function submitWalkInOrder(): Promise<void> {
+    if (!canCreateWalkInOrder || walkInOrderItems.length === 0) return;
+
+    setWalkInBusy(true);
+    setStatusMessage("");
+    try {
+      const response = await fetch(buildApiUrl("/api/orders/walk-in"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          guestName: walkInOrderForm.guestName.trim() || null,
+          items: walkInOrderItems,
+          fulfillmentType: walkInOrderForm.fulfillmentType,
+          customerNote: walkInOrderForm.customerNote.trim() || null,
+          pickupTime: walkInOrderForm.pickupTime
+            ? new Date(walkInOrderForm.pickupTime).toISOString()
+            : null,
+          paymentMethod: walkInOrderForm.paymentMethod,
+          paymentStatus: "unpaid",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await loadOrderHistory();
+      setWalkInOrderForm(emptyWalkInOrderForm);
+      setWalkInOrderItems([]);
+      setWalkInSelectedItemId("");
+      setWalkInQty("1");
+      setStatusMessage("Walk-in order created.");
+    } catch (walkInError) {
+      setStatusMessage(
+        walkInError instanceof Error
+          ? walkInError.message
+          : "Unable to create walk-in order.",
+      );
+    } finally {
+      setWalkInBusy(false);
     }
   }
 
@@ -1698,6 +1808,147 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+                {canCreateWalkInOrder ? (
+                  <div className="mb-4 rounded-box border border-base-300 bg-base-200 p-4">
+                    <div className="mb-3">
+                      <h4 className="font-semibold">Walk-in order</h4>
+                      <p className="text-sm opacity-70">
+                        Create a counter order for a guest without customer
+                        login.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                      <input
+                        className="input input-bordered input-sm"
+                        placeholder="Guest name"
+                        value={walkInOrderForm.guestName}
+                        onChange={(event) =>
+                          setWalkInOrderForm((current) => ({
+                            ...current,
+                            guestName: event.target.value,
+                          }))
+                        }
+                      />
+                      <select
+                        className="select select-bordered select-sm"
+                        value={walkInOrderForm.fulfillmentType}
+                        onChange={(event) =>
+                          setWalkInOrderForm((current) => ({
+                            ...current,
+                            fulfillmentType: event.target
+                              .value as FulfillmentType,
+                          }))
+                        }
+                      >
+                        <option value="takeout">Takeout</option>
+                        <option value="dine_in">Dine in</option>
+                      </select>
+                      <input
+                        className="input input-bordered input-sm"
+                        type="datetime-local"
+                        value={walkInOrderForm.pickupTime}
+                        onChange={(event) =>
+                          setWalkInOrderForm((current) => ({
+                            ...current,
+                            pickupTime: event.target.value,
+                          }))
+                        }
+                      />
+                      <select
+                        className="select select-bordered select-sm"
+                        value={walkInOrderForm.paymentMethod}
+                        onChange={(event) =>
+                          setWalkInOrderForm((current) => ({
+                            ...current,
+                            paymentMethod: event.target.value as PaymentMethod,
+                          }))
+                        }
+                      >
+                        <option value="cash">Cash</option>
+                        <option value="card">Card</option>
+                        <option value="online">Online</option>
+                      </select>
+                    </div>
+                    <textarea
+                      className="textarea textarea-bordered mt-3 min-h-20 w-full"
+                      placeholder="Guest note"
+                      value={walkInOrderForm.customerNote}
+                      onChange={(event) =>
+                        setWalkInOrderForm((current) => ({
+                          ...current,
+                          customerNote: event.target.value,
+                        }))
+                      }
+                    />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <select
+                        className="select select-bordered select-sm min-w-48 flex-1"
+                        value={walkInSelectedItemId}
+                        onChange={(event) =>
+                          setWalkInSelectedItemId(event.target.value)
+                        }
+                      >
+                        <option value="">Select menu item</option>
+                        {items.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} - ${item.price}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className="input input-bordered input-sm w-24"
+                        min={1}
+                        step={1}
+                        type="number"
+                        value={walkInQty}
+                        onChange={(event) => setWalkInQty(event.target.value)}
+                      />
+                      <button
+                        className="btn btn-sm btn-outline"
+                        onClick={addWalkInItem}
+                      >
+                        Add item
+                      </button>
+                    </div>
+                    {walkInOrderDetails.length > 0 ? (
+                      <div className="mt-3 overflow-x-auto">
+                        <table className="table table-sm">
+                          <tbody>
+                            {walkInOrderDetails.map((detail) => (
+                              <tr key={detail.itemId}>
+                                <td>{detail.item.name}</td>
+                                <td>x {detail.qty}</td>
+                                <td>${detail.subtotal}</td>
+                                <td className="text-right">
+                                  <button
+                                    className="btn btn-xs btn-ghost"
+                                    onClick={() =>
+                                      removeWalkInItem(detail.itemId)
+                                    }
+                                  >
+                                    Remove
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                      <span className="font-semibold">
+                        Walk-in total: ${walkInOrderTotal}
+                      </span>
+                      <button
+                        className="btn btn-sm btn-primary"
+                        disabled={walkInBusy || walkInOrderItems.length === 0}
+                        onClick={() => void submitWalkInOrder()}
+                      >
+                        {walkInBusy ? "Creating..." : "Submit walk-in order"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="mb-4 flex flex-wrap gap-2">
                   {orderBoardFilters.map((filter) => (
                     <button
@@ -1826,6 +2077,11 @@ export default function App() {
                             }
                           </p>
                           <div className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+                            <span>Source: {order.orderSource}</span>
+                            {order.orderSource === "walk_in" &&
+                            order.guestName ? (
+                              <span>Guest: {order.guestName}</span>
+                            ) : null}
                             <span>Fulfillment: {order.fulfillmentType}</span>
                             <div className="flex flex-wrap items-center gap-2">
                               <span>Payment: {order.paymentMethod}</span>

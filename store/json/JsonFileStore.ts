@@ -251,6 +251,9 @@ export class JsonFileStore implements Store {
             item: normalizeMenuItem(orderItem.item),
           })),
           status: toOrderStatus(order.status),
+          orderSource: order.orderSource === "walk_in" ? "walk_in" : "customer",
+          guestName: order.guestName ?? null,
+          createdByStaffId: order.createdByStaffId ?? null,
           fulfillmentType: toFulfillmentType(order.fulfillmentType),
           customerNote: order.customerNote ?? null,
           pickupTime: order.pickupTime ?? null,
@@ -554,6 +557,9 @@ export class JsonFileStore implements Store {
       items: [],
       total: 0,
       status: "pending",
+      orderSource: "customer",
+      guestName: null,
+      createdByStaffId: null,
       fulfillmentType: "takeout",
       customerNote: null,
       pickupTime: null,
@@ -566,6 +572,57 @@ export class JsonFileStore implements Store {
     await this.persist();
 
     return newOrder;
+  }
+
+  async createWalkInOrder(input: {
+    staffUserId: string;
+    guestName?: string | null;
+    items: Array<{ itemId: number; qty: number }>;
+    fulfillmentType: FulfillmentType;
+    customerNote?: string | null;
+    pickupTime?: string | null;
+    paymentMethod: PaymentMethod;
+    paymentStatus?: PaymentStatus;
+  }): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: "EMPTY_ORDER" | "MENU_ITEM_NOT_FOUND" }
+  > {
+    const requestedItems = input.items.filter((item) => item.qty > 0);
+    if (requestedItems.length === 0) {
+      return { ok: false, code: "EMPTY_ORDER" };
+    }
+
+    const orderItems: OrderItem[] = [];
+    for (const requestedItem of requestedItems) {
+      const menuItem = this.menu.find((item) => item.id === requestedItem.itemId);
+      if (!menuItem) {
+        return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
+      }
+      orderItems.push({ item: menuItem, qty: requestedItem.qty });
+    }
+
+    const submittedAt = new Date().toISOString();
+    const order: Order = {
+      id: ++this.orderIdCounter,
+      userId: input.staffUserId,
+      items: orderItems,
+      total: calculateOrderTotal(orderItems),
+      status: "submitted",
+      orderSource: "walk_in",
+      guestName: input.guestName?.trim() || null,
+      createdByStaffId: input.staffUserId,
+      fulfillmentType: input.fulfillmentType,
+      customerNote: input.customerNote?.trim() || null,
+      pickupTime: input.pickupTime || null,
+      paymentMethod: input.paymentMethod,
+      paymentStatus: input.paymentStatus ?? "unpaid",
+      createdAt: submittedAt,
+      submittedAt,
+    };
+
+    this.orders.unshift(order);
+    await this.persist();
+    return { ok: true, order };
   }
 
   async updateOrderItem(

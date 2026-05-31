@@ -45,6 +45,10 @@ export type UpdateOrderPaymentStatusErrorCode =
   | "ORDER_NOT_FOUND"
   | "ORDER_NOT_SUBMITTED";
 
+export type CreateWalkInOrderErrorCode =
+  | "EMPTY_ORDER"
+  | "MENU_ITEM_NOT_FOUND";
+
 export type CategoryStatusFilter = "active" | "inactive" | "all";
 
 export interface Store {
@@ -107,6 +111,19 @@ export interface Store {
   getOrderHistoryByUserId(userId: string): ReadonlyArray<Order>;
   getOrderById(orderId: number): Order | undefined;
   createOrder(input: { userId: string }): Promise<Order>;
+  createWalkInOrder(input: {
+    staffUserId: string;
+    guestName?: string | null;
+    items: Array<{ itemId: number; qty: number }>;
+    fulfillmentType: FulfillmentType;
+    customerNote?: string | null;
+    pickupTime?: string | null;
+    paymentMethod: PaymentMethod;
+    paymentStatus?: PaymentStatus;
+  }): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: CreateWalkInOrderErrorCode }
+  >;
   updateOrderItem(
     orderId: number,
     input: {

@@ -123,6 +123,23 @@ export const submitOrderBodySchema = z.object({
   paymentStatus: paymentStatusSchema.optional(),
 });
 
+export const createWalkInOrderBodySchema = z.object({
+  guestName: z.string().optional().nullable(),
+  items: z
+    .array(
+      z.object({
+        itemId: z.number().int().min(1),
+        qty: z.number().int().min(1),
+      }),
+    )
+    .min(1),
+  fulfillmentType: fulfillmentTypeSchema.default("takeout"),
+  customerNote: z.string().max(500).optional().nullable(),
+  pickupTime: z.string().optional().nullable(),
+  paymentMethod: paymentMethodSchema.default("cash"),
+  paymentStatus: paymentStatusSchema.optional(),
+});
+
 /** POST /api/users/me/role-request */
 export const createRoleRequestBodySchema = z.object({
   requestedRole: roleSchema.refine(

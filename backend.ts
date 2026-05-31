@@ -15,6 +15,7 @@ import {
   createCategoryBodySchema,
   createMenuItemBodySchema,
   createRoleRequestBodySchema,
+  createWalkInOrderBodySchema,
   currentUserResponseSchema,
   deleteMenuItemParamsSchema,
   getCategoriesQuerySchema,
@@ -73,6 +74,7 @@ const orderViewerRoles = ["staff", "chef", "owner", "admin"] satisfies Role[];
 const orderEditorRoles = ["staff", "owner", "admin"] satisfies Role[];
 const statusUpdaterRoles = ["staff", "chef", "owner", "admin"] satisfies Role[];
 const paymentUpdaterRoles = ["staff", "owner", "admin"] satisfies Role[];
+const walkInOrderRoles = ["staff", "owner", "admin"] satisfies Role[];
 const nextOrderStatusByStatus: Partial<Record<OrderStatus, OrderStatus>> = {
   submitted: "preparing",
   preparing: "ready",
@@ -711,6 +713,67 @@ app.post(
 );
 
 // 獲取單筆訂單
+app.post(
+  "/api/orders/walk-in",
+  async ({ body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, walkInOrderRoles);
+    const input = body as {
+      guestName?: string | null;
+      items: Array<{ itemId: number; qty: number }>;
+      fulfillmentType: "dine_in" | "takeout";
+      customerNote?: string | null;
+      pickupTime?: string | null;
+      paymentMethod: "cash" | "card" | "online";
+      paymentStatus?: "unpaid" | "paid";
+    };
+
+    const result = await store.createWalkInOrder({
+      staffUserId: user.id,
+      guestName: input.guestName ?? null,
+      items: input.items,
+      fulfillmentType: input.fulfillmentType,
+      customerNote: input.customerNote ?? null,
+      pickupTime: input.pickupTime ?? null,
+      paymentMethod: input.paymentMethod,
+      paymentStatus: input.paymentStatus ?? "unpaid",
+    });
+
+    if (result.ok === false) {
+      switch (result.code) {
+        case "EMPTY_ORDER":
+          set.status = 400;
+          return { error: "Empty order cannot be submitted" };
+        case "MENU_ITEM_NOT_FOUND":
+          set.status = 404;
+          return { error: "Menu item not found" };
+        default:
+          set.status = 500;
+          return { error: "Unexpected store state" };
+      }
+    }
+
+    set.status = 201;
+    return { data: toOrderResponse(result.order) };
+  },
+  {
+    body: createWalkInOrderBodySchema,
+    detail: {
+      tags: ["orders"],
+      summary: "Create walk-in order",
+      description: "Create a submitted order for a counter guest.",
+    },
+    response: {
+      201: orderResponseEnvelopeSchema,
+      400: apiErrorResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+      500: apiErrorResponseSchema,
+    },
+  },
+);
+
 app.get(
   "/api/orders/:id",
   async ({ params, request, set }) => {

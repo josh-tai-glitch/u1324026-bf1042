@@ -46,6 +46,9 @@ interface SeedData {
     pickupTime?: string | null;
     paymentMethod?: PaymentMethod;
     paymentStatus?: PaymentStatus;
+    orderSource?: "customer" | "walk_in";
+    guestName?: string | null;
+    createdByStaffId?: string | null;
     items: Array<{ item: MenuItem; qty: number }>;
   }>;
 }
@@ -478,6 +481,9 @@ export class PgStore implements Store {
       items: [],
       total: inserted.total,
       status: "pending",
+      orderSource: "customer",
+      guestName: null,
+      createdByStaffId: null,
       fulfillmentType: "takeout",
       customerNote: null,
       pickupTime: null,
@@ -491,6 +497,95 @@ export class PgStore implements Store {
 
     this.orders.push(order);
     return order;
+  }
+
+  async createWalkInOrder(input: {
+    staffUserId: string;
+    guestName?: string | null;
+    items: Array<{ itemId: number; qty: number }>;
+    fulfillmentType: FulfillmentType;
+    customerNote?: string | null;
+    pickupTime?: string | null;
+    paymentMethod: PaymentMethod;
+    paymentStatus?: PaymentStatus;
+  }): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: "EMPTY_ORDER" | "MENU_ITEM_NOT_FOUND" }
+  > {
+    const requestedItems = input.items.filter((item) => item.qty > 0);
+    if (requestedItems.length === 0) {
+      return { ok: false, code: "EMPTY_ORDER" };
+    }
+
+    const orderItems: OrderItem[] = [];
+    for (const requestedItem of requestedItems) {
+      const menuItem = this.menu.find((item) => item.id === requestedItem.itemId);
+      if (!menuItem) {
+        return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
+      }
+      orderItems.push({ item: { ...menuItem }, qty: requestedItem.qty });
+    }
+
+    const now = new Date();
+    const submittedAt = now.toISOString();
+    const pickupTime = input.pickupTime ? new Date(input.pickupTime) : null;
+    const paymentStatus = input.paymentStatus ?? "unpaid";
+    const total = calculateTotal(orderItems);
+
+    const [inserted] = await db
+      .insert(ordersTable)
+      .values({
+        userId: input.staffUserId,
+        total,
+        status: "submitted",
+        orderSource: "walk_in",
+        guestName: input.guestName?.trim() || null,
+        createdByStaffId: input.staffUserId,
+        fulfillmentType: input.fulfillmentType,
+        customerNote: input.customerNote?.trim() || null,
+        pickupTime,
+        paymentMethod: input.paymentMethod,
+        paymentStatus,
+        createdAt: now,
+        submittedAt: now,
+      })
+      .returning();
+
+    if (!inserted) throw new Error("Failed to create walk-in order");
+
+    await db.insert(orderItemsTable).values(
+      orderItems.map((orderItem) => ({
+        orderId: inserted.id,
+        itemId: orderItem.item.id,
+        name: orderItem.item.name,
+        price: orderItem.item.price,
+        category: orderItem.item.category,
+        description: orderItem.item.description,
+        imageUrl: orderItem.item.image_url,
+        qty: orderItem.qty,
+      })),
+    );
+
+    const order: Order = {
+      id: inserted.id,
+      userId: input.staffUserId,
+      items: orderItems,
+      total,
+      status: "submitted",
+      orderSource: "walk_in",
+      guestName: input.guestName?.trim() || null,
+      createdByStaffId: input.staffUserId,
+      fulfillmentType: input.fulfillmentType,
+      customerNote: input.customerNote?.trim() || null,
+      pickupTime: pickupTime ? pickupTime.toISOString() : null,
+      paymentMethod: input.paymentMethod,
+      paymentStatus,
+      createdAt: submittedAt,
+      submittedAt,
+    };
+
+    this.orders.unshift(order);
+    return { ok: true, order };
   }
 
   async updateOrderItem(
@@ -941,6 +1036,9 @@ export class PgStore implements Store {
       items: itemsByOrderId.get(row.id) ?? [],
       total: row.total,
       status: toOrderStatus(row.status),
+      orderSource: row.orderSource === "walk_in" ? "walk_in" : "customer",
+      guestName: row.guestName ?? null,
+      createdByStaffId: row.createdByStaffId ?? null,
       fulfillmentType:
         row.fulfillmentType === "dine_in" ? "dine_in" : "takeout",
       customerNote: row.customerNote ?? null,

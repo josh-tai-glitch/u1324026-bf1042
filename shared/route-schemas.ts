@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Order } from "./contracts.ts";
 import {
+  analyticsSummarySchema,
   categorySchema,
   categorySalesSchema,
   fulfillmentTypeSchema,
@@ -270,6 +271,10 @@ export const categoryListResponseSchema = z.object({
 
 export const categorySalesListResponseSchema = z.object({
   data: z.array(categorySalesSchema),
+});
+
+export const analyticsSummaryResponseSchema = z.object({
+  data: analyticsSummarySchema,
 });
 
 export const topItemSalesListResponseSchema = z.object({

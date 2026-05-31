@@ -8,6 +8,7 @@ import {
   apiErrorResponseSchema,
   assignMenuItemCategoryBodySchema,
   assignMenuItemCategoryParamsSchema,
+  analyticsSummaryResponseSchema,
   cancelOrderParamsSchema,
   categoryListResponseSchema,
   categoryParamsSchema,
@@ -1379,6 +1380,29 @@ app.post(
       201: roleRequestResponseSchema,
       400: apiErrorResponseSchema,
       401: apiErrorResponseSchema,
+      500: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.get(
+  "/api/admin/analytics/summary",
+  async ({ request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+    return { data: store.getAnalyticsSummary() };
+  },
+  {
+    detail: {
+      tags: ["analytics"],
+      summary: "Get analytics summary",
+      description:
+        "Return revenue, orders, payment, source, cancellation, and rating summary metrics.",
+    },
+    response: {
+      200: analyticsSummaryResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
       500: apiErrorResponseSchema,
     },
   },

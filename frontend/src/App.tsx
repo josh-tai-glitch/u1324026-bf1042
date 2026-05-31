@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import type {
   ApiDataResponse,
+  AnalyticsSummary,
   Category,
   CategorySales,
   FulfillmentType,
@@ -211,6 +212,8 @@ export default function App() {
   const [adminRoleBusy, setAdminRoleBusy] = useState(false);
 
   // Analytics state
+  const [analyticsSummary, setAnalyticsSummary] =
+    useState<AnalyticsSummary | null>(null);
   const [categorySales, setCategorySales] = useState<CategorySales[]>([]);
   const [topItemSales, setTopItemSales] = useState<TopItemSales[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
@@ -564,7 +567,11 @@ export default function App() {
     setAnalyticsLoading(true);
     setAnalyticsMessage("");
     try {
-      const [categoryResponse, topItemsResponse] = await Promise.all([
+      const [summaryResponse, categoryResponse, topItemsResponse] =
+        await Promise.all([
+          fetch(buildApiUrl("/api/admin/analytics/summary"), {
+            credentials: "include",
+          }),
         fetch(buildApiUrl("/api/admin/analytics/category-sales"), {
           credentials: "include",
         }),
@@ -573,6 +580,9 @@ export default function App() {
         }),
       ]);
 
+      if (!summaryResponse.ok) {
+        throw new Error(await readApiError(summaryResponse));
+      }
       if (!categoryResponse.ok) {
         throw new Error(await readApiError(categoryResponse));
       }
@@ -580,11 +590,14 @@ export default function App() {
         throw new Error(await readApiError(topItemsResponse));
       }
 
+      const summaryPayload =
+        (await summaryResponse.json()) as ApiDataResponse<AnalyticsSummary>;
       const categoryPayload =
         (await categoryResponse.json()) as ApiDataResponse<CategorySales[]>;
       const topItemsPayload =
         (await topItemsResponse.json()) as ApiDataResponse<TopItemSales[]>;
 
+      setAnalyticsSummary(summaryPayload?.data ?? null);
       setCategorySales(
         Array.isArray(categoryPayload?.data) ? categoryPayload.data : [],
       );
@@ -2849,6 +2862,95 @@ export default function App() {
                   <span>{analyticsMessage}</span>
                 </div>
               ) : null}
+              {analyticsSummary ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <div className="stat rounded-box border border-base-300 bg-base-200">
+                      <div className="stat-title">Total revenue</div>
+                      <div className="stat-value text-success">
+                        ${analyticsSummary.totalRevenue}
+                      </div>
+                    </div>
+                    <div className="stat rounded-box border border-base-300 bg-base-200">
+                      <div className="stat-title">Today revenue</div>
+                      <div className="stat-value text-primary">
+                        ${analyticsSummary.todayRevenue}
+                      </div>
+                    </div>
+                    <div className="stat rounded-box border border-base-300 bg-base-200">
+                      <div className="stat-title">Revenue orders</div>
+                      <div className="stat-value">
+                        {analyticsSummary.revenueOrderCount}
+                      </div>
+                    </div>
+                    <div className="stat rounded-box border border-base-300 bg-base-200">
+                      <div className="stat-title">Average order value</div>
+                      <div className="stat-value">
+                        ${analyticsSummary.averageOrderValue.toFixed(0)}
+                      </div>
+                    </div>
+                    <div className="stat rounded-box border border-base-300 bg-base-200">
+                      <div className="stat-title">Average rating</div>
+                      <div className="stat-value text-warning">
+                        {analyticsSummary.averageRating === null
+                          ? "-"
+                          : analyticsSummary.averageRating.toFixed(1)}
+                      </div>
+                      <div className="stat-desc">
+                        {analyticsSummary.ratingsCount} ratings
+                      </div>
+                    </div>
+                    <div className="stat rounded-box border border-base-300 bg-base-200">
+                      <div className="stat-title">Cancelled orders</div>
+                      <div className="stat-value text-error">
+                        {analyticsSummary.cancellationCount}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
+                    <div className="rounded-box border border-base-300 p-3">
+                      <h3 className="mb-2 font-semibold">Payment methods</h3>
+                      <p>Cash: {analyticsSummary.paymentMethods.cash}</p>
+                      <p>Card: {analyticsSummary.paymentMethods.card}</p>
+                      <p>Online: {analyticsSummary.paymentMethods.online}</p>
+                    </div>
+                    <div className="rounded-box border border-base-300 p-3">
+                      <h3 className="mb-2 font-semibold">Payment statuses</h3>
+                      <p>Paid: {analyticsSummary.paymentStatuses.paid}</p>
+                      <p>Unpaid: {analyticsSummary.paymentStatuses.unpaid}</p>
+                    </div>
+                    <div className="rounded-box border border-base-300 p-3">
+                      <h3 className="mb-2 font-semibold">Order statuses</h3>
+                      <p>
+                        Submitted: {analyticsSummary.orderStatuses.submitted}
+                      </p>
+                      <p>
+                        Preparing: {analyticsSummary.orderStatuses.preparing}
+                      </p>
+                      <p>Ready: {analyticsSummary.orderStatuses.ready}</p>
+                      <p>
+                        Completed: {analyticsSummary.orderStatuses.completed}
+                      </p>
+                      <p>
+                        Cancelled: {analyticsSummary.orderStatuses.cancelled}
+                      </p>
+                    </div>
+                    <div className="rounded-box border border-base-300 p-3">
+                      <h3 className="mb-2 font-semibold">Order sources</h3>
+                      <p>Customer: {analyticsSummary.orderSources.customer}</p>
+                      <p>Walk-in: {analyticsSummary.orderSources.walk_in}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="alert">
+                  <span>
+                    {analyticsLoading
+                      ? "Loading summary..."
+                      : "No summary data yet."}
+                  </span>
+                </div>
+              )}
               {!analyticsLoading &&
               categorySales.length === 0 &&
               topItemSales.length === 0 ? (

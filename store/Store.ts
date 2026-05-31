@@ -1,6 +1,7 @@
 import type {
   Category,
   CategorySales,
+  AnalyticsSummary,
   FulfillmentType,
   MenuItem,
   Order,
@@ -223,4 +224,5 @@ export interface Store {
 
   getCategorySalesAnalytics(): ReadonlyArray<CategorySales>;
   getTopItemSalesAnalytics(limit?: number): ReadonlyArray<TopItemSales>;
+  getAnalyticsSummary(): AnalyticsSummary;
 }

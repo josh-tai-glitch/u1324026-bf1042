@@ -1,5 +1,6 @@
 import { mkdir, rename } from "node:fs/promises";
 import type {
+  AnalyticsSummary,
   Category,
   CategorySales,
   FulfillmentType,
@@ -1043,6 +1044,68 @@ export class JsonFileStore implements Store {
           a.name.localeCompare(b.name),
       )
       .slice(0, safeLimit);
+  }
+
+  getAnalyticsSummary(): AnalyticsSummary {
+    const today = new Date().toLocaleDateString();
+    const formalOrders = this.orders.filter((order) => order.status !== "pending");
+    const revenueOrders = this.orders.filter((order) =>
+      revenueOrderStatuses.includes(order.status),
+    );
+    const ratedOrders = this.orders.filter((order) => order.rating !== null);
+    const totalRevenue = revenueOrders.reduce(
+      (sum, order) => sum + order.total,
+      0,
+    );
+    const todayRevenueOrders = revenueOrders.filter((order) => {
+      const date = new Date(order.submittedAt ?? order.createdAt);
+      return (
+        !Number.isNaN(date.getTime()) && date.toLocaleDateString() === today
+      );
+    });
+    const ratingsTotal = ratedOrders.reduce(
+      (sum, order) => sum + (order.rating ?? 0),
+      0,
+    );
+
+    const summary: AnalyticsSummary = {
+      totalRevenue,
+      revenueOrderCount: revenueOrders.length,
+      averageOrderValue:
+        revenueOrders.length > 0 ? totalRevenue / revenueOrders.length : 0,
+      todayRevenue: todayRevenueOrders.reduce(
+        (sum, order) => sum + order.total,
+        0,
+      ),
+      todayOrderCount: todayRevenueOrders.length,
+      cancellationCount: this.orders.filter(
+        (order) => order.status === "cancelled",
+      ).length,
+      averageRating:
+        ratedOrders.length > 0 ? ratingsTotal / ratedOrders.length : null,
+      ratingsCount: ratedOrders.length,
+      paymentMethods: { cash: 0, card: 0, online: 0 },
+      paymentStatuses: { paid: 0, unpaid: 0 },
+      orderStatuses: {
+        submitted: 0,
+        preparing: 0,
+        ready: 0,
+        completed: 0,
+        cancelled: 0,
+      },
+      orderSources: { customer: 0, walk_in: 0 },
+    };
+
+    for (const order of formalOrders) {
+      summary.paymentMethods[order.paymentMethod] += 1;
+      summary.paymentStatuses[order.paymentStatus] += 1;
+      if (order.status !== "pending") {
+        summary.orderStatuses[order.status] += 1;
+      }
+      summary.orderSources[order.orderSource] += 1;
+    }
+
+    return summary;
   }
 
   private findActiveCategory(categoryId: number): Category | null {

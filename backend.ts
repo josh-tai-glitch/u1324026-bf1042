@@ -621,9 +621,10 @@ app.get(
     const orders = hasAnyRole(user, orderViewerRoles)
       ? store.getOrders()
       : store.getOrders().filter((order) => order.userId === user.id);
+    const submittedOrders = orders.filter((order) => order.status !== "pending");
 
     return {
-      data: orders.map(toOrderResponse),
+      data: submittedOrders.map(toOrderResponse),
     };
   },
   {
@@ -897,6 +898,11 @@ app.patch(
     if (input.status === "cancelled") {
       set.status = 409;
       return { error: "Use the cancel order endpoint" };
+    }
+
+    if (order.status === "cancelled") {
+      set.status = 409;
+      return { error: "Cancelled order status is locked" };
     }
 
     if (!allowAnyTransition && !hasAnyRole(user, statusUpdaterRoles)) {

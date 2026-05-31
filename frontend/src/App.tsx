@@ -306,6 +306,19 @@ export default function App() {
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
   }
 
+  function getOrderAgeMinutes(order: Order): number {
+    const date = new Date(order.submittedAt ?? order.createdAt);
+    if (Number.isNaN(date.getTime())) return 0;
+    return Math.floor((Date.now() - date.getTime()) / 60000);
+  }
+
+  function isUrgentOrder(order: Order): boolean {
+    return (
+      (order.status === "submitted" || order.status === "preparing") &&
+      getOrderAgeMinutes(order) > 10
+    );
+  }
+
   // Data loading helpers
   const loadMenu = useCallback(async () => {
     const response = await fetch(buildApiUrl("/api/menu"));
@@ -2024,6 +2037,8 @@ export default function App() {
                     {filteredBoardOrders.map((order) => {
                       const allowedStatuses = getNextAllowedStatuses(order);
                       const primaryAction = getPrimaryOrderAction(order);
+                      const urgent = isUrgentOrder(order);
+                      const orderAgeMinutes = getOrderAgeMinutes(order);
                       const draftedStatus = orderStatusDrafts[order.id];
                       const selectedStatus =
                         draftedStatus && allowedStatuses.includes(draftedStatus)
@@ -2045,6 +2060,11 @@ export default function App() {
                               >
                                 {order.status}
                               </span>
+                              {urgent ? (
+                                <span className="badge badge-error">
+                                  Urgent {orderAgeMinutes}m
+                                </span>
+                              ) : null}
                               {primaryAction ? (
                                 <button
                                   className="btn btn-sm btn-primary"

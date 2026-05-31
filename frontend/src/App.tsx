@@ -17,6 +17,7 @@ import type {
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const defaultRoles: Role[] = ["customer"];
+const editableRoles: Role[] = ["customer", "staff", "chef", "owner", "admin"];
 const managerOrderStatuses: OrderStatus[] = [
   "submitted",
   "preparing",
@@ -180,6 +181,9 @@ export default function App() {
   const [adminReviewNotes, setAdminReviewNotes] = useState<
     Record<number, string>
   >({});
+  const [adminRoleUserId, setAdminRoleUserId] = useState("");
+  const [adminRoleDraft, setAdminRoleDraft] = useState<Role[]>(["customer"]);
+  const [adminRoleBusy, setAdminRoleBusy] = useState(false);
 
   // Analytics state
   const [categorySales, setCategorySales] = useState<CategorySales[]>([]);
@@ -1487,6 +1491,38 @@ export default function App() {
     }
   }
 
+  async function submitAdminRoleUpdate() {
+    if (!isAdmin) return;
+    const userId = adminRoleUserId.trim();
+    if (!userId || adminRoleDraft.length === 0) return;
+
+    setAdminRoleBusy(true);
+    setAdminMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/admin/users/${userId}/roles`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ roles: adminRoleDraft }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      setAdminMessage("Roles updated.");
+    } catch (roleError) {
+      setAdminMessage(
+        roleError instanceof Error ? roleError.message : "Role update failed.",
+      );
+    } finally {
+      setAdminRoleBusy(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -2178,6 +2214,56 @@ export default function App() {
                   <span>{adminMessage}</span>
                 </div>
               ) : null}
+              <div className="rounded-box border border-base-300 bg-base-200 p-4">
+                <h3 className="font-semibold">Direct role editor</h3>
+                <p className="text-sm opacity-70">
+                  This replaces the user roles. Keep customer checked if the
+                  user should still act as a customer.
+                </p>
+                <div className="mt-3 flex flex-col gap-3">
+                  <input
+                    className="input input-bordered input-sm"
+                    placeholder="User ID"
+                    value={adminRoleUserId}
+                    onChange={(event) => setAdminRoleUserId(event.target.value)}
+                  />
+                  <div className="flex flex-wrap gap-3">
+                    {editableRoles.map((role) => (
+                      <label
+                        key={role}
+                        className="label cursor-pointer justify-start gap-2 p-0"
+                      >
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-sm"
+                          checked={adminRoleDraft.includes(role)}
+                          onChange={(event) => {
+                            setAdminRoleDraft((currentRoles) =>
+                              event.target.checked
+                                ? Array.from(new Set([...currentRoles, role]))
+                                : currentRoles.filter(
+                                    (currentRole) => currentRole !== role,
+                                  ),
+                            );
+                          }}
+                        />
+                        <span className="label-text">{role}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    className="btn btn-sm btn-primary w-fit"
+                    disabled={
+                      adminRoleBusy ||
+                      adminRoleUserId.trim() === "" ||
+                      adminRoleDraft.length === 0
+                    }
+                    onClick={() => void submitAdminRoleUpdate()}
+                  >
+                    {adminRoleBusy ? "Updating..." : "Update roles"}
+                  </button>
+                </div>
+              </div>
               {adminLoading ? (
                 <div className="alert">
                   <span>Loading requests...</span>

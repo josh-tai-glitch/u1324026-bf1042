@@ -252,6 +252,49 @@ export const analyticsTrendsSchema = z.object({
   cancellationRate: z.number().min(0).max(1),
 });
 
+export const analyticsLowRatingOrderSchema = z.object({
+  orderId: z.number().int().min(1),
+  pickupNumber: z.string().min(1),
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().nullable(),
+  date: z.string().min(1),
+});
+
+export const analyticsCancelledOrderSchema = z.object({
+  orderId: z.number().int().min(1),
+  pickupNumber: z.string().min(1),
+  source: orderSourceSchema,
+  total: z.number().min(0),
+  createdAt: z.string().min(1),
+  customerNote: z.string().nullable(),
+});
+
+export const analyticsPeakHourSchema = z.object({
+  hour: z.number().int().min(0).max(23).nullable(),
+  orderCount: z.number().int().min(0),
+  revenue: z.number().min(0),
+});
+
+export const analyticsSourceComparisonSchema = z.object({
+  source: orderSourceSchema,
+  orderCount: z.number().int().min(0),
+  revenue: z.number().min(0),
+});
+
+export const analyticsPaymentMethodComparisonSchema = z.object({
+  paymentMethod: paymentMethodSchema,
+  orderCount: z.number().int().min(0),
+  revenue: z.number().min(0),
+});
+
+export const analyticsInsightsSchema = z.object({
+  lowRatingOrders: z.array(analyticsLowRatingOrderSchema),
+  cancelledOrders: z.array(analyticsCancelledOrderSchema),
+  peakHour: analyticsPeakHourSchema,
+  sourceComparison: z.array(analyticsSourceComparisonSchema),
+  paymentMethodComparison: z.array(analyticsPaymentMethodComparisonSchema),
+});
+
 // Derived TypeScript Types
 export type MenuItem = z.infer<typeof menuItemSchema>;
 export type Category = z.infer<typeof categorySchema>;
@@ -275,6 +318,7 @@ export type CategorySales = z.infer<typeof categorySalesSchema>;
 export type TopItemSales = z.infer<typeof topItemSalesSchema>;
 export type AnalyticsSummary = z.infer<typeof analyticsSummarySchema>;
 export type AnalyticsTrends = z.infer<typeof analyticsTrendsSchema>;
+export type AnalyticsInsights = z.infer<typeof analyticsInsightsSchema>;
 
 export interface ApiDataResponse<T> {
   data: T;

@@ -5,6 +5,7 @@ import type {
   AuditLog,
   AuditLogAction,
   AuditLogTargetType,
+  AnalyticsInsights,
   AnalyticsSummary,
   AnalyticsTrends,
   Category,
@@ -292,6 +293,8 @@ export default function App() {
     useState<AnalyticsSummary | null>(null);
   const [analyticsTrends, setAnalyticsTrends] =
     useState<AnalyticsTrends | null>(null);
+  const [analyticsInsights, setAnalyticsInsights] =
+    useState<AnalyticsInsights | null>(null);
   const [categorySales, setCategorySales] = useState<CategorySales[]>([]);
   const [topItemSales, setTopItemSales] = useState<TopItemSales[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
@@ -833,6 +836,7 @@ export default function App() {
         categoryResponse,
         topItemsResponse,
         trendsResponse,
+        insightsResponse,
       ] =
         await Promise.all([
           fetch(buildApiUrl(`/api/admin/analytics/summary${analyticsSuffix}`), {
@@ -852,6 +856,9 @@ export default function App() {
         fetch(buildApiUrl(`/api/admin/analytics/trends${analyticsSuffix}`), {
           credentials: "include",
         }),
+        fetch(buildApiUrl(`/api/admin/analytics/insights${analyticsSuffix}`), {
+          credentials: "include",
+        }),
       ]);
 
       if (!summaryResponse.ok) {
@@ -866,6 +873,9 @@ export default function App() {
       if (!trendsResponse.ok) {
         throw new Error(await readApiError(trendsResponse));
       }
+      if (!insightsResponse.ok) {
+        throw new Error(await readApiError(insightsResponse));
+      }
 
       const summaryPayload =
         (await summaryResponse.json()) as ApiDataResponse<AnalyticsSummary>;
@@ -875,9 +885,12 @@ export default function App() {
         (await topItemsResponse.json()) as ApiDataResponse<TopItemSales[]>;
       const trendsPayload =
         (await trendsResponse.json()) as ApiDataResponse<AnalyticsTrends>;
+      const insightsPayload =
+        (await insightsResponse.json()) as ApiDataResponse<AnalyticsInsights>;
 
       setAnalyticsSummary(summaryPayload?.data ?? null);
       setAnalyticsTrends(trendsPayload?.data ?? null);
+      setAnalyticsInsights(insightsPayload?.data ?? null);
       setCategorySales(
         Array.isArray(categoryPayload?.data) ? categoryPayload.data : [],
       );
@@ -3815,6 +3828,180 @@ export default function App() {
                       {analyticsLoading
                         ? "Loading trends..."
                         : "No trend data yet."}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold">Operational insights</h3>
+                  <p className="text-sm opacity-70">
+                    Spot service issues, cancellation patterns, peak demand,
+                    and payment/source mix for the selected range.
+                  </p>
+                </div>
+                {analyticsInsights ? (
+                  <>
+                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                      <div className="stat rounded-box border border-base-300 bg-base-200">
+                        <div className="stat-title">Peak hour</div>
+                        {analyticsInsights.peakHour.hour === null ? (
+                          <>
+                            <div className="stat-value text-base">-</div>
+                            <div className="stat-desc">No peak hour data</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="stat-value text-primary">
+                              {formatTrendHour(analyticsInsights.peakHour.hour)}
+                            </div>
+                            <div className="stat-desc">
+                              {analyticsInsights.peakHour.orderCount} orders /
+                              ${analyticsInsights.peakHour.revenue}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <div className="rounded-box border border-base-300 bg-base-200 p-4">
+                        <h4 className="mb-2 font-semibold">
+                          Source comparison
+                        </h4>
+                        <div className="overflow-x-auto">
+                          <table className="table table-sm">
+                            <thead>
+                              <tr>
+                                <th>Source</th>
+                                <th>Orders</th>
+                                <th>Revenue</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {analyticsInsights.sourceComparison.map((row) => (
+                                <tr key={row.source}>
+                                  <td>
+                                    {row.source === "walk_in"
+                                      ? "Walk-in"
+                                      : "Customer"}
+                                  </td>
+                                  <td>{row.orderCount}</td>
+                                  <td>${row.revenue}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                      <div className="rounded-box border border-base-300 bg-base-200 p-4">
+                        <h4 className="mb-2 font-semibold">
+                          Payment methods
+                        </h4>
+                        <div className="overflow-x-auto">
+                          <table className="table table-sm">
+                            <thead>
+                              <tr>
+                                <th>Method</th>
+                                <th>Orders</th>
+                                <th>Revenue</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {analyticsInsights.paymentMethodComparison.map(
+                                (row) => (
+                                  <tr key={row.paymentMethod}>
+                                    <td>{row.paymentMethod}</td>
+                                    <td>{row.orderCount}</td>
+                                    <td>${row.revenue}</td>
+                                  </tr>
+                                ),
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      <div>
+                        <h4 className="mb-2 font-semibold">
+                          Low rating orders
+                        </h4>
+                        {analyticsInsights.lowRatingOrders.length === 0 ? (
+                          <div className="alert">
+                            <span>No low rating orders</span>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="table">
+                              <thead>
+                                <tr>
+                                  <th>Pickup</th>
+                                  <th>Rating</th>
+                                  <th>Comment</th>
+                                  <th>Date</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {analyticsInsights.lowRatingOrders.map((row) => (
+                                  <tr key={row.orderId}>
+                                    <td>{row.pickupNumber}</td>
+                                    <td>{row.rating}/5</td>
+                                    <td>{row.comment || "-"}</td>
+                                    <td>{formatCheckoutDateTime(row.date)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="mb-2 font-semibold">
+                          Cancelled orders
+                        </h4>
+                        {analyticsInsights.cancelledOrders.length === 0 ? (
+                          <div className="alert">
+                            <span>No cancelled orders</span>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="table">
+                              <thead>
+                                <tr>
+                                  <th>Pickup</th>
+                                  <th>Source</th>
+                                  <th>Total</th>
+                                  <th>Created</th>
+                                  <th>Note</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {analyticsInsights.cancelledOrders.map((row) => (
+                                  <tr key={row.orderId}>
+                                    <td>{row.pickupNumber}</td>
+                                    <td>
+                                      {row.source === "walk_in"
+                                        ? "Walk-in"
+                                        : "Customer"}
+                                    </td>
+                                    <td>${row.total}</td>
+                                    <td>
+                                      {formatCheckoutDateTime(row.createdAt)}
+                                    </td>
+                                    <td>{row.customerNote || "-"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="alert">
+                    <span>
+                      {analyticsLoading
+                        ? "Loading insights..."
+                        : "No insight data yet."}
                     </span>
                   </div>
                 )}

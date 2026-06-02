@@ -8,6 +8,7 @@ import {
   apiErrorResponseSchema,
   auditLogLooseListResponseSchema,
   analyticsDateRangeQuerySchema,
+  analyticsInsightsResponseSchema,
   analyticsTrendsResponseSchema,
   assignMenuItemCategoryBodySchema,
   assignMenuItemCategoryParamsSchema,
@@ -1744,6 +1745,32 @@ app.get(
     },
     response: {
       200: analyticsTrendsResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.get(
+  "/api/admin/analytics/insights",
+  async ({ query, request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    return {
+      data: store.getAnalyticsInsights(getAnalyticsDateRange(query)),
+    };
+  },
+  {
+    query: analyticsDateRangeQuerySchema,
+    detail: {
+      tags: ["admin"],
+      summary: "Get analytics operational insights",
+      description:
+        "Return low ratings, cancelled orders, peak hour, source, and payment method insights.",
+    },
+    response: {
+      200: analyticsInsightsResponseSchema,
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
     },

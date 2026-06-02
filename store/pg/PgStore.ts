@@ -3,6 +3,7 @@ import type {
   AuditLog,
   AuditLogAction,
   AuditLogTargetType,
+  AnalyticsInsights,
   AnalyticsSummary,
   AnalyticsTrends,
   Category,
@@ -1264,6 +1265,99 @@ export class PgStore implements Store {
     };
   }
 
+  getAnalyticsInsights(input?: AnalyticsDateRangeInput): AnalyticsInsights {
+    const analyticsOrders = this.getAnalyticsOrders(input);
+    const revenueOrders = analyticsOrders.filter((order) =>
+      revenueOrderStatuses.includes(order.status),
+    );
+    const hourlyOrders = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      orderCount: 0,
+      revenue: 0,
+    }));
+    const sourceComparison: AnalyticsInsights["sourceComparison"] = [
+      { source: "customer", orderCount: 0, revenue: 0 },
+      { source: "walk_in", orderCount: 0, revenue: 0 },
+    ];
+    const paymentMethodComparison: AnalyticsInsights["paymentMethodComparison"] = [
+      { paymentMethod: "cash", orderCount: 0, revenue: 0 },
+      { paymentMethod: "card", orderCount: 0, revenue: 0 },
+      { paymentMethod: "online", orderCount: 0, revenue: 0 },
+    ];
+
+    for (const order of revenueOrders) {
+      const orderDate = this.getAnalyticsOrderDate(order);
+      if (orderDate) {
+        const hourly = hourlyOrders[orderDate.getHours()];
+        hourly.orderCount += 1;
+        hourly.revenue += order.total;
+      }
+
+      const source = sourceComparison.find(
+        (row) => row.source === order.orderSource,
+      );
+      if (source) {
+        source.orderCount += 1;
+        source.revenue += order.total;
+      }
+
+      const paymentMethod = paymentMethodComparison.find(
+        (row) => row.paymentMethod === order.paymentMethod,
+      );
+      if (paymentMethod) {
+        paymentMethod.orderCount += 1;
+        paymentMethod.revenue += order.total;
+      }
+    }
+
+    const peakHour = hourlyOrders.reduce(
+      (best, row) => {
+        if (row.orderCount > best.orderCount) return row;
+        if (row.orderCount === best.orderCount && row.revenue > best.revenue) {
+          return row;
+        }
+        return best;
+      },
+      { hour: null, orderCount: 0, revenue: 0 } as AnalyticsInsights["peakHour"],
+    );
+
+    const lowRatingOrders = analyticsOrders
+      .filter(
+        (order) =>
+          order.rating !== null && order.rating >= 1 && order.rating < 3,
+      )
+      .map((order) => ({
+        orderId: order.id,
+        pickupNumber: this.formatPickupNumber(order.id),
+        rating: order.rating ?? 1,
+        comment: order.ratingComment,
+        date: order.ratedAt ?? order.submittedAt ?? order.createdAt,
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 10);
+
+    const cancelledOrders = analyticsOrders
+      .filter((order) => order.status === "cancelled")
+      .map((order) => ({
+        orderId: order.id,
+        pickupNumber: this.formatPickupNumber(order.id),
+        source: order.orderSource,
+        total: order.total,
+        createdAt: order.createdAt,
+        customerNote: order.customerNote,
+      }))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 10);
+
+    return {
+      lowRatingOrders,
+      cancelledOrders,
+      peakHour,
+      sourceComparison,
+      paymentMethodComparison,
+    };
+  }
+
   async appendAuditLog(input: AppendAuditLogInput): Promise<void> {
     const [created] = await db.insert(auditLogsTable).values({
       actorUserId: input.actorUserId ?? null,
@@ -1421,6 +1515,10 @@ export class PgStore implements Store {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+  }
+
+  private formatPickupNumber(orderId: number): string {
+    return `#${String(orderId).padStart(4, "0")}`;
   }
 
   private parseAnalyticsDateBound(

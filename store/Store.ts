@@ -4,6 +4,7 @@ import type {
   AuditLogTargetType,
   Category,
   CategorySales,
+  AnalyticsInsights,
   AnalyticsSummary,
   AnalyticsTrends,
   FulfillmentType,
@@ -270,6 +271,7 @@ export interface Store {
   ): ReadonlyArray<TopItemSales>;
   getAnalyticsSummary(input?: AnalyticsDateRangeInput): AnalyticsSummary;
   getAnalyticsTrends(input?: AnalyticsDateRangeInput): AnalyticsTrends;
+  getAnalyticsInsights(input?: AnalyticsDateRangeInput): AnalyticsInsights;
 
   // Audit logs
   appendAuditLog(input: AppendAuditLogInput): Promise<void>;

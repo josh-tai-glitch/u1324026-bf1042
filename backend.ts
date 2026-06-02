@@ -225,6 +225,19 @@ async function writeAuditLog(
   }
 }
 
+function respondMenuVersionChanged(
+  set: { status: number },
+  scope: "cart" | "menu",
+) {
+  set.status = 409;
+  return {
+    error:
+      scope === "cart"
+        ? "Menu item version changed. Please refresh your cart."
+        : "Menu item version changed. Please refresh menu.",
+  };
+}
+
 function toVisibleOrderResponse(
   order: Parameters<typeof toOrderResponse>[0],
   user: { roles: readonly Role[] },
@@ -986,8 +999,7 @@ app.post(
           set.status = 404;
           return { error: "Menu item not found" };
         case "MENU_VERSION_CHANGED":
-          set.status = 409;
-          return { error: "Menu item version changed. Please refresh menu." };
+          return respondMenuVersionChanged(set, "menu");
         case "MENU_ITEM_UNAVAILABLE":
           set.status = 409;
           return { error: "Menu item is unavailable" };
@@ -1103,10 +1115,7 @@ app.patch(
           set.status = 404;
           return { error: "Menu item not found" };
         case "MENU_VERSION_CHANGED":
-          set.status = 409;
-          return {
-            error: "Menu item version changed. Please refresh your cart.",
-          };
+          return respondMenuVersionChanged(set, "cart");
         case "MENU_ITEM_UNAVAILABLE":
           set.status = 409;
           return { error: "Menu item is unavailable" };
@@ -1569,10 +1578,7 @@ app.post(
           set.status = 409;
           return { error: "Order already submitted" };
         case "MENU_VERSION_CHANGED":
-          set.status = 409;
-          return {
-            error: "Menu item version changed. Please refresh your cart.",
-          };
+          return respondMenuVersionChanged(set, "cart");
         case "EMPTY_ORDER":
           set.status = 400;
           return { error: "Empty order cannot be submitted" };

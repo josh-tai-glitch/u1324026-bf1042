@@ -1256,6 +1256,18 @@ export default function App() {
     return updatedOrder;
   }
 
+  async function refreshMenuAndCurrentOrderAfterVersionConflict(
+    message: string,
+  ) {
+    setActionError(message);
+    await Promise.all([loadMenu(), loadCurrentOrder()]);
+  }
+
+  async function refreshMenuAfterWalkInVersionConflict(message: string) {
+    setStatusMessage(message);
+    await loadMenu();
+  }
+
   async function handleGoogleSignIn(): Promise<void> {
     setAuthError("");
     setIsGoogleSigningIn(true);
@@ -1369,8 +1381,7 @@ export default function App() {
       const message =
         cartError instanceof Error ? cartError.message : "Unable to update cart.";
       if (isMenuVersionChangedMessage(message)) {
-        setActionError(message);
-        await Promise.all([loadMenu(), loadCurrentOrder()]);
+        await refreshMenuAndCurrentOrderAfterVersionConflict(message);
       } else {
         setActionError("Unable to update cart.");
       }
@@ -1408,7 +1419,7 @@ export default function App() {
         cartError instanceof Error &&
         isMenuVersionChangedMessage(cartError.message)
       ) {
-        await Promise.all([loadMenu(), loadCurrentOrder()]);
+        await refreshMenuAndCurrentOrderAfterVersionConflict(cartError.message);
       }
       console.error(cartError);
     } finally {
@@ -1488,8 +1499,7 @@ export default function App() {
           ? submitError.message
           : "Unable to submit order.";
       if (isMenuVersionChangedMessage(message)) {
-        setActionError(message);
-        await Promise.all([loadMenu(), loadCurrentOrder()]);
+        await refreshMenuAndCurrentOrderAfterVersionConflict(message);
       } else {
         setActionError("Unable to submit order.");
       }
@@ -1867,9 +1877,10 @@ export default function App() {
         walkInError instanceof Error
           ? walkInError.message
           : "Unable to create walk-in order.";
-      setStatusMessage(message);
       if (isMenuVersionChangedMessage(message)) {
-        await loadMenu();
+        await refreshMenuAfterWalkInVersionConflict(message);
+      } else {
+        setStatusMessage(message);
       }
     } finally {
       setWalkInBusy(false);

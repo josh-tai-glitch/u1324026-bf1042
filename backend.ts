@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import toTaipeiDateTime from "./util.ts";
 import {
   apiErrorResponseSchema,
+  auditLogListResponseSchema,
   analyticsDateRangeQuerySchema,
   assignMenuItemCategoryBodySchema,
   assignMenuItemCategoryParamsSchema,
@@ -24,6 +25,7 @@ import {
   deleteMenuItemParamsSchema,
   getCategoriesQuerySchema,
   getAdminRoleRequestsQuerySchema,
+  getAuditLogsQuerySchema,
   getOrderByIdParamsSchema,
   healthResponseSchema,
   menuItemResponseSchema,
@@ -59,6 +61,8 @@ import {
   userRolesResponseSchema,
 } from "./shared/route-schemas.ts";
 import type {
+  AuditLogAction,
+  AuditLogTargetType,
   OrderIssueType,
   OrderStatus,
   Role,
@@ -176,6 +180,44 @@ function getAnalyticsDateRange(query: {
     case "all":
     default:
       return {};
+  }
+}
+
+function getAuditActor(user: {
+  id: string;
+  email?: string;
+  name?: string;
+  roles?: readonly Role[];
+}) {
+  return {
+    actorUserId: user.id,
+    actorName: user.name ?? user.email ?? user.id,
+    actorRoles: [...(user.roles ?? [])],
+  };
+}
+
+async function writeAuditLog(
+  user: {
+    id: string;
+    email?: string;
+    name?: string;
+    roles?: readonly Role[];
+  },
+  input: {
+    action: AuditLogAction;
+    targetType: AuditLogTargetType;
+    targetId?: string | null;
+    message: string;
+    metadata?: Record<string, unknown> | null;
+  },
+) {
+  try {
+    await store.appendAuditLog({
+      ...getAuditActor(user),
+      ...input,
+    });
+  } catch (error) {
+    console.warn("Unable to write audit log", error);
   }
 }
 
@@ -392,6 +434,17 @@ app.post(
     }
 
     set.status = 201;
+    await writeAuditLog(user, {
+      action: "category_create",
+      targetType: "category",
+      targetId: String(category.id),
+      message: `Created category ${category.name}`,
+      metadata: {
+        name: category.name,
+        slug: category.slug,
+        isActive: category.isActive,
+      },
+    });
     return { data: category };
   },
   {
@@ -440,6 +493,16 @@ app.patch(
       return { error: "Category not found" };
     }
 
+    await writeAuditLog(user, {
+      action: "category_update",
+      targetType: "category",
+      targetId: String(category.id),
+      message: `Updated category ${category.name}`,
+      metadata: {
+        patchKeys: Object.keys(patch),
+        isActive: category.isActive,
+      },
+    });
     return { data: category };
   },
   {
@@ -474,6 +537,17 @@ app.delete(
       return { error: "Category not found" };
     }
 
+    await writeAuditLog(user, {
+      action: "category_delete",
+      targetType: "category",
+      targetId: String(category.id),
+      message: `Deleted/deactivated category ${category.name}`,
+      metadata: {
+        name: category.name,
+        slug: category.slug,
+        isActive: category.isActive,
+      },
+    });
     return { data: category };
   },
   {
@@ -530,6 +604,19 @@ app.post(
       throw error;
     }
     set.status = 201;
+    await writeAuditLog(user, {
+      action: "menu_create",
+      targetType: "menu_item",
+      targetId: String(newMenuItem.id),
+      message: `Created menu item ${newMenuItem.name}`,
+      metadata: {
+        name: newMenuItem.name,
+        price: newMenuItem.price,
+        category: newMenuItem.category,
+        primaryCategoryId: newMenuItem.primary_category_id,
+        isAvailable: newMenuItem.is_available,
+      },
+    });
     return { data: newMenuItem };
   },
   {
@@ -580,6 +667,22 @@ app.patch(
       return { error: "Menu item not found" };
     }
 
+    const availabilityMessage =
+      patch.isAvailable === undefined
+        ? `Updated menu item ${menuItem.name}`
+        : `Marked menu item ${menuItem.name} as ${
+            menuItem.is_available ? "available" : "sold out"
+          }`;
+    await writeAuditLog(user, {
+      action: "menu_update",
+      targetType: "menu_item",
+      targetId: String(menuItem.id),
+      message: availabilityMessage,
+      metadata: {
+        patchKeys: Object.keys(patch),
+        isAvailable: menuItem.is_available,
+      },
+    });
     return { data: menuItem };
   },
   {
@@ -613,6 +716,17 @@ app.delete(
       return { error: "Menu item not found" };
     }
 
+    await writeAuditLog(user, {
+      action: "menu_delete",
+      targetType: "menu_item",
+      targetId: String(removedMenuItem.id),
+      message: `Deleted menu item ${removedMenuItem.name}`,
+      metadata: {
+        name: removedMenuItem.name,
+        price: removedMenuItem.price,
+        category: removedMenuItem.category,
+      },
+    });
     return { data: removedMenuItem };
   },
   {
@@ -647,6 +761,13 @@ app.post(
       return { error: "Menu item or category not found" };
     }
 
+    await writeAuditLog(user, {
+      action: "menu_category_assign",
+      targetType: "menu_item_category",
+      targetId: `${menuId}:${input.categoryId}`,
+      message: `Assigned category to menu item #${menuId}`,
+      metadata: { menuId, categoryId: input.categoryId },
+    });
     return { data: menuItem };
   },
   {
@@ -681,6 +802,13 @@ app.delete(
       return { error: "Menu item or category not found" };
     }
 
+    await writeAuditLog(user, {
+      action: "menu_category_remove",
+      targetType: "menu_item_category",
+      targetId: `${menuId}:${categoryId}`,
+      message: `Removed category from menu item #${menuId}`,
+      metadata: { menuId, categoryId },
+    });
     return { data: menuItem };
   },
   {
@@ -849,6 +977,20 @@ app.post(
     }
 
     set.status = 201;
+    await writeAuditLog(user, {
+      action: "walk_in_order_create",
+      targetType: "order",
+      targetId: String(result.order.id),
+      message: `Created walk-in order #${result.order.id}`,
+      metadata: {
+        guestName: result.order.guestName,
+        itemCount: result.order.items.length,
+        total: result.order.total,
+        fulfillmentType: result.order.fulfillmentType,
+        paymentMethod: result.order.paymentMethod,
+        paymentStatus: result.order.paymentStatus,
+      },
+    });
     return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
@@ -1015,6 +1157,7 @@ app.patch(
       return { error: "Forbidden" };
     }
 
+    const previousStatus = order.status;
     const result = await store.updateOrderStatus(orderId, {
       status: input.status,
       allowAnyTransition,
@@ -1037,6 +1180,16 @@ app.patch(
       }
     }
 
+    await writeAuditLog(user, {
+      action: "order_status_update",
+      targetType: "order",
+      targetId: String(result.order.id),
+      message: `Updated order #${result.order.id} status to ${result.order.status}`,
+      metadata: {
+        previousStatus,
+        status: result.order.status,
+      },
+    });
     return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
@@ -1076,6 +1229,7 @@ app.patch(
       return { error: "Forbidden" };
     }
 
+    const previousStatus = order.status;
     const result = await store.cancelOrder(orderId, {
       userId: user.id,
       allowManagerCancel,
@@ -1101,6 +1255,13 @@ app.patch(
       }
     }
 
+    await writeAuditLog(user, {
+      action: "order_cancel",
+      targetType: "order",
+      targetId: String(result.order.id),
+      message: `Cancelled order #${result.order.id}`,
+      metadata: { previousStatus },
+    });
     return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
@@ -1159,6 +1320,16 @@ app.patch(
       }
     }
 
+    await writeAuditLog(user, {
+      action: "order_issue_set",
+      targetType: "order",
+      targetId: String(result.order.id),
+      message: `Set issue on order #${result.order.id}`,
+      metadata: {
+        issueType: input.issueType,
+        hasIssueNote: Boolean(input.issueNote),
+      },
+    });
     return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
@@ -1204,6 +1375,13 @@ app.delete(
       }
     }
 
+    await writeAuditLog(user, {
+      action: "order_issue_clear",
+      targetType: "order",
+      targetId: String(result.order.id),
+      message: `Cleared issue on order #${result.order.id}`,
+      metadata: {},
+    });
     return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
@@ -1304,6 +1482,13 @@ app.patch(
       }
     }
 
+    await writeAuditLog(user, {
+      action: "order_payment_update",
+      targetType: "order",
+      targetId: String(result.order.id),
+      message: `Marked order #${result.order.id} payment as paid`,
+      metadata: { paymentStatus: result.order.paymentStatus },
+    });
     return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
@@ -1530,6 +1715,43 @@ app.get(
 );
 
 app.get(
+  "/api/admin/audit-logs",
+  async ({ query, request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const rawLimit = (query as { limit?: string }).limit;
+    const parsedLimit =
+      rawLimit !== undefined ? Number.parseInt(rawLimit, 10) : 50;
+    const limit =
+      Number.isFinite(parsedLimit) && parsedLimit > 0
+        ? Math.min(parsedLimit, 200)
+        : 50;
+
+    return {
+      data: store.getAuditLogs({
+        limit,
+        action: (query as { action?: AuditLogAction }).action,
+        targetType: (query as { targetType?: AuditLogTargetType }).targetType,
+      }),
+    };
+  },
+  {
+    query: getAuditLogsQuerySchema,
+    detail: {
+      tags: ["admin"],
+      summary: "List audit logs",
+      description: "Return recent system operation logs for owners and admins.",
+    },
+    response: {
+      200: auditLogListResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.get(
   "/api/admin/role-requests",
   async ({ query, request }) => {
     const user = await requireUser(request);
@@ -1634,6 +1856,17 @@ app.patch(
       return { error: "Unexpected database state" };
     }
 
+    await writeAuditLog(reviewer, {
+      action: "role_request_review",
+      targetType: "role_request",
+      targetId: String(requestId),
+      message: `Reviewed role request #${requestId}: ${input.status}`,
+      metadata: {
+        status: input.status,
+        requestedRole: roleRequest.requestedRole,
+        targetUserId: roleRequest.userId,
+      },
+    });
     return { data: toRoleRequestResponse(updated) };
   },
   {
@@ -1673,6 +1906,13 @@ app.patch(
       return { error: "User not found" };
     }
 
+    await writeAuditLog(admin, {
+      action: "role_update",
+      targetType: "user",
+      targetId: updated.userId,
+      message: `Updated roles for user ${updated.userId}`,
+      metadata: { roles: input.roles },
+    });
     return { data: { userId: updated.userId, roles: updated.roles as Role[] } };
   },
   {

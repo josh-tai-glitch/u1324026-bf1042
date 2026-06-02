@@ -80,6 +80,47 @@ export const roleRequestSchema = z.object({
   reviewNote: z.string().nullable(),
 });
 
+export const auditLogActionSchema = z.enum([
+  "role_update",
+  "role_request_review",
+  "menu_create",
+  "menu_update",
+  "menu_delete",
+  "category_create",
+  "category_update",
+  "category_delete",
+  "menu_category_assign",
+  "menu_category_remove",
+  "order_status_update",
+  "order_payment_update",
+  "order_cancel",
+  "order_issue_set",
+  "order_issue_clear",
+  "walk_in_order_create",
+]);
+
+export const auditLogTargetTypeSchema = z.enum([
+  "user",
+  "role_request",
+  "menu_item",
+  "category",
+  "menu_item_category",
+  "order",
+]);
+
+export const auditLogSchema = z.object({
+  id: z.number().int().min(1),
+  actorUserId: z.string().nullable(),
+  actorName: z.string().nullable(),
+  actorRoles: z.array(roleSchema).default([]),
+  action: auditLogActionSchema,
+  targetType: auditLogTargetTypeSchema,
+  targetId: z.string().nullable(),
+  message: z.string(),
+  metadata: z.record(z.unknown()).nullable(),
+  createdAt: z.string().min(1),
+});
+
 export const orderItemSchema = z.object({
   item: menuItemSchema,
   qty: z.number().min(0),
@@ -185,6 +226,9 @@ export type Role = z.infer<typeof roleSchema>;
 export type User = z.infer<typeof userSchema>;
 export type SessionUser = z.infer<typeof sessionUserSchema>;
 export type RoleRequest = z.infer<typeof roleRequestSchema>;
+export type AuditLogAction = z.infer<typeof auditLogActionSchema>;
+export type AuditLogTargetType = z.infer<typeof auditLogTargetTypeSchema>;
+export type AuditLog = z.infer<typeof auditLogSchema>;
 export type OrderItem = z.infer<typeof orderItemSchema>;
 export type OrderStatus = z.infer<typeof orderStatusSchema>;
 export type FulfillmentType = z.infer<typeof fulfillmentTypeSchema>;

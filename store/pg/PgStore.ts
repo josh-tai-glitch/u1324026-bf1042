@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import type {
+  AuditLog,
   AnalyticsSummary,
   Category,
   CategorySales,
@@ -11,10 +12,12 @@ import type {
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
+  Role,
   TopItemSales,
 } from "../../shared/contracts.ts";
 import { db } from "../../db/client.ts";
 import {
+  auditLogsTable,
   categoriesTable,
   menuItemCategoriesTable,
   menuItemsTable,
@@ -25,7 +28,9 @@ import {
   CategoryNotFoundError,
   CategorySlugConflictError,
   type AnalyticsDateRangeInput,
+  type AppendAuditLogInput,
   type CategoryStatusFilter,
+  type GetAuditLogsInput,
   type Store,
 } from "../Store.ts";
 
@@ -115,6 +120,7 @@ export class PgStore implements Store {
   private categories: Category[] = [];
   private allCategories: Category[] = [];
   private orders: Order[] = [];
+  private auditLogs: AuditLog[] = [];
 
   constructor(options: PgStoreOptions = {}) {
     this.dataFilePath = options.dataFilePath ?? "./data/store.json";
@@ -1160,6 +1166,67 @@ export class PgStore implements Store {
     return summary;
   }
 
+  async appendAuditLog(input: AppendAuditLogInput): Promise<void> {
+    const [created] = await db.insert(auditLogsTable).values({
+      actorUserId: input.actorUserId ?? null,
+      actorName: input.actorName ?? null,
+      actorRoles: input.actorRoles ?? [],
+      action: input.action,
+      targetType: input.targetType,
+      targetId: input.targetId ?? null,
+      message: input.message,
+      metadata: input.metadata ?? null,
+    }).returning();
+
+    if (created) {
+      this.auditLogs.unshift(this.toAuditLog(created));
+    }
+  }
+
+  getAuditLogs(input: GetAuditLogsInput = {}): ReadonlyArray<AuditLog> {
+    const safeLimit = this.getAuditLogLimit(input.limit);
+    return this.auditLogs
+      .filter((log) => !input.action || log.action === input.action)
+      .filter((log) => !input.targetType || log.targetType === input.targetType)
+      .slice()
+      .sort(
+        (a, b) =>
+          b.createdAt.localeCompare(a.createdAt) ||
+          b.id - a.id,
+      )
+      .slice(0, safeLimit);
+  }
+
+  private getAuditLogLimit(limit: number | undefined): number {
+    if (!Number.isFinite(limit) || !limit) return 50;
+    return Math.min(Math.max(Math.floor(limit), 1), 200);
+  }
+
+  private toAuditLog(row: typeof auditLogsTable.$inferSelect): AuditLog {
+    return {
+      id: row.id,
+      actorUserId: row.actorUserId ?? null,
+      actorName: row.actorName ?? null,
+      actorRoles: Array.isArray(row.actorRoles)
+        ? (row.actorRoles.filter((role) =>
+            ["admin", "owner", "chef", "staff", "customer"].includes(role),
+          ) as Role[])
+        : [],
+      action: row.action as AuditLog["action"],
+      targetType: row.targetType as AuditLog["targetType"],
+      targetId: row.targetId ?? null,
+      message: row.message,
+      metadata:
+        row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+          ? (row.metadata as Record<string, unknown>)
+          : null,
+      createdAt:
+        row.createdAt instanceof Date
+          ? row.createdAt.toISOString()
+          : new Date(row.createdAt).toISOString(),
+    };
+  }
+
   private getAnalyticsOrders(input?: AnalyticsDateRangeInput): Order[] {
     const start = this.parseAnalyticsDateBound(input?.startDate, false);
     const end = this.parseAnalyticsDateBound(input?.endDate, true);
@@ -1316,8 +1383,15 @@ export class PgStore implements Store {
       .from(orderItemsTable)
       .orderBy(asc(orderItemsTable.id));
 
+    const auditLogRows = await db
+      .select()
+      .from(auditLogsTable)
+      .orderBy(desc(auditLogsTable.createdAt), desc(auditLogsTable.id))
+      .limit(200);
+
     this.allCategories = categoryRows.map((row) => this.toCategory(row));
     this.categories = this.allCategories.filter((category) => category.isActive);
+    this.auditLogs = auditLogRows.map((row) => this.toAuditLog(row));
 
     const categoriesByMenuId = new Map<number, Category[]>();
     for (const row of menuCategoryRows) {

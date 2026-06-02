@@ -1,4 +1,7 @@
 import type {
+  AuditLog,
+  AuditLogAction,
+  AuditLogTargetType,
   Category,
   CategorySales,
   AnalyticsSummary,
@@ -9,6 +12,7 @@ import type {
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
+  Role,
   TopItemSales,
 } from "../shared/contracts.ts";
 
@@ -72,6 +76,23 @@ export type CategoryStatusFilter = "active" | "inactive" | "all";
 export type AnalyticsDateRangeInput = {
   startDate?: string;
   endDate?: string;
+};
+
+export type AppendAuditLogInput = {
+  actorUserId?: string | null;
+  actorName?: string | null;
+  actorRoles?: Role[];
+  action: AuditLogAction;
+  targetType: AuditLogTargetType;
+  targetId?: string | null;
+  message: string;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type GetAuditLogsInput = {
+  limit?: number;
+  action?: AuditLogAction;
+  targetType?: AuditLogTargetType;
 };
 
 export interface Store {
@@ -238,4 +259,6 @@ export interface Store {
     input?: AnalyticsDateRangeInput,
   ): ReadonlyArray<TopItemSales>;
   getAnalyticsSummary(input?: AnalyticsDateRangeInput): AnalyticsSummary;
+  appendAuditLog(input: AppendAuditLogInput): Promise<void>;
+  getAuditLogs(input?: GetAuditLogsInput): ReadonlyArray<AuditLog>;
 }

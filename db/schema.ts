@@ -1,6 +1,7 @@
 import {
   boolean,
   integer,
+  jsonb,
   pgSchema,
   serial,
   text,
@@ -115,6 +116,21 @@ export const roleRequests = appSchema.table("role_requests", {
   reviewedBy: text("reviewed_by").references(() => user.id),
   reviewedAt: timestamp("reviewed_at"),
   reviewNote: text("review_note"),
+});
+
+export const auditLogsTable = appSchema.table("audit_logs", {
+  id: serial("id").primaryKey(),
+  actorUserId: text("actor_user_id").references(() => user.id),
+  actorName: text("actor_name"),
+  actorRoles: text("actor_roles").array(),
+  action: text("action").notNull(),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id"),
+  message: text("message").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 export const orderItemsTable = appSchema.table(

@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { Order } from "./contracts.ts";
 import {
+  auditLogActionSchema,
+  auditLogSchema,
+  auditLogTargetTypeSchema,
   analyticsSummarySchema,
   categorySchema,
   categorySalesSchema,
@@ -219,6 +222,12 @@ export const topItemsAnalyticsQuerySchema = analyticsDateRangeQuerySchema.extend
   limit: z.string().regex(/^[0-9]+$/).optional(),
 });
 
+export const getAuditLogsQuerySchema = z.object({
+  limit: z.string().regex(/^[0-9]+$/).optional(),
+  action: auditLogActionSchema.optional(),
+  targetType: auditLogTargetTypeSchema.optional(),
+});
+
 export const getCategoriesQuerySchema = z.object({
   status: z.enum(["active", "inactive", "all"]).default("active"),
 });
@@ -289,6 +298,10 @@ export const analyticsSummaryResponseSchema = z.object({
 
 export const topItemSalesListResponseSchema = z.object({
   data: z.array(topItemSalesSchema),
+});
+
+export const auditLogListResponseSchema = z.object({
+  data: z.array(auditLogSchema),
 });
 
 export const orderListResponseSchema = z.object({

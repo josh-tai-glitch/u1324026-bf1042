@@ -1,5 +1,6 @@
 import { mkdir, rename } from "node:fs/promises";
 import type {
+  AuditLog,
   AnalyticsSummary,
   Category,
   CategorySales,
@@ -11,13 +12,16 @@ import type {
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
+  Role,
   TopItemSales,
 } from "../../shared/contracts.ts";
 import {
   CategoryNotFoundError,
   CategorySlugConflictError,
   type AnalyticsDateRangeInput,
+  type AppendAuditLogInput,
   type CategoryStatusFilter,
+  type GetAuditLogsInput,
   type Store,
 } from "../Store.ts";
 
@@ -33,9 +37,11 @@ interface DataStore {
   menu: MenuItem[];
   categories?: Category[];
   orders: Order[];
+  auditLogs?: AuditLog[];
   userIdCounter: number;
   menuIdCounter: number;
   orderIdCounter: number;
+  auditLogIdCounter?: number;
 }
 
 interface JsonFileStoreOptions {
@@ -179,6 +185,29 @@ function normalizeCategory(category: Partial<Category>): Category {
   };
 }
 
+function normalizeAuditLog(log: Partial<AuditLog>): AuditLog {
+  const now = new Date().toISOString();
+  return {
+    id: log.id ?? 0,
+    actorUserId: log.actorUserId ?? null,
+    actorName: log.actorName ?? null,
+    actorRoles: Array.isArray(log.actorRoles)
+      ? (log.actorRoles.filter((role) =>
+          ["admin", "owner", "chef", "staff", "customer"].includes(role),
+        ) as Role[])
+      : [],
+    action: log.action ?? "menu_update",
+    targetType: log.targetType ?? "menu_item",
+    targetId: log.targetId ?? null,
+    message: log.message ?? "",
+    metadata:
+      log.metadata && typeof log.metadata === "object" && !Array.isArray(log.metadata)
+        ? log.metadata
+        : null,
+    createdAt: log.createdAt ?? now,
+  };
+}
+
 function normalizeUserId(rawId: unknown): string {
   if (typeof rawId === "number" && Number.isInteger(rawId) && rawId > 0) {
     return String(rawId).padStart(4, "0");
@@ -230,9 +259,11 @@ export class JsonFileStore implements Store {
   private menu: MenuItem[] = [];
   private categories: Category[] = [];
   private orders: Order[] = [];
+  private auditLogs: AuditLog[] = [];
   private userIdCounter = 0;
   private menuIdCounter = 0;
   private orderIdCounter = 0;
+  private auditLogIdCounter = 0;
   private persistQueue: Promise<void> = Promise.resolve();
 
   constructor(options: JsonFileStoreOptions) {
@@ -299,9 +330,13 @@ export class JsonFileStore implements Store {
           ratedAt: order.ratedAt ?? null,
           submittedAt: order.status === "pending" ? undefined : order.submittedAt,
         })),
+        auditLogs: Array.isArray(parsed.auditLogs)
+          ? parsed.auditLogs.map((log) => normalizeAuditLog(log))
+          : [],
         userIdCounter: parsed.userIdCounter ?? 0,
         menuIdCounter: parsed.menuIdCounter ?? 0,
         orderIdCounter: parsed.orderIdCounter ?? 0,
+        auditLogIdCounter: parsed.auditLogIdCounter ?? 0,
       });
     } catch (error) {
       console.warn("[store] load failed, fallback to initial store", error);
@@ -1138,6 +1173,43 @@ export class JsonFileStore implements Store {
     return summary;
   }
 
+  async appendAuditLog(input: AppendAuditLogInput): Promise<void> {
+    const auditLog: AuditLog = {
+      id: ++this.auditLogIdCounter,
+      actorUserId: input.actorUserId ?? null,
+      actorName: input.actorName ?? null,
+      actorRoles: input.actorRoles ?? [],
+      action: input.action,
+      targetType: input.targetType,
+      targetId: input.targetId ?? null,
+      message: input.message,
+      metadata: input.metadata ?? null,
+      createdAt: new Date().toISOString(),
+    };
+
+    this.auditLogs.unshift(auditLog);
+    await this.persist();
+  }
+
+  getAuditLogs(input: GetAuditLogsInput = {}): ReadonlyArray<AuditLog> {
+    const safeLimit = this.getAuditLogLimit(input.limit);
+    return this.auditLogs
+      .filter((log) => !input.action || log.action === input.action)
+      .filter((log) => !input.targetType || log.targetType === input.targetType)
+      .slice()
+      .sort(
+        (a, b) =>
+          b.createdAt.localeCompare(a.createdAt) ||
+          b.id - a.id,
+      )
+      .slice(0, safeLimit);
+  }
+
+  private getAuditLogLimit(limit: number | undefined): number {
+    if (!Number.isFinite(limit) || !limit) return 50;
+    return Math.min(Math.max(Math.floor(limit), 1), 200);
+  }
+
   private getAnalyticsOrders(input?: AnalyticsDateRangeInput): Order[] {
     const start = this.parseAnalyticsDateBound(input?.startDate, false);
     const end = this.parseAnalyticsDateBound(input?.endDate, true);
@@ -1188,9 +1260,11 @@ export class JsonFileStore implements Store {
       categories: [],
       menu: cloneDefaultMenu(),
       orders: [],
+      auditLogs: [],
       userIdCounter: defaultUsers.length,
       menuIdCounter: defaultMenu.length,
       orderIdCounter: 0,
+      auditLogIdCounter: 0,
     };
   }
 
@@ -1199,6 +1273,7 @@ export class JsonFileStore implements Store {
     this.categories = Array.isArray(store.categories) ? store.categories : [];
     this.menu = store.menu;
     this.orders = store.orders;
+    this.auditLogs = Array.isArray(store.auditLogs) ? store.auditLogs : [];
 
     const maxUserId = this.users.reduce((max, user) => {
       const asNumber = Number.parseInt(user.id, 10);
@@ -1213,10 +1288,18 @@ export class JsonFileStore implements Store {
       (max, order) => Math.max(max, order.id),
       0,
     );
+    const maxAuditLogId = this.auditLogs.reduce(
+      (max, log) => Math.max(max, log.id),
+      0,
+    );
 
     this.userIdCounter = Math.max(store.userIdCounter || 0, maxUserId);
     this.menuIdCounter = Math.max(store.menuIdCounter || 0, maxMenuId);
     this.orderIdCounter = Math.max(store.orderIdCounter || 0, maxOrderId);
+    this.auditLogIdCounter = Math.max(
+      store.auditLogIdCounter || 0,
+      maxAuditLogId,
+    );
   }
 
   private buildStoreSnapshot(): DataStore {
@@ -1225,9 +1308,11 @@ export class JsonFileStore implements Store {
       categories: this.categories,
       menu: this.menu,
       orders: this.orders,
+      auditLogs: this.auditLogs,
       userIdCounter: this.userIdCounter,
       menuIdCounter: this.menuIdCounter,
       orderIdCounter: this.orderIdCounter,
+      auditLogIdCounter: this.auditLogIdCounter,
     };
   }
 

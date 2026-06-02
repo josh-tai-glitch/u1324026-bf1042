@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import type {
   ApiDataResponse,
+  AuditLog,
+  AuditLogAction,
+  AuditLogTargetType,
   AnalyticsSummary,
   Category,
   CategorySales,
@@ -48,6 +51,32 @@ const analyticsRangeOptions = [
   { id: "thisMonth", label: "This month" },
   { id: "custom", label: "Custom" },
 ] as const;
+const auditLogActionOptions: AuditLogAction[] = [
+  "role_update",
+  "role_request_review",
+  "menu_create",
+  "menu_update",
+  "menu_delete",
+  "category_create",
+  "category_update",
+  "category_delete",
+  "menu_category_assign",
+  "menu_category_remove",
+  "order_status_update",
+  "order_payment_update",
+  "order_cancel",
+  "order_issue_set",
+  "order_issue_clear",
+  "walk_in_order_create",
+];
+const auditLogTargetTypeOptions: AuditLogTargetType[] = [
+  "user",
+  "role_request",
+  "menu_item",
+  "category",
+  "menu_item_category",
+  "order",
+];
 const emptyMenuForm = {
   name: "",
   price: "",
@@ -92,7 +121,13 @@ type AnalyticsDateFilters = {
 };
 type ApiErrorPayload = { error?: string; message?: string };
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
-type ManagerTab = "orders" | "analytics" | "menu" | "categories" | "roleRequests";
+type ManagerTab =
+  | "orders"
+  | "analytics"
+  | "menu"
+  | "categories"
+  | "roleRequests"
+  | "auditLogs";
 type OrderBoardFilter = (typeof orderBoardFilters)[number]["id"];
 type CategoryStatusFilter = "active" | "inactive" | "all";
 
@@ -240,6 +275,16 @@ export default function App() {
   const [appliedAnalyticsStartDate, setAppliedAnalyticsStartDate] =
     useState("");
   const [appliedAnalyticsEndDate, setAppliedAnalyticsEndDate] = useState("");
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+  const [auditLogsMessage, setAuditLogsMessage] = useState("");
+  const [auditLogActionFilter, setAuditLogActionFilter] = useState<
+    "" | AuditLogAction
+  >("");
+  const [auditLogTargetTypeFilter, setAuditLogTargetTypeFilter] = useState<
+    "" | AuditLogTargetType
+  >("");
+  const [auditLogLimit, setAuditLogLimit] = useState("50");
   const [managerTab, setManagerTab] = useState<ManagerTab>("orders");
 
   const menuSectionRef = useRef<HTMLElement | null>(null);
@@ -266,6 +311,7 @@ export default function App() {
     { id: "analytics" as const, label: "Analytics", visible: canManageMenu },
     { id: "menu" as const, label: "Menu", visible: canManageMenu },
     { id: "categories" as const, label: "Categories", visible: canManageMenu },
+    { id: "auditLogs" as const, label: "Audit logs", visible: canManageMenu },
     { id: "roleRequests" as const, label: "Role requests", visible: isAdmin },
   ].filter((tab) => tab.visible);
   const hasManagerTools = managerTabs.length > 0;
@@ -447,6 +493,12 @@ export default function App() {
       default:
         return "All time";
     }
+  }
+
+  function formatAuditMetadata(metadata: AuditLog["metadata"]): string {
+    if (!metadata) return "-";
+    const summary = JSON.stringify(metadata);
+    return summary.length > 160 ? `${summary.slice(0, 157)}...` : summary;
   }
 
   function formatPickupNumber(orderId: number): string {
@@ -764,6 +816,45 @@ export default function App() {
     }
   }
 
+  const loadAuditLogs = useCallback(async () => {
+    if (!canManageMenu) return;
+
+    const params = new URLSearchParams({ limit: auditLogLimit || "50" });
+    if (auditLogActionFilter) params.set("action", auditLogActionFilter);
+    if (auditLogTargetTypeFilter) {
+      params.set("targetType", auditLogTargetTypeFilter);
+    }
+
+    setAuditLogsLoading(true);
+    setAuditLogsMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/admin/audit-logs?${params.toString()}`),
+        { credentials: "include" },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<AuditLog[]>;
+      setAuditLogs(Array.isArray(payload?.data) ? payload.data : []);
+    } catch (auditError) {
+      setAuditLogsMessage(
+        auditError instanceof Error
+          ? auditError.message
+          : "Unable to load audit logs.",
+      );
+    } finally {
+      setAuditLogsLoading(false);
+    }
+  }, [
+    auditLogActionFilter,
+    auditLogLimit,
+    auditLogTargetTypeFilter,
+    canManageMenu,
+  ]);
+
   // Effects
   useEffect(() => {
     let mounted = true;
@@ -838,6 +929,15 @@ export default function App() {
       setAnalyticsMessage("");
     }
   }, [canManageMenu, loadAnalytics]);
+
+  useEffect(() => {
+    if (canManageMenu && managerTab === "auditLogs") {
+      void loadAuditLogs();
+    } else if (!canManageMenu) {
+      setAuditLogs([]);
+      setAuditLogsMessage("");
+    }
+  }, [canManageMenu, loadAuditLogs, managerTab]);
 
   useEffect(() => {
     if (canManageMenu) {
@@ -3020,6 +3120,151 @@ export default function App() {
                                 {request.reviewNote || "Reviewed"}
                               </span>
                             )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {hasManagerTools && managerTab === "auditLogs" && canManageMenu ? (
+          <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
+            <div className="card-body">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="card-title">Audit logs</h2>
+                  <p className="text-sm opacity-70">
+                    Review recent system operations by owner and admin users.
+                  </p>
+                </div>
+                <button
+                  className="btn btn-sm btn-outline"
+                  disabled={auditLogsLoading}
+                  onClick={() => void loadAuditLogs()}
+                >
+                  {auditLogsLoading ? "Loading..." : "Refresh"}
+                </button>
+              </div>
+              <div className="rounded-box border border-base-300 bg-base-200 p-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
+                  <label className="form-control">
+                    <span className="label-text">Action</span>
+                    <select
+                      className="select select-bordered select-sm"
+                      value={auditLogActionFilter}
+                      onChange={(event) =>
+                        setAuditLogActionFilter(
+                          event.target.value as "" | AuditLogAction,
+                        )
+                      }
+                    >
+                      <option value="">All actions</option>
+                      {auditLogActionOptions.map((action) => (
+                        <option key={action} value={action}>
+                          {action}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="form-control">
+                    <span className="label-text">Target type</span>
+                    <select
+                      className="select select-bordered select-sm"
+                      value={auditLogTargetTypeFilter}
+                      onChange={(event) =>
+                        setAuditLogTargetTypeFilter(
+                          event.target.value as "" | AuditLogTargetType,
+                        )
+                      }
+                    >
+                      <option value="">All targets</option>
+                      {auditLogTargetTypeOptions.map((targetType) => (
+                        <option key={targetType} value={targetType}>
+                          {targetType}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="form-control">
+                    <span className="label-text">Limit</span>
+                    <select
+                      className="select select-bordered select-sm"
+                      value={auditLogLimit}
+                      onChange={(event) => setAuditLogLimit(event.target.value)}
+                    >
+                      <option value="25">25</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                      <option value="200">200</option>
+                    </select>
+                  </label>
+                  <button
+                    className="btn btn-sm btn-primary self-end"
+                    disabled={auditLogsLoading}
+                    onClick={() => void loadAuditLogs()}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+              {auditLogsMessage ? (
+                <div className="alert alert-warning">
+                  <span>{auditLogsMessage}</span>
+                </div>
+              ) : null}
+              {auditLogsLoading ? (
+                <div className="alert">
+                  <span>Loading audit logs...</span>
+                </div>
+              ) : auditLogs.length === 0 ? (
+                <div className="alert alert-info">
+                  <span>No audit logs found.</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Actor</th>
+                        <th>Action</th>
+                        <th>Target</th>
+                        <th>Message</th>
+                        <th>Metadata</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLogs.map((log) => (
+                        <tr key={log.id}>
+                          <td className="whitespace-nowrap">
+                            {formatCheckoutDateTime(log.createdAt)}
+                          </td>
+                          <td>
+                            <div>{log.actorName ?? "-"}</div>
+                            <div className="text-xs opacity-60">
+                              {log.actorRoles.length > 0
+                                ? log.actorRoles.join(", ")
+                                : "No roles"}
+                            </div>
+                          </td>
+                          <td>
+                            <span className="badge badge-outline">
+                              {log.action}
+                            </span>
+                          </td>
+                          <td>
+                            <div>{log.targetType}</div>
+                            <div className="text-xs opacity-60">
+                              {log.targetId ?? "-"}
+                            </div>
+                          </td>
+                          <td className="max-w-sm">{log.message}</td>
+                          <td className="max-w-xs break-words text-xs">
+                            {formatAuditMetadata(log.metadata)}
                           </td>
                         </tr>
                       ))}

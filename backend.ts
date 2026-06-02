@@ -146,7 +146,7 @@ function formatDateOnly(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function getAnalyticsDateRange(query: {
+function getDateRangeFromQuery(query: {
   range?: "all" | "today" | "last7Days" | "thisMonth" | "custom";
   startDate?: string;
   endDate?: string;
@@ -183,6 +183,8 @@ function getAnalyticsDateRange(query: {
       return {};
   }
 }
+
+const getAnalyticsDateRange = getDateRangeFromQuery;
 
 function getAuditActor(user: {
   id: string;
@@ -1769,6 +1771,9 @@ app.get(
         limit,
         action: (query as { action?: AuditLogAction }).action,
         targetType: (query as { targetType?: AuditLogTargetType }).targetType,
+        ...getDateRangeFromQuery(query),
+        actor: (query as { actor?: string }).actor?.trim() || undefined,
+        targetId: (query as { targetId?: string }).targetId?.trim() || undefined,
       });
     } catch (error) {
       console.warn("Unable to read audit logs", error);

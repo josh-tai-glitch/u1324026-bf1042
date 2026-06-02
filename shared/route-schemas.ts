@@ -232,6 +232,13 @@ export const getAuditLogsQuerySchema = z.object({
   limit: z.string().regex(/^[0-9]+$/).optional(),
   action: auditLogActionSchema.optional(),
   targetType: auditLogTargetTypeSchema.optional(),
+  range: z
+    .enum(["all", "today", "last7Days", "thisMonth", "custom"])
+    .default("all"),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  actor: z.string().optional(),
+  targetId: z.string().optional(),
 });
 
 export const getCategoriesQuerySchema = z.object({

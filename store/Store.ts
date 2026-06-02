@@ -94,6 +94,10 @@ export type GetAuditLogsInput = {
   limit?: number;
   action?: AuditLogAction;
   targetType?: AuditLogTargetType;
+  startDate?: string;
+  endDate?: string;
+  actor?: string;
+  targetId?: string;
 };
 
 export interface Store {

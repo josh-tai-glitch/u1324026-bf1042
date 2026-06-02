@@ -1264,6 +1264,12 @@ export class JsonFileStore implements Store {
     return this.auditLogs
       .filter((log) => !input.action || log.action === input.action)
       .filter((log) => !input.targetType || log.targetType === input.targetType)
+      .filter((log) => this.isAuditLogInDateRange(log, input))
+      .filter((log) =>
+        this.matchesAuditKeyword(log.actorName, input.actor) ||
+        this.matchesAuditKeyword(log.actorUserId, input.actor),
+      )
+      .filter((log) => this.matchesAuditKeyword(log.targetId, input.targetId))
       .slice()
       .sort(
         (a, b) =>
@@ -1276,6 +1282,52 @@ export class JsonFileStore implements Store {
   private getAuditLogLimit(limit: number | undefined): number {
     if (!Number.isFinite(limit) || !limit) return 50;
     return Math.min(Math.max(Math.floor(limit), 1), 200);
+  }
+
+  private isAuditLogInDateRange(
+    log: AuditLog,
+    input: GetAuditLogsInput,
+  ): boolean {
+    const start = this.parseAuditLogDateBound(input.startDate, false);
+    const end = this.parseAuditLogDateBound(input.endDate, true);
+
+    if (!start && !end) return true;
+
+    const date = new Date(log.createdAt);
+    if (Number.isNaN(date.getTime())) return false;
+    if (start && date < start) return false;
+    if (end && date > end) return false;
+    return true;
+  }
+
+  private parseAuditLogDateBound(
+    value: string | undefined,
+    isEnd: boolean,
+  ): Date | null {
+    if (!value) return null;
+    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    const date = dateOnlyMatch
+      ? new Date(
+          Number(dateOnlyMatch[1]),
+          Number(dateOnlyMatch[2]) - 1,
+          Number(dateOnlyMatch[3]),
+          isEnd ? 23 : 0,
+          isEnd ? 59 : 0,
+          isEnd ? 59 : 0,
+          isEnd ? 999 : 0,
+        )
+      : new Date(value);
+
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private matchesAuditKeyword(
+    value: string | null | undefined,
+    keyword: string | undefined,
+  ): boolean {
+    const trimmedKeyword = keyword?.trim().toLowerCase();
+    if (!trimmedKeyword) return true;
+    return (value ?? "").toLowerCase().includes(trimmedKeyword);
   }
 
   private getAnalyticsOrders(input?: AnalyticsDateRangeInput): Order[] {

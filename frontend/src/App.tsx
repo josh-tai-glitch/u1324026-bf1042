@@ -78,6 +78,32 @@ const auditLogTargetTypeOptions: AuditLogTargetType[] = [
   "menu_item_category",
   "order",
 ];
+const auditLogActionLabels: Record<AuditLogAction, string> = {
+  role_update: "Role updated",
+  role_request_review: "Role request reviewed",
+  menu_create: "Menu created",
+  menu_update: "Menu updated",
+  menu_delete: "Menu deleted",
+  category_create: "Category created",
+  category_update: "Category updated",
+  category_delete: "Category deactivated",
+  menu_category_assign: "Category assigned",
+  menu_category_remove: "Category removed",
+  order_status_update: "Order status updated",
+  order_payment_update: "Payment updated",
+  order_cancel: "Order cancelled",
+  order_issue_set: "Issue set",
+  order_issue_clear: "Issue cleared",
+  walk_in_order_create: "Walk-in order created",
+};
+const auditLogTargetTypeLabels: Record<AuditLogTargetType, string> = {
+  user: "User",
+  role_request: "Role request",
+  menu_item: "Menu item",
+  category: "Category",
+  menu_item_category: "Menu item category",
+  order: "Order",
+};
 const emptyMenuForm = {
   name: "",
   price: "",
@@ -115,6 +141,7 @@ type WalkInOrderItem = { itemId: number; qty: number };
 type OrderIssueDraft = { issueType: OrderIssueType; issueNote: string };
 type OrderRatingDraft = { rating: string; ratingComment: string };
 type AnalyticsRange = "all" | "today" | "last7Days" | "thisMonth" | "custom";
+type AuditLogRange = "all" | "today" | "last7Days" | "thisMonth" | "custom";
 type AnalyticsDateFilters = {
   range: AnalyticsRange;
   startDate: string;
@@ -288,6 +315,11 @@ export default function App() {
     "" | AuditLogTargetType
   >("");
   const [auditLogLimit, setAuditLogLimit] = useState("50");
+  const [auditLogRange, setAuditLogRange] = useState<AuditLogRange>("all");
+  const [auditLogStartDate, setAuditLogStartDate] = useState("");
+  const [auditLogEndDate, setAuditLogEndDate] = useState("");
+  const [auditLogActorFilter, setAuditLogActorFilter] = useState("");
+  const [auditLogTargetIdFilter, setAuditLogTargetIdFilter] = useState("");
   const [managerTab, setManagerTab] = useState<ManagerTab>("orders");
 
   const menuSectionRef = useRef<HTMLElement | null>(null);
@@ -531,6 +563,23 @@ export default function App() {
     if (!metadata) return "-";
     const summary = JSON.stringify(metadata);
     return summary.length > 160 ? `${summary.slice(0, 157)}...` : summary;
+  }
+
+  function formatAuditMetadataDetail(metadata: AuditLog["metadata"]): string {
+    if (!metadata) return "-";
+    try {
+      return JSON.stringify(metadata, null, 2);
+    } catch {
+      return "Unable to display metadata";
+    }
+  }
+
+  function formatAuditAction(action: AuditLogAction): string {
+    return auditLogActionLabels[action] ?? action;
+  }
+
+  function formatAuditTargetType(targetType: AuditLogTargetType): string {
+    return auditLogTargetTypeLabels[targetType] ?? targetType;
   }
 
   function formatTrendHour(hour: number): string {
@@ -880,6 +929,17 @@ export default function App() {
     if (auditLogTargetTypeFilter) {
       params.set("targetType", auditLogTargetTypeFilter);
     }
+    params.set("range", auditLogRange);
+    if (auditLogRange === "custom") {
+      if (auditLogStartDate) params.set("startDate", auditLogStartDate);
+      if (auditLogEndDate) params.set("endDate", auditLogEndDate);
+    }
+    if (auditLogActorFilter.trim()) {
+      params.set("actor", auditLogActorFilter.trim());
+    }
+    if (auditLogTargetIdFilter.trim()) {
+      params.set("targetId", auditLogTargetIdFilter.trim());
+    }
 
     setAuditLogsLoading(true);
     setAuditLogsMessage("");
@@ -906,7 +966,12 @@ export default function App() {
     }
   }, [
     auditLogActionFilter,
+    auditLogActorFilter,
+    auditLogEndDate,
     auditLogLimit,
+    auditLogRange,
+    auditLogStartDate,
+    auditLogTargetIdFilter,
     auditLogTargetTypeFilter,
     canManageMenu,
   ]);
@@ -3215,7 +3280,7 @@ export default function App() {
                 </button>
               </div>
               <div className="rounded-box border border-base-300 bg-base-200 p-3">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto_auto]">
                   <label className="form-control">
                     <span className="label-text">Action</span>
                     <select
@@ -3230,7 +3295,7 @@ export default function App() {
                       <option value="">All actions</option>
                       {auditLogActionOptions.map((action) => (
                         <option key={action} value={action}>
-                          {action}
+                          {formatAuditAction(action)}
                         </option>
                       ))}
                     </select>
@@ -3249,7 +3314,23 @@ export default function App() {
                       <option value="">All targets</option>
                       {auditLogTargetTypeOptions.map((targetType) => (
                         <option key={targetType} value={targetType}>
-                          {targetType}
+                          {formatAuditTargetType(targetType)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="form-control">
+                    <span className="label-text">Date range</span>
+                    <select
+                      className="select select-bordered select-sm"
+                      value={auditLogRange}
+                      onChange={(event) =>
+                        setAuditLogRange(event.target.value as AuditLogRange)
+                      }
+                    >
+                      {analyticsRangeOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
                         </option>
                       ))}
                     </select>
@@ -3267,6 +3348,28 @@ export default function App() {
                       <option value="200">200</option>
                     </select>
                   </label>
+                  <label className="form-control">
+                    <span className="label-text">Actor</span>
+                    <input
+                      className="input input-bordered input-sm"
+                      placeholder="Name or user ID"
+                      value={auditLogActorFilter}
+                      onChange={(event) =>
+                        setAuditLogActorFilter(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="form-control">
+                    <span className="label-text">Target ID</span>
+                    <input
+                      className="input input-bordered input-sm"
+                      placeholder="Order, menu, user..."
+                      value={auditLogTargetIdFilter}
+                      onChange={(event) =>
+                        setAuditLogTargetIdFilter(event.target.value)
+                      }
+                    />
+                  </label>
                   <button
                     className="btn btn-sm btn-primary self-end"
                     disabled={auditLogsLoading}
@@ -3275,6 +3378,32 @@ export default function App() {
                     Apply
                   </button>
                 </div>
+                {auditLogRange === "custom" ? (
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="form-control">
+                      <span className="label-text">Start date</span>
+                      <input
+                        className="input input-bordered input-sm"
+                        type="date"
+                        value={auditLogStartDate}
+                        onChange={(event) =>
+                          setAuditLogStartDate(event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="form-control">
+                      <span className="label-text">End date</span>
+                      <input
+                        className="input input-bordered input-sm"
+                        type="date"
+                        value={auditLogEndDate}
+                        onChange={(event) =>
+                          setAuditLogEndDate(event.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                ) : null}
               </div>
               {auditLogsMessage ? (
                 <div className="alert alert-warning">
@@ -3318,18 +3447,33 @@ export default function App() {
                           </td>
                           <td>
                             <span className="badge badge-outline">
-                              {log.action}
+                              {formatAuditAction(log.action)}
                             </span>
+                            <div className="text-xs opacity-60">
+                              {log.action}
+                            </div>
                           </td>
                           <td>
-                            <div>{log.targetType}</div>
+                            <div>{formatAuditTargetType(log.targetType)}</div>
                             <div className="text-xs opacity-60">
-                              {log.targetId ?? "-"}
+                              {log.targetType}
+                              {log.targetId ? ` / ${log.targetId}` : ""}
                             </div>
                           </td>
                           <td className="max-w-sm">{log.message}</td>
                           <td className="max-w-xs break-words text-xs">
-                            {formatAuditMetadata(log.metadata)}
+                            {log.metadata ? (
+                              <details>
+                                <summary className="cursor-pointer">
+                                  {formatAuditMetadata(log.metadata)}
+                                </summary>
+                                <pre className="mt-2 max-w-xs overflow-x-auto rounded bg-base-200 p-2 text-xs">
+                                  {formatAuditMetadataDetail(log.metadata)}
+                                </pre>
+                              </details>
+                            ) : (
+                              "-"
+                            )}
                           </td>
                         </tr>
                       ))}

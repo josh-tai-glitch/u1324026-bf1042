@@ -24,6 +24,7 @@ import {
 import {
   CategoryNotFoundError,
   CategorySlugConflictError,
+  type AnalyticsDateRangeInput,
   type CategoryStatusFilter,
   type Store,
 } from "../Store.ts";
@@ -998,13 +999,15 @@ export class PgStore implements Store {
     return { ok: true, order };
   }
 
-  getCategorySalesAnalytics(): ReadonlyArray<CategorySales> {
+  getCategorySalesAnalytics(
+    input?: AnalyticsDateRangeInput,
+  ): ReadonlyArray<CategorySales> {
     const salesByCategory = new Map<
       string,
       { quantity: number; revenue: number; orderIds: Set<number> }
     >();
 
-    for (const order of this.orders) {
+    for (const order of this.getAnalyticsOrders(input)) {
       if (!revenueOrderStatuses.includes(order.status)) continue;
 
       for (const orderItem of order.items) {
@@ -1036,7 +1039,10 @@ export class PgStore implements Store {
       );
   }
 
-  getTopItemSalesAnalytics(limit = 10): ReadonlyArray<TopItemSales> {
+  getTopItemSalesAnalytics(
+    limit = 10,
+    input?: AnalyticsDateRangeInput,
+  ): ReadonlyArray<TopItemSales> {
     const safeLimit =
       Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 10;
     const salesByItem = new Map<
@@ -1051,7 +1057,7 @@ export class PgStore implements Store {
       }
     >();
 
-    for (const order of this.orders) {
+    for (const order of this.getAnalyticsOrders(input)) {
       if (!revenueOrderStatuses.includes(order.status)) continue;
 
       for (const orderItem of order.items) {
@@ -1091,13 +1097,14 @@ export class PgStore implements Store {
 
   // ── Private ─────────────────────────────────────────────────
 
-  getAnalyticsSummary(): AnalyticsSummary {
+  getAnalyticsSummary(input?: AnalyticsDateRangeInput): AnalyticsSummary {
     const today = new Date().toLocaleDateString();
-    const formalOrders = this.orders.filter((order) => order.status !== "pending");
-    const revenueOrders = this.orders.filter((order) =>
+    const analyticsOrders = this.getAnalyticsOrders(input);
+    const formalOrders = analyticsOrders.filter((order) => order.status !== "pending");
+    const revenueOrders = analyticsOrders.filter((order) =>
       revenueOrderStatuses.includes(order.status),
     );
-    const ratedOrders = this.orders.filter((order) => order.rating !== null);
+    const ratedOrders = analyticsOrders.filter((order) => order.rating !== null);
     const totalRevenue = revenueOrders.reduce(
       (sum, order) => sum + order.total,
       0,
@@ -1123,7 +1130,7 @@ export class PgStore implements Store {
         0,
       ),
       todayOrderCount: todayRevenueOrders.length,
-      cancellationCount: this.orders.filter(
+      cancellationCount: analyticsOrders.filter(
         (order) => order.status === "cancelled",
       ).length,
       averageRating:
@@ -1151,6 +1158,42 @@ export class PgStore implements Store {
     }
 
     return summary;
+  }
+
+  private getAnalyticsOrders(input?: AnalyticsDateRangeInput): Order[] {
+    const start = this.parseAnalyticsDateBound(input?.startDate, false);
+    const end = this.parseAnalyticsDateBound(input?.endDate, true);
+
+    if (!start && !end) return this.orders;
+
+    return this.orders.filter((order) => {
+      const date = new Date(order.submittedAt ?? order.createdAt);
+      if (Number.isNaN(date.getTime())) return false;
+      if (start && date < start) return false;
+      if (end && date > end) return false;
+      return true;
+    });
+  }
+
+  private parseAnalyticsDateBound(
+    value: string | undefined,
+    isEnd: boolean,
+  ): Date | undefined {
+    if (!value) return undefined;
+    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    const date = dateOnlyMatch
+      ? new Date(
+          Number(dateOnlyMatch[1]),
+          Number(dateOnlyMatch[2]) - 1,
+          Number(dateOnlyMatch[3]),
+          isEnd ? 23 : 0,
+          isEnd ? 59 : 0,
+          isEnd ? 59 : 0,
+          isEnd ? 999 : 0,
+        )
+      : new Date(value);
+
+    return Number.isNaN(date.getTime()) ? undefined : date;
   }
 
   private async findActiveCategory(categoryId: number): Promise<Category | null> {

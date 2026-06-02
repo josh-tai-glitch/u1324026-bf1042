@@ -41,6 +41,13 @@ const orderBoardFilters = [
   { id: "cancelled", label: "Cancelled" },
   { id: "all", label: "All" },
 ] as const;
+const analyticsRangeOptions = [
+  { id: "all", label: "All" },
+  { id: "today", label: "Today" },
+  { id: "last7Days", label: "Last 7 days" },
+  { id: "thisMonth", label: "This month" },
+  { id: "custom", label: "Custom" },
+] as const;
 const emptyMenuForm = {
   name: "",
   price: "",
@@ -77,6 +84,12 @@ type WalkInOrderForm = typeof emptyWalkInOrderForm;
 type WalkInOrderItem = { itemId: number; qty: number };
 type OrderIssueDraft = { issueType: OrderIssueType; issueNote: string };
 type OrderRatingDraft = { rating: string; ratingComment: string };
+type AnalyticsRange = "all" | "today" | "last7Days" | "thisMonth" | "custom";
+type AnalyticsDateFilters = {
+  range: AnalyticsRange;
+  startDate: string;
+  endDate: string;
+};
 type ApiErrorPayload = { error?: string; message?: string };
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
 type ManagerTab = "orders" | "analytics" | "menu" | "categories" | "roleRequests";
@@ -218,6 +231,15 @@ export default function App() {
   const [topItemSales, setTopItemSales] = useState<TopItemSales[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsMessage, setAnalyticsMessage] = useState("");
+  const [analyticsRange, setAnalyticsRange] =
+    useState<AnalyticsRange>("all");
+  const [analyticsStartDate, setAnalyticsStartDate] = useState("");
+  const [analyticsEndDate, setAnalyticsEndDate] = useState("");
+  const [appliedAnalyticsRange, setAppliedAnalyticsRange] =
+    useState<AnalyticsRange>("all");
+  const [appliedAnalyticsStartDate, setAppliedAnalyticsStartDate] =
+    useState("");
+  const [appliedAnalyticsEndDate, setAppliedAnalyticsEndDate] = useState("");
   const [managerTab, setManagerTab] = useState<ManagerTab>("orders");
 
   const menuSectionRef = useRef<HTMLElement | null>(null);
@@ -256,7 +278,23 @@ export default function App() {
   const completedOrders = historyOrders.filter(
     (order) => order.status === "completed",
   ).length;
-  const ratedOrders = historyOrders.filter((order) => order.rating !== null);
+  const ratedOrders = historyOrders.filter(
+    (order) =>
+      order.rating !== null &&
+      isOrderInAnalyticsDateRange(
+        order.ratedAt ?? order.submittedAt ?? order.createdAt,
+        {
+          range: appliedAnalyticsRange,
+          startDate: appliedAnalyticsStartDate,
+          endDate: appliedAnalyticsEndDate,
+        },
+      ),
+  );
+  const analyticsRangeLabel = formatAnalyticsRangeLabel({
+    range: appliedAnalyticsRange,
+    startDate: appliedAnalyticsStartDate,
+    endDate: appliedAnalyticsEndDate,
+  });
   const filteredBoardOrders = useMemo(() => {
     if (orderStatusFilter === "all") {
       return historyOrders;
@@ -338,6 +376,77 @@ export default function App() {
     if (!value) return "";
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  }
+
+  function parseAnalyticsDateBound(
+    value: string,
+    isEnd: boolean,
+  ): Date | null {
+    if (!value) return null;
+    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    const date = dateOnlyMatch
+      ? new Date(
+          Number(dateOnlyMatch[1]),
+          Number(dateOnlyMatch[2]) - 1,
+          Number(dateOnlyMatch[3]),
+          isEnd ? 23 : 0,
+          isEnd ? 59 : 0,
+          isEnd ? 59 : 0,
+          isEnd ? 999 : 0,
+        )
+      : new Date(value);
+
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function isOrderInAnalyticsDateRange(
+    value: string | null | undefined,
+    filters: AnalyticsDateFilters,
+  ): boolean {
+    if (filters.range === "all") return true;
+    if (!value) return false;
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return false;
+
+    const start = parseAnalyticsDateBound(filters.startDate, false);
+    const end = parseAnalyticsDateBound(filters.endDate, true);
+
+    if (start && date < start) return false;
+    if (end && date > end) return false;
+    return true;
+  }
+
+  function buildAnalyticsQueryString(filters: AnalyticsDateFilters): string {
+    const params = new URLSearchParams({ range: filters.range });
+
+    if (filters.range === "custom") {
+      if (filters.startDate) params.set("startDate", filters.startDate);
+      if (filters.endDate) params.set("endDate", filters.endDate);
+    }
+
+    return params.toString();
+  }
+
+  function formatAnalyticsRangeLabel(filters: AnalyticsDateFilters): string {
+    switch (filters.range) {
+      case "today":
+        return "Today";
+      case "last7Days":
+        return "Last 7 days";
+      case "thisMonth":
+        return "This month";
+      case "custom":
+        if (filters.startDate && filters.endDate) {
+          return `Custom ${filters.startDate} to ${filters.endDate}`;
+        }
+        if (filters.startDate) return `Custom from ${filters.startDate}`;
+        if (filters.endDate) return `Custom until ${filters.endDate}`;
+        return "Custom";
+      case "all":
+      default:
+        return "All time";
+    }
   }
 
   function formatPickupNumber(orderId: number): string {
@@ -561,23 +670,38 @@ export default function App() {
     }
   }, [adminStatus, isAdmin]);
 
-  const loadAnalytics = useCallback(async () => {
+  const loadAnalytics = useCallback(async (filters?: AnalyticsDateFilters) => {
     if (!canManageMenu) return;
+
+    const activeFilters = filters ?? {
+      range: appliedAnalyticsRange,
+      startDate: appliedAnalyticsStartDate,
+      endDate: appliedAnalyticsEndDate,
+    };
+    const analyticsQuery = buildAnalyticsQueryString(activeFilters);
+    const analyticsSuffix = analyticsQuery ? `?${analyticsQuery}` : "";
+    const topItemsQuery = new URLSearchParams(analyticsQuery);
+    topItemsQuery.set("limit", "10");
 
     setAnalyticsLoading(true);
     setAnalyticsMessage("");
     try {
       const [summaryResponse, categoryResponse, topItemsResponse] =
         await Promise.all([
-          fetch(buildApiUrl("/api/admin/analytics/summary"), {
+          fetch(buildApiUrl(`/api/admin/analytics/summary${analyticsSuffix}`), {
             credentials: "include",
           }),
-        fetch(buildApiUrl("/api/admin/analytics/category-sales"), {
+        fetch(buildApiUrl(`/api/admin/analytics/category-sales${analyticsSuffix}`), {
           credentials: "include",
         }),
-        fetch(buildApiUrl("/api/admin/analytics/top-items?limit=10"), {
+        fetch(
+          buildApiUrl(
+            `/api/admin/analytics/top-items?${topItemsQuery.toString()}`,
+          ),
+          {
           credentials: "include",
-        }),
+          },
+        ),
       ]);
 
       if (!summaryResponse.ok) {
@@ -613,7 +737,32 @@ export default function App() {
     } finally {
       setAnalyticsLoading(false);
     }
-  }, [canManageMenu]);
+  }, [
+    appliedAnalyticsEndDate,
+    appliedAnalyticsRange,
+    appliedAnalyticsStartDate,
+    canManageMenu,
+  ]);
+
+  function applyAnalyticsDateRange() {
+    const nextFilters = {
+      range: analyticsRange,
+      startDate: analyticsStartDate,
+      endDate: analyticsEndDate,
+    };
+    const isUnchanged =
+      appliedAnalyticsRange === nextFilters.range &&
+      appliedAnalyticsStartDate === nextFilters.startDate &&
+      appliedAnalyticsEndDate === nextFilters.endDate;
+
+    setAppliedAnalyticsRange(nextFilters.range);
+    setAppliedAnalyticsStartDate(nextFilters.startDate);
+    setAppliedAnalyticsEndDate(nextFilters.endDate);
+
+    if (isUnchanged) {
+      void loadAnalytics(nextFilters);
+    }
+  }
 
   // Effects
   useEffect(() => {
@@ -2891,6 +3040,9 @@ export default function App() {
                   <p className="text-sm opacity-70">
                     Review category sales and top-selling menu items.
                   </p>
+                  <p className="text-xs opacity-60">
+                    Showing: {analyticsRangeLabel}
+                  </p>
                 </div>
                 <button
                   className="btn btn-sm btn-outline"
@@ -2901,6 +3053,59 @@ export default function App() {
                 >
                   {analyticsLoading ? "Loading..." : "Refresh analytics"}
                 </button>
+              </div>
+              <div className="rounded-box border border-base-300 bg-base-200 p-3">
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="form-control w-full sm:w-48">
+                    <span className="label-text">Date range</span>
+                    <select
+                      className="select select-bordered select-sm"
+                      value={analyticsRange}
+                      onChange={(event) =>
+                        setAnalyticsRange(event.target.value as AnalyticsRange)
+                      }
+                    >
+                      {analyticsRangeOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {analyticsRange === "custom" ? (
+                    <>
+                      <label className="form-control w-full sm:w-44">
+                        <span className="label-text">Start date</span>
+                        <input
+                          className="input input-bordered input-sm"
+                          type="date"
+                          value={analyticsStartDate}
+                          onChange={(event) =>
+                            setAnalyticsStartDate(event.target.value)
+                          }
+                        />
+                      </label>
+                      <label className="form-control w-full sm:w-44">
+                        <span className="label-text">End date</span>
+                        <input
+                          className="input input-bordered input-sm"
+                          type="date"
+                          value={analyticsEndDate}
+                          onChange={(event) =>
+                            setAnalyticsEndDate(event.target.value)
+                          }
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                  <button
+                    className="btn btn-sm btn-primary"
+                    disabled={analyticsLoading}
+                    onClick={applyAnalyticsDateRange}
+                  >
+                    Apply
+                  </button>
+                </div>
               </div>
               {analyticsMessage ? (
                 <div className="alert alert-warning">

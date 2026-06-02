@@ -69,6 +69,10 @@ export type CreateWalkInOrderErrorCode =
   | "MENU_ITEM_UNAVAILABLE";
 
 export type CategoryStatusFilter = "active" | "inactive" | "all";
+export type AnalyticsDateRangeInput = {
+  startDate?: string;
+  endDate?: string;
+};
 
 export interface Store {
   init(): Promise<void>;
@@ -226,7 +230,12 @@ export interface Store {
     | { ok: false; code: UpdateOrderRatingErrorCode }
   >;
 
-  getCategorySalesAnalytics(): ReadonlyArray<CategorySales>;
-  getTopItemSalesAnalytics(limit?: number): ReadonlyArray<TopItemSales>;
-  getAnalyticsSummary(): AnalyticsSummary;
+  getCategorySalesAnalytics(
+    input?: AnalyticsDateRangeInput,
+  ): ReadonlyArray<CategorySales>;
+  getTopItemSalesAnalytics(
+    limit?: number,
+    input?: AnalyticsDateRangeInput,
+  ): ReadonlyArray<TopItemSales>;
+  getAnalyticsSummary(input?: AnalyticsDateRangeInput): AnalyticsSummary;
 }

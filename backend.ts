@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import toTaipeiDateTime from "./util.ts";
 import {
   apiErrorResponseSchema,
+  analyticsDateRangeQuerySchema,
   assignMenuItemCategoryBodySchema,
   assignMenuItemCategoryParamsSchema,
   analyticsSummaryResponseSchema,
@@ -67,6 +68,7 @@ import { hasAnyRole, requireAnyRole, requireRole } from "./shared/guards.ts";
 import {
   CategoryNotFoundError,
   CategorySlugConflictError,
+  type AnalyticsDateRangeInput,
 } from "./store/Store.ts";
 import { createStore } from "./store/index.ts";
 import { auth, getCurrentUser } from "./auth/better-auth.ts";
@@ -130,6 +132,51 @@ function isStandardOrderStatusTransition(
   nextStatus: OrderStatus,
 ): boolean {
   return nextOrderStatusByStatus[currentStatus] === nextStatus;
+}
+
+function formatDateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getAnalyticsDateRange(query: {
+  range?: "all" | "today" | "last7Days" | "thisMonth" | "custom";
+  startDate?: string;
+  endDate?: string;
+}): AnalyticsDateRangeInput {
+  const today = new Date();
+
+  switch (query.range ?? "all") {
+    case "today": {
+      const date = formatDateOnly(today);
+      return { startDate: date, endDate: date };
+    }
+    case "last7Days": {
+      const start = new Date(today);
+      start.setDate(today.getDate() - 6);
+      return {
+        startDate: formatDateOnly(start),
+        endDate: formatDateOnly(today),
+      };
+    }
+    case "thisMonth": {
+      const start = new Date(today.getFullYear(), today.getMonth(), 1);
+      return {
+        startDate: formatDateOnly(start),
+        endDate: formatDateOnly(today),
+      };
+    }
+    case "custom":
+      return {
+        startDate: query.startDate || undefined,
+        endDate: query.endDate || undefined,
+      };
+    case "all":
+    default:
+      return {};
+  }
 }
 
 function toVisibleOrderResponse(
@@ -1397,12 +1444,13 @@ app.post(
 
 app.get(
   "/api/admin/analytics/summary",
-  async ({ request }) => {
+  async ({ query, request }) => {
     const user = await requireUser(request);
     requireAnyRole(user, menuManagerRoles);
-    return { data: store.getAnalyticsSummary() };
+    return { data: store.getAnalyticsSummary(getAnalyticsDateRange(query)) };
   },
   {
+    query: analyticsDateRangeQuerySchema,
     detail: {
       tags: ["analytics"],
       summary: "Get analytics summary",
@@ -1420,13 +1468,16 @@ app.get(
 
 app.get(
   "/api/admin/analytics/category-sales",
-  async ({ request }) => {
+  async ({ query, request }) => {
     const user = await requireUser(request);
     requireAnyRole(user, menuManagerRoles);
 
-    return { data: store.getCategorySalesAnalytics() };
+    return {
+      data: store.getCategorySalesAnalytics(getAnalyticsDateRange(query)),
+    };
   },
   {
+    query: analyticsDateRangeQuerySchema,
     detail: {
       tags: ["admin"],
       summary: "Get category sales analytics",
@@ -1455,7 +1506,12 @@ app.get(
         ? Math.min(parsedLimit, 100)
         : 10;
 
-    return { data: store.getTopItemSalesAnalytics(limit) };
+    return {
+      data: store.getTopItemSalesAnalytics(
+        limit,
+        getAnalyticsDateRange(query),
+      ),
+    };
   },
   {
     query: topItemsAnalyticsQuerySchema,

@@ -207,7 +207,15 @@ export const updateUserRolesBodySchema = z.object({
   roles: z.array(roleSchema).min(1),
 });
 
-export const topItemsAnalyticsQuerySchema = z.object({
+export const analyticsDateRangeQuerySchema = z.object({
+  range: z
+    .enum(["all", "today", "last7Days", "thisMonth", "custom"])
+    .default("all"),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+});
+
+export const topItemsAnalyticsQuerySchema = analyticsDateRangeQuerySchema.extend({
   limit: z.string().regex(/^[0-9]+$/).optional(),
 });
 

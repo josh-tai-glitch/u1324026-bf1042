@@ -304,6 +304,10 @@ export const auditLogListResponseSchema = z.object({
   data: z.array(auditLogSchema),
 });
 
+export const auditLogLooseListResponseSchema = z.object({
+  data: z.array(z.unknown()),
+});
+
 export const orderListResponseSchema = z.object({
   data: z.array(orderResponseSchema),
 });

@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import toTaipeiDateTime from "./util.ts";
 import {
   apiErrorResponseSchema,
+  auditLogLooseListResponseSchema,
   auditLogListResponseSchema,
   analyticsDateRangeQuerySchema,
   assignMenuItemCategoryBodySchema,
@@ -1716,7 +1717,7 @@ app.get(
 
 app.get(
   "/api/admin/audit-logs",
-  async ({ query, request }) => {
+  async ({ query, request, set }) => {
     const user = await requireUser(request);
     requireAnyRole(user, menuManagerRoles);
 
@@ -1737,7 +1738,8 @@ app.get(
       });
     } catch (error) {
       console.warn("Unable to read audit logs", error);
-      throw error;
+      set.status = 500;
+      return { error: "Unable to read audit logs" };
     }
 
     return { data: logs };
@@ -1750,9 +1752,10 @@ app.get(
       description: "Return recent system operation logs for owners and admins.",
     },
     response: {
-      200: auditLogListResponseSchema,
+      200: auditLogLooseListResponseSchema,
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
+      500: apiErrorResponseSchema,
     },
   },
 );

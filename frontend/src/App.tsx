@@ -291,6 +291,7 @@ export default function App() {
   const managerSectionRef = useRef<HTMLElement | null>(null);
   const ordersSectionRef = useRef<HTMLElement | null>(null);
   const accountSectionRef = useRef<HTMLElement | null>(null);
+  const lastAuditLogsAutoLoadTab = useRef<ManagerTab | null>(null);
 
   const roles = user?.roles?.length ? user.roles : defaultRoles;
   const hasRole = useCallback((role: Role) => roles.includes(role), [roles]);
@@ -306,14 +307,26 @@ export default function App() {
   const canReportOrderIssue = hasAnyRole(["chef", "staff", "owner", "admin"]);
   const canClearOrderIssue = canUpdatePaymentStatus;
   const isAdmin = hasRole("admin");
-  const managerTabs = [
-    { id: "orders" as const, label: "Orders", visible: canViewAllOrders },
-    { id: "analytics" as const, label: "Analytics", visible: canManageMenu },
-    { id: "menu" as const, label: "Menu", visible: canManageMenu },
-    { id: "categories" as const, label: "Categories", visible: canManageMenu },
-    { id: "auditLogs" as const, label: "Audit logs", visible: canManageMenu },
-    { id: "roleRequests" as const, label: "Role requests", visible: isAdmin },
-  ].filter((tab) => tab.visible);
+  const managerTabs = useMemo(
+    () =>
+      [
+        { id: "orders" as const, label: "Orders", visible: canViewAllOrders },
+        { id: "analytics" as const, label: "Analytics", visible: canManageMenu },
+        { id: "menu" as const, label: "Menu", visible: canManageMenu },
+        {
+          id: "categories" as const,
+          label: "Categories",
+          visible: canManageMenu,
+        },
+        {
+          id: "auditLogs" as const,
+          label: "Audit logs",
+          visible: canManageMenu,
+        },
+        { id: "roleRequests" as const, label: "Role requests", visible: isAdmin },
+      ].filter((tab) => tab.visible),
+    [canManageMenu, canViewAllOrders, isAdmin],
+  );
   const hasManagerTools = managerTabs.length > 0;
   const activeOrders = historyOrders.filter((order) =>
     ["submitted", "preparing", "ready"].includes(order.status),
@@ -931,13 +944,21 @@ export default function App() {
   }, [canManageMenu, loadAnalytics]);
 
   useEffect(() => {
-    if (canManageMenu && managerTab === "auditLogs") {
+    if (
+      canManageMenu &&
+      managerTab === "auditLogs" &&
+      lastAuditLogsAutoLoadTab.current !== "auditLogs"
+    ) {
+      lastAuditLogsAutoLoadTab.current = "auditLogs";
       void loadAuditLogs();
+    } else if (managerTab !== "auditLogs") {
+      lastAuditLogsAutoLoadTab.current = null;
     } else if (!canManageMenu) {
+      lastAuditLogsAutoLoadTab.current = null;
       setAuditLogs([]);
       setAuditLogsMessage("");
     }
-  }, [canManageMenu, loadAuditLogs, managerTab]);
+  }, [canManageMenu, managerTab]);
 
   useEffect(() => {
     if (canManageMenu) {

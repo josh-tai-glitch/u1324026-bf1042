@@ -1728,13 +1728,19 @@ app.get(
         ? Math.min(parsedLimit, 200)
         : 50;
 
-    return {
-      data: store.getAuditLogs({
+    let logs;
+    try {
+      logs = store.getAuditLogs({
         limit,
         action: (query as { action?: AuditLogAction }).action,
         targetType: (query as { targetType?: AuditLogTargetType }).targetType,
-      }),
-    };
+      });
+    } catch (error) {
+      console.warn("Unable to read audit logs", error);
+      throw error;
+    }
+
+    return { data: logs };
   },
   {
     query: getAuditLogsQuerySchema,

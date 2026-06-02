@@ -117,7 +117,7 @@ export const auditLogSchema = z.object({
   targetType: auditLogTargetTypeSchema,
   targetId: z.string().nullable(),
   message: z.string(),
-  metadata: z.record(z.unknown()).nullable(),
+  metadata: z.record(z.unknown()).nullable().catch(null),
   createdAt: z.string().min(1),
 });
 

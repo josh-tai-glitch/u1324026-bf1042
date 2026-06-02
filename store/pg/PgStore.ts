@@ -1,6 +1,8 @@
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import type {
   AuditLog,
+  AuditLogAction,
+  AuditLogTargetType,
   AnalyticsSummary,
   Category,
   CategorySales,
@@ -98,6 +100,34 @@ const nextOrderStatusByStatus: Partial<Record<OrderStatus, OrderStatus>> = {
   preparing: "ready",
   ready: "completed",
 };
+
+const validAuditLogActions = [
+  "role_update",
+  "role_request_review",
+  "menu_create",
+  "menu_update",
+  "menu_delete",
+  "category_create",
+  "category_update",
+  "category_delete",
+  "menu_category_assign",
+  "menu_category_remove",
+  "order_status_update",
+  "order_payment_update",
+  "order_cancel",
+  "order_issue_set",
+  "order_issue_clear",
+  "walk_in_order_create",
+] satisfies AuditLogAction[];
+
+const validAuditLogTargetTypes = [
+  "user",
+  "role_request",
+  "menu_item",
+  "category",
+  "menu_item_category",
+  "order",
+] satisfies AuditLogTargetType[];
 
 function toOrderStatus(value: string): OrderStatus {
   return validOrderStatuses.includes(value as OrderStatus)
@@ -1179,13 +1209,17 @@ export class PgStore implements Store {
     }).returning();
 
     if (created) {
-      this.auditLogs.unshift(this.toAuditLog(created));
+      const auditLog = this.toAuditLog(created);
+      if (auditLog) {
+        this.auditLogs.unshift(auditLog);
+      }
     }
   }
 
   getAuditLogs(input: GetAuditLogsInput = {}): ReadonlyArray<AuditLog> {
     const safeLimit = this.getAuditLogLimit(input.limit);
     return this.auditLogs
+      .filter((log) => this.isValidAuditLog(log))
       .filter((log) => !input.action || log.action === input.action)
       .filter((log) => !input.targetType || log.targetType === input.targetType)
       .slice()
@@ -1202,7 +1236,14 @@ export class PgStore implements Store {
     return Math.min(Math.max(Math.floor(limit), 1), 200);
   }
 
-  private toAuditLog(row: typeof auditLogsTable.$inferSelect): AuditLog {
+  private toAuditLog(row: typeof auditLogsTable.$inferSelect): AuditLog | null {
+    if (
+      !validAuditLogActions.includes(row.action as AuditLogAction) ||
+      !validAuditLogTargetTypes.includes(row.targetType as AuditLogTargetType)
+    ) {
+      return null;
+    }
+
     return {
       id: row.id,
       actorUserId: row.actorUserId ?? null,
@@ -1225,6 +1266,14 @@ export class PgStore implements Store {
           ? row.createdAt.toISOString()
           : new Date(row.createdAt).toISOString(),
     };
+  }
+
+  private isValidAuditLog(log: AuditLog | null): log is AuditLog {
+    return (
+      Boolean(log) &&
+      validAuditLogActions.includes(log.action) &&
+      validAuditLogTargetTypes.includes(log.targetType)
+    );
   }
 
   private getAnalyticsOrders(input?: AnalyticsDateRangeInput): Order[] {
@@ -1391,7 +1440,9 @@ export class PgStore implements Store {
 
     this.allCategories = categoryRows.map((row) => this.toCategory(row));
     this.categories = this.allCategories.filter((category) => category.isActive);
-    this.auditLogs = auditLogRows.map((row) => this.toAuditLog(row));
+    this.auditLogs = auditLogRows
+      .map((row) => this.toAuditLog(row))
+      .filter((log): log is AuditLog => Boolean(log));
 
     const categoriesByMenuId = new Map<number, Category[]>();
     for (const row of menuCategoryRows) {

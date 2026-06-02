@@ -36,6 +36,7 @@ export type UpdateOrderItemErrorCode =
   | "ORDER_NOT_FOUND"
   | "MENU_ITEM_NOT_FOUND"
   | "MENU_ITEM_UNAVAILABLE"
+  | "MENU_VERSION_CHANGED"
   | "ORDER_NOT_OWNED"
   | "ORDER_NOT_EDITABLE";
 
@@ -43,6 +44,7 @@ export type SubmitOrderErrorCode =
   | "ORDER_NOT_FOUND"
   | "ORDER_NOT_OWNED"
   | "ORDER_NOT_EDITABLE"
+  | "MENU_VERSION_CHANGED"
   | "EMPTY_ORDER";
 
 export type UpdateOrderStatusErrorCode =
@@ -72,6 +74,7 @@ export type UpdateOrderRatingErrorCode =
 export type CreateWalkInOrderErrorCode =
   | "EMPTY_ORDER"
   | "MENU_ITEM_NOT_FOUND"
+  | "MENU_VERSION_CHANGED"
   | "MENU_ITEM_UNAVAILABLE";
 
 export type CategoryStatusFilter = "active" | "inactive" | "all";
@@ -106,6 +109,7 @@ export interface Store {
 
   // Menu / categories
   getMenu(): ReadonlyArray<MenuItem>;
+  getCurrentMenu(): ReadonlyArray<MenuItem>;
   createMenuItem(input: {
     name: string;
     price: number;
@@ -125,6 +129,8 @@ export interface Store {
       description?: string;
       image_url?: string;
       isAvailable?: boolean;
+      changeReason?: string;
+      changedBy?: string;
     },
   ): Promise<MenuItem | null>;
   deleteMenuItem(menuId: number): Promise<MenuItem | null>;
@@ -168,7 +174,7 @@ export interface Store {
   createWalkInOrder(input: {
     staffUserId: string;
     guestName?: string | null;
-    items: Array<{ itemId: number; qty: number }>;
+    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;
     pickupTime?: string | null;
@@ -190,6 +196,9 @@ export interface Store {
   ): Promise<
     { ok: true; order: Order } | { ok: false; code: UpdateOrderItemErrorCode }
   >;
+  validateOrderItemVersions(
+    orderId: number,
+  ): { ok: true } | { ok: false; code: "MENU_VERSION_CHANGED"; itemName?: string };
   submitOrder(
     orderId: number,
     input: {

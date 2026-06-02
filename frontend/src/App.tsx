@@ -112,6 +112,7 @@ const emptyMenuForm = {
   primaryCategoryId: "",
   description: "",
   image_url: "",
+  changeReason: "",
 };
 const emptyCategoryForm = {
   name: "",
@@ -138,7 +139,7 @@ type MenuForm = typeof emptyMenuForm;
 type CategoryForm = typeof emptyCategoryForm;
 type CheckoutForm = typeof emptyCheckoutForm;
 type WalkInOrderForm = typeof emptyWalkInOrderForm;
-type WalkInOrderItem = { itemId: number; qty: number };
+type WalkInOrderItem = { itemId: number; qty: number; menuItemVersion?: number };
 type OrderIssueDraft = { issueType: OrderIssueType; issueNote: string };
 type OrderRatingDraft = { rating: string; ratingComment: string };
 type AnalyticsRange = "all" | "today" | "last7Days" | "thisMonth" | "custom";
@@ -184,6 +185,10 @@ async function readApiError(response: Response) {
   }
 }
 
+function isMenuVersionChangedMessage(message: string) {
+  return message.toLowerCase().includes("version changed");
+}
+
 export default function App() {
   // Auth / session state
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -222,6 +227,9 @@ export default function App() {
   const [cartQtyByItemId, setCartQtyByItemId] = useState<Record<number, number>>(
     {},
   );
+  const [cartItemSnapshotsById, setCartItemSnapshotsById] = useState<
+    Record<number, MenuItem>
+  >({});
   const [cartTotal, setCartTotal] = useState(0);
   const [activeItemId, setActiveItemId] = useState<number | null>(null);
   const [actionError, setActionError] = useState("");
@@ -732,12 +740,22 @@ export default function App() {
     );
 
     setCartQtyByItemId(nextQtyByItemId);
+    setCartItemSnapshotsById(
+      order.items.reduce(
+        (acc, orderItem) => {
+          acc[orderItem.item.id] = orderItem.item;
+          return acc;
+        },
+        {} as Record<number, MenuItem>,
+      ),
+    );
     setCartTotal(order.total);
   }
 
   function resetCartState() {
     setOrderId(null);
     setCartQtyByItemId({});
+    setCartItemSnapshotsById({});
     setCartTotal(0);
     setIsCartOpen(false);
   }
@@ -1137,7 +1155,7 @@ export default function App() {
     return Object.entries(cartQtyByItemId)
       .map(([itemIdText, qty]) => {
         const itemId = Number(itemIdText);
-        const item = itemById.get(itemId);
+        const item = itemById.get(itemId) ?? cartItemSnapshotsById[itemId];
         if (!item || qty <= 0) return null;
 
         return {
@@ -1148,7 +1166,7 @@ export default function App() {
         };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-  }, [cartQtyByItemId, items]);
+  }, [cartItemSnapshotsById, cartQtyByItemId, items]);
 
   const walkInOrderDetails = useMemo(() => {
     const itemById = new Map(items.map((item) => [item.id, item]));
@@ -1348,7 +1366,14 @@ export default function App() {
         return;
       }
 
-      setActionError("Unable to update cart.");
+      const message =
+        cartError instanceof Error ? cartError.message : "Unable to update cart.";
+      if (isMenuVersionChangedMessage(message)) {
+        setActionError(message);
+        await Promise.all([loadMenu(), loadCurrentOrder()]);
+      } else {
+        setActionError("Unable to update cart.");
+      }
       console.error(cartError);
     } finally {
       setActiveItemId(null);
@@ -1377,10 +1402,14 @@ export default function App() {
       }
 
       setActionError(
-        cartError instanceof Error
-          ? cartError.message
-          : "Unable to update cart.",
+        cartError instanceof Error ? cartError.message : "Unable to update cart.",
       );
+      if (
+        cartError instanceof Error &&
+        isMenuVersionChangedMessage(cartError.message)
+      ) {
+        await Promise.all([loadMenu(), loadCurrentOrder()]);
+      }
       console.error(cartError);
     } finally {
       setCartBusyItemId(null);
@@ -1454,7 +1483,16 @@ export default function App() {
       setIsCartOpen(false);
       await loadOrderHistory();
     } catch (submitError) {
-      setActionError("Unable to submit order.");
+      const message =
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to submit order.";
+      if (isMenuVersionChangedMessage(message)) {
+        setActionError(message);
+        await Promise.all([loadMenu(), loadCurrentOrder()]);
+      } else {
+        setActionError("Unable to submit order.");
+      }
       console.error(submitError);
     } finally {
       setIsSubmittingOrder(false);
@@ -1779,7 +1817,7 @@ export default function App() {
           item.itemId === itemId ? { ...item, qty: item.qty + qty } : item,
         );
       }
-      return [...currentItems, { itemId, qty }];
+      return [...currentItems, { itemId, qty, menuItemVersion: selectedItem.version }];
     });
     setWalkInSelectedItemId("");
     setWalkInQty("1");
@@ -1825,11 +1863,14 @@ export default function App() {
       setWalkInQty("1");
       setStatusMessage("Walk-in order created.");
     } catch (walkInError) {
-      setStatusMessage(
+      const message =
         walkInError instanceof Error
           ? walkInError.message
-          : "Unable to create walk-in order.",
-      );
+          : "Unable to create walk-in order.";
+      setStatusMessage(message);
+      if (isMenuVersionChangedMessage(message)) {
+        await loadMenu();
+      }
     } finally {
       setWalkInBusy(false);
     }
@@ -1863,6 +1904,7 @@ export default function App() {
         : "",
       description: item.description,
       image_url: item.image_url,
+      changeReason: "",
     });
   }
 
@@ -1889,6 +1931,9 @@ export default function App() {
           : editingMenuId
             ? { primaryCategoryId: null }
             : {}),
+        ...(editingMenuId && menuForm.changeReason.trim()
+          ? { changeReason: menuForm.changeReason.trim() }
+          : {}),
       };
 
       const response = await fetch(
@@ -1957,7 +2002,12 @@ export default function App() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ isAvailable: !item.is_available }),
+        body: JSON.stringify({
+          isAvailable: !item.is_available,
+          changeReason: item.is_available
+            ? "Marked sold out"
+            : "Marked available",
+        }),
       });
 
       if (!response.ok) {
@@ -4209,6 +4259,16 @@ export default function App() {
                   }
                   required
                 />
+                {editingMenuId ? (
+                  <input
+                    className="input input-bordered md:col-span-2"
+                    placeholder="Change reason"
+                    value={menuForm.changeReason}
+                    onChange={(event) =>
+                      updateMenuForm("changeReason", event.target.value)
+                    }
+                  />
+                ) : null}
               </div>
               {menuMessage ? (
                 <div className="alert">
@@ -4426,6 +4486,9 @@ export default function App() {
                     <div className="card-body">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="card-title text-lg">{item.name}</h3>
+                        <span className="badge badge-outline">
+                          v{item.version}
+                        </span>
                         {!item.is_available ? (
                           <span className="badge badge-error">Sold out</span>
                         ) : null}

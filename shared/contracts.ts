@@ -35,6 +35,12 @@ export const menuItemSchema = z.object({
   description: z.string(),
   image_url: z.string().min(1),
   is_available: z.boolean().default(true),
+  version: z.number().int().min(1),
+  menu_item_group_id: z.string().min(1),
+  is_current_version: z.boolean(),
+  change_reason: z.string().nullable(),
+  changed_by: z.string().nullable(),
+  previous_version_id: z.number().int().nullable(),
 });
 
 // Auth / RBAC schemas
@@ -128,6 +134,8 @@ export const auditLogSchema = z.object({
 export const orderItemSchema = z.object({
   item: menuItemSchema,
   qty: z.number().min(0),
+  menu_item_version: z.number().int().min(1).nullable(),
+  menu_item_group_id: z.string().nullable(),
 });
 
 export const orderStatusSchema = z.enum([

@@ -573,7 +573,7 @@ app.delete(
 );
 
 // Public menu / menu management
-app.get("/api/menu", () => ({ data: [...store.getMenu()] }), {
+app.get("/api/menu", () => ({ data: [...store.getCurrentMenu()] }), {
   detail: {
     tags: ["menu"],
     summary: "List menu items",
@@ -622,6 +622,8 @@ app.post(
         category: newMenuItem.category,
         primaryCategoryId: newMenuItem.primary_category_id,
         isAvailable: newMenuItem.is_available,
+        version: newMenuItem.version,
+        menuItemGroupId: newMenuItem.menu_item_group_id,
       },
     });
     return { data: newMenuItem };
@@ -657,7 +659,10 @@ app.patch(
       description?: string;
       image_url?: string;
       isAvailable?: boolean;
+      changeReason?: string;
+      changedBy?: string;
     };
+    patch.changedBy = user.id;
     let menuItem;
     try {
       menuItem = await store.updateMenuItem(menuId, patch);
@@ -688,6 +693,10 @@ app.patch(
       metadata: {
         patchKeys: Object.keys(patch),
         isAvailable: menuItem.is_available,
+        version: menuItem.version,
+        previousVersionId: menuItem.previous_version_id,
+        menuItemGroupId: menuItem.menu_item_group_id,
+        changeReason: menuItem.change_reason,
       },
     });
     return { data: menuItem };
@@ -949,7 +958,7 @@ app.post(
     requireAnyRole(user, walkInOrderRoles);
     const input = body as {
       guestName?: string | null;
-      items: Array<{ itemId: number; qty: number }>;
+      items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
       fulfillmentType: "dine_in" | "takeout";
       customerNote?: string | null;
       pickupTime?: string | null;
@@ -976,6 +985,9 @@ app.post(
         case "MENU_ITEM_NOT_FOUND":
           set.status = 404;
           return { error: "Menu item not found" };
+        case "MENU_VERSION_CHANGED":
+          set.status = 409;
+          return { error: "Menu item version changed. Please refresh menu." };
         case "MENU_ITEM_UNAVAILABLE":
           set.status = 409;
           return { error: "Menu item is unavailable" };
@@ -1090,6 +1102,11 @@ app.patch(
         case "MENU_ITEM_NOT_FOUND":
           set.status = 404;
           return { error: "Menu item not found" };
+        case "MENU_VERSION_CHANGED":
+          set.status = 409;
+          return {
+            error: "Menu item version changed. Please refresh your cart.",
+          };
         case "MENU_ITEM_UNAVAILABLE":
           set.status = 409;
           return { error: "Menu item is unavailable" };
@@ -1551,6 +1568,11 @@ app.post(
         case "ORDER_NOT_EDITABLE":
           set.status = 409;
           return { error: "Order already submitted" };
+        case "MENU_VERSION_CHANGED":
+          set.status = 409;
+          return {
+            error: "Menu item version changed. Please refresh your cart.",
+          };
         case "EMPTY_ORDER":
           set.status = 400;
           return { error: "Empty order cannot be submitted" };

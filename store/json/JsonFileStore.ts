@@ -1,4 +1,5 @@
 import { mkdir, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import type {
   AuditLog,
   AnalyticsInsights,
@@ -50,7 +51,7 @@ interface JsonFileStoreOptions {
   dataFilePath: string;
 }
 
-const defaultMenu: MenuItem[] = [
+const defaultMenu: Partial<MenuItem>[] = [
   {
     id: 1,
     name: "火腿蛋吐司",
@@ -90,7 +91,7 @@ const defaultMenu: MenuItem[] = [
 ];
 
 function cloneDefaultMenu(): MenuItem[] {
-  return defaultMenu.map((item) => ({ ...item }));
+  return defaultMenu.map((item) => normalizeMenuItem(item));
 }
 
 function calculateOrderTotal(items: OrderItem[]): number {
@@ -157,8 +158,9 @@ function toPaymentStatus(value: unknown): PaymentStatus {
 }
 
 function normalizeMenuItem(item: Partial<MenuItem>): MenuItem {
+  const id = item.id ?? 0;
   return {
-    id: item.id ?? 0,
+    id,
     name: item.name ?? "",
     price: item.price ?? 0,
     category: item.category ?? "",
@@ -170,6 +172,12 @@ function normalizeMenuItem(item: Partial<MenuItem>): MenuItem {
     description: item.description ?? "",
     image_url: item.image_url ?? "",
     is_available: item.is_available ?? true,
+    version: item.version ?? 1,
+    menu_item_group_id: item.menu_item_group_id ?? String(id),
+    is_current_version: item.is_current_version ?? true,
+    change_reason: item.change_reason ?? "Initial version",
+    changed_by: item.changed_by ?? null,
+    previous_version_id: item.previous_version_id ?? null,
   };
 }
 
@@ -308,6 +316,12 @@ export class JsonFileStore implements Store {
           items: order.items.map((orderItem) => ({
             ...orderItem,
             item: normalizeMenuItem(orderItem.item),
+            menu_item_version:
+              orderItem.menu_item_version ?? orderItem.item.version ?? null,
+            menu_item_group_id:
+              orderItem.menu_item_group_id ??
+              orderItem.item.menu_item_group_id ??
+              null,
           })),
           status: toOrderStatus(order.status),
           orderSource: order.orderSource === "walk_in" ? "walk_in" : "customer",
@@ -352,6 +366,10 @@ export class JsonFileStore implements Store {
     return this.menu;
   }
 
+  getCurrentMenu(): ReadonlyArray<MenuItem> {
+    return this.menu.filter((item) => item.is_current_version);
+  }
+
   async createMenuItem(input: {
     name: string;
     price: number;
@@ -380,6 +398,12 @@ export class JsonFileStore implements Store {
       description: input.description,
       image_url: input.image_url,
       is_available: input.isAvailable ?? true,
+      version: 1,
+      menu_item_group_id: randomUUID(),
+      is_current_version: true,
+      change_reason: "Initial version",
+      changed_by: null,
+      previous_version_id: null,
     };
 
     this.menu.push(newMenuItem);
@@ -398,10 +422,12 @@ export class JsonFileStore implements Store {
       description?: string;
       image_url?: string;
       isAvailable?: boolean;
+      changeReason?: string;
+      changedBy?: string;
     },
   ): Promise<MenuItem | null> {
     const menuItem = this.menu.find((item) => item.id === menuId);
-    if (!menuItem) {
+    if (!menuItem || !menuItem.is_current_version) {
       return null;
     }
     const shouldUpdatePrimary = patch.primaryCategoryId !== undefined;
@@ -413,33 +439,46 @@ export class JsonFileStore implements Store {
       throw new CategoryNotFoundError();
     }
 
-    menuItem.name = patch.name ?? menuItem.name;
-    menuItem.price = patch.price ?? menuItem.price;
-    menuItem.category = patch.category ?? menuItem.category;
+    menuItem.is_current_version = false;
+    const nextMenuItem: MenuItem = {
+      ...menuItem,
+      id: ++this.menuIdCounter,
+      name: patch.name ?? menuItem.name,
+      price: patch.price ?? menuItem.price,
+      category: patch.category ?? menuItem.category,
+      description: patch.description ?? menuItem.description,
+      image_url: patch.image_url ?? menuItem.image_url,
+      is_available: patch.isAvailable ?? menuItem.is_available,
+      version: menuItem.version + 1,
+      is_current_version: true,
+      change_reason: patch.changeReason?.trim() || "Menu item updated",
+      changed_by: patch.changedBy ?? null,
+      previous_version_id: menuItem.id,
+      categories: (menuItem.categories ?? []).map((category) => ({ ...category })),
+    };
+
     if (primaryCategory) {
-      menuItem.category = primaryCategory.name;
-      menuItem.primary_category_id = primaryCategory.id;
-      menuItem.primary_category_name = primaryCategory.name;
-      const linkedCategories = menuItem.categories ?? [];
+      nextMenuItem.category = primaryCategory.name;
+      nextMenuItem.primary_category_id = primaryCategory.id;
+      nextMenuItem.primary_category_name = primaryCategory.name;
+      const linkedCategories = nextMenuItem.categories ?? [];
       if (
         !linkedCategories.some((category) => category.id === primaryCategory.id)
       ) {
         linkedCategories.push({ ...primaryCategory });
       }
-      menuItem.categories = linkedCategories
+      nextMenuItem.categories = linkedCategories
         .filter((category) => category.isActive)
         .sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
     } else if (shouldUpdatePrimary) {
-      menuItem.primary_category_id = null;
-      menuItem.primary_category_name = null;
+      nextMenuItem.primary_category_id = null;
+      nextMenuItem.primary_category_name = null;
     }
-    menuItem.description = patch.description ?? menuItem.description;
-    menuItem.image_url = patch.image_url ?? menuItem.image_url;
-    menuItem.is_available = patch.isAvailable ?? menuItem.is_available;
 
+    this.menu.push(nextMenuItem);
     await this.persist();
 
-    return menuItem;
+    return nextMenuItem;
   }
 
   async deleteMenuItem(menuId: number): Promise<MenuItem | null> {
@@ -664,7 +703,7 @@ export class JsonFileStore implements Store {
   async createWalkInOrder(input: {
     staffUserId: string;
     guestName?: string | null;
-    items: Array<{ itemId: number; qty: number }>;
+    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;
     pickupTime?: string | null;
@@ -674,7 +713,11 @@ export class JsonFileStore implements Store {
     | { ok: true; order: Order }
     | {
         ok: false;
-        code: "EMPTY_ORDER" | "MENU_ITEM_NOT_FOUND" | "MENU_ITEM_UNAVAILABLE";
+        code:
+          | "EMPTY_ORDER"
+          | "MENU_ITEM_NOT_FOUND"
+          | "MENU_VERSION_CHANGED"
+          | "MENU_ITEM_UNAVAILABLE";
       }
   > {
     const requestedItems = input.items.filter((item) => item.qty > 0);
@@ -688,10 +731,22 @@ export class JsonFileStore implements Store {
       if (!menuItem) {
         return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
       }
+      if (
+        !menuItem.is_current_version ||
+        (requestedItem.menuItemVersion !== undefined &&
+          requestedItem.menuItemVersion !== menuItem.version)
+      ) {
+        return { ok: false, code: "MENU_VERSION_CHANGED" };
+      }
       if (!menuItem.is_available) {
         return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
       }
-      orderItems.push({ item: menuItem, qty: requestedItem.qty });
+      orderItems.push({
+        item: { ...menuItem },
+        qty: requestedItem.qty,
+        menu_item_version: menuItem.version,
+        menu_item_group_id: menuItem.menu_item_group_id,
+      });
     }
 
     const submittedAt = new Date().toISOString();
@@ -740,6 +795,7 @@ export class JsonFileStore implements Store {
           | "ORDER_NOT_FOUND"
           | "MENU_ITEM_NOT_FOUND"
           | "MENU_ITEM_UNAVAILABLE"
+          | "MENU_VERSION_CHANGED"
           | "ORDER_NOT_OWNED"
           | "ORDER_NOT_EDITABLE";
       }
@@ -757,11 +813,6 @@ export class JsonFileStore implements Store {
       return { ok: false, code: "ORDER_NOT_EDITABLE" };
     }
 
-    const menuItem = this.menu.find((item) => item.id === input.itemId);
-    if (!menuItem) {
-      return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
-    }
-
     const existingItemIndex = order.items.findIndex(
       (orderItem) => orderItem.item.id === input.itemId,
     );
@@ -769,7 +820,28 @@ export class JsonFileStore implements Store {
       existingItemIndex !== -1
         ? order.items[existingItemIndex]?.qty ?? 0
         : 0;
-    if (!menuItem.is_available && input.qty > existingQty) {
+
+    const menuItem = this.menu.find((item) => item.id === input.itemId);
+    if (!menuItem && input.qty > existingQty) {
+      return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
+    }
+    if (menuItem && input.qty > existingQty) {
+      if (!menuItem.is_current_version) {
+        return { ok: false, code: "MENU_VERSION_CHANGED" };
+      }
+      const existingItem =
+        existingItemIndex !== -1 ? order.items[existingItemIndex] : undefined;
+      if (
+        existingItem &&
+        !this.isOrderItemCurrentVersion(existingItem, menuItem)
+      ) {
+        return { ok: false, code: "MENU_VERSION_CHANGED" };
+      }
+    }
+    if (!menuItem && existingItemIndex === -1) {
+      return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
+    }
+    if (menuItem && !menuItem.is_available && input.qty > existingQty) {
       return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
     }
 
@@ -781,14 +853,51 @@ export class JsonFileStore implements Store {
       } else if (existingOrderItem) {
         existingOrderItem.qty = input.qty;
       }
-    } else if (input.qty > 0) {
-      order.items.push({ item: menuItem, qty: input.qty });
+    } else if (input.qty > 0 && menuItem) {
+      order.items.push({
+        item: { ...menuItem },
+        qty: input.qty,
+        menu_item_version: menuItem.version,
+        menu_item_group_id: menuItem.menu_item_group_id,
+      });
     }
 
     order.total = calculateOrderTotal(order.items);
     await this.persist();
 
     return { ok: true, order };
+  }
+
+  validateOrderItemVersions(
+    orderId: number,
+  ): { ok: true } | { ok: false; code: "MENU_VERSION_CHANGED"; itemName?: string } {
+    const order = this.orders.find((targetOrder) => targetOrder.id === orderId);
+    if (!order) return { ok: true };
+
+    for (const orderItem of order.items) {
+      const groupId =
+        orderItem.menu_item_group_id ?? orderItem.item.menu_item_group_id;
+      const version = orderItem.menu_item_version ?? orderItem.item.version;
+      const currentItem = groupId
+        ? this.menu.find(
+            (item) =>
+              item.menu_item_group_id === groupId && item.is_current_version,
+          )
+        : this.menu.find(
+            (item) =>
+              item.id === orderItem.item.id && item.is_current_version,
+          );
+
+      if (!currentItem || currentItem.version !== version) {
+        return {
+          ok: false,
+          code: "MENU_VERSION_CHANGED",
+          itemName: orderItem.item.name,
+        };
+      }
+    }
+
+    return { ok: true };
   }
 
   async submitOrder(
@@ -809,6 +918,7 @@ export class JsonFileStore implements Store {
           | "ORDER_NOT_FOUND"
           | "ORDER_NOT_OWNED"
           | "ORDER_NOT_EDITABLE"
+          | "MENU_VERSION_CHANGED"
           | "EMPTY_ORDER";
       }
   > {
@@ -827,6 +937,10 @@ export class JsonFileStore implements Store {
 
     if (order.items.length === 0) {
       return { ok: false, code: "EMPTY_ORDER" };
+    }
+    const versionValidation = this.validateOrderItemVersions(orderId);
+    if (!versionValidation.ok) {
+      return { ok: false, code: "MENU_VERSION_CHANGED" };
     }
 
     order.status = "submitted";
@@ -1078,7 +1192,10 @@ export class JsonFileStore implements Store {
       if (!revenueOrderStatuses.includes(order.status)) continue;
 
       for (const orderItem of order.items) {
-        const key = `${orderItem.item.id}:${orderItem.item.name}:${orderItem.item.category}`;
+        const key =
+          orderItem.menu_item_group_id ??
+          orderItem.item.menu_item_group_id ??
+          String(orderItem.item.id);
         const sales = salesByItem.get(key) ?? {
           itemId: orderItem.item.id,
           name: orderItem.item.name,
@@ -1453,6 +1570,19 @@ export class JsonFileStore implements Store {
 
   private formatPickupNumber(orderId: number): string {
     return `#${String(orderId).padStart(4, "0")}`;
+  }
+
+  private isOrderItemCurrentVersion(
+    orderItem: OrderItem,
+    currentItem: MenuItem,
+  ): boolean {
+    const groupId =
+      orderItem.menu_item_group_id ?? orderItem.item.menu_item_group_id;
+    const version = orderItem.menu_item_version ?? orderItem.item.version;
+    return (
+      groupId === currentItem.menu_item_group_id &&
+      version === currentItem.version
+    );
   }
 
   private parseAnalyticsDateBound(

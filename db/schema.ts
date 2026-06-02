@@ -54,6 +54,12 @@ export const menuItemsTable = appSchema.table("menu_items", {
   description: text("description").notNull(),
   imageUrl: text("image_url").notNull(),
   isAvailable: boolean("is_available").notNull().default(true),
+  version: integer("version").notNull().default(1),
+  menuItemGroupId: text("menu_item_group_id").notNull(),
+  isCurrentVersion: boolean("is_current_version").notNull().default(true),
+  changeReason: text("change_reason"),
+  changedBy: text("changed_by").references(() => user.id),
+  previousVersionId: integer("previous_version_id"),
 });
 
 export const menuItemCategoriesTable = appSchema.table(
@@ -141,6 +147,8 @@ export const orderItemsTable = appSchema.table(
       .notNull()
       .references(() => ordersTable.id, { onDelete: "cascade" }),
     itemId: integer("item_id").notNull(),
+    menuItemVersion: integer("menu_item_version"),
+    menuItemGroupId: text("menu_item_group_id"),
     name: text("name").notNull(),
     price: integer("price").notNull(),
     category: text("category").notNull(),

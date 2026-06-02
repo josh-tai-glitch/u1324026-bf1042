@@ -82,6 +82,7 @@ export const updateMenuItemBodySchema = z.object({
   description: z.string().min(1).optional(),
   image_url: z.string().min(1).optional(),
   isAvailable: z.boolean().optional(),
+  changeReason: z.string().min(1).optional(),
 });
 
 /** DELETE /api/menu/:id */
@@ -172,6 +173,7 @@ export const createWalkInOrderBodySchema = z.object({
       z.object({
         itemId: z.number().int().min(1),
         qty: z.number().int().min(1),
+        menuItemVersion: z.number().int().min(1).optional(),
       }),
     )
     .min(1),

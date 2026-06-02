@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import type {
   AuditLog,
   AuditLogAction,
@@ -170,6 +171,10 @@ export class PgStore implements Store {
     return this.menu;
   }
 
+  getCurrentMenu(): ReadonlyArray<MenuItem> {
+    return this.menu.filter((item) => item.is_current_version);
+  }
+
   getCategories(input: { status?: CategoryStatusFilter } = {}): ReadonlyArray<Category> {
     const status = input.status ?? "active";
     if (status === "all") return this.allCategories;
@@ -204,6 +209,12 @@ export class PgStore implements Store {
         description: input.description,
         imageUrl: input.image_url,
         isAvailable: input.isAvailable ?? true,
+        version: 1,
+        menuItemGroupId: randomUUID(),
+        isCurrentVersion: true,
+        changeReason: "Initial version",
+        changedBy: null,
+        previousVersionId: null,
         primaryCategoryId: primaryCategory?.id ?? null,
         primaryCategoryName: primaryCategory?.name ?? null,
       })
@@ -231,6 +242,8 @@ export class PgStore implements Store {
       description?: string;
       image_url?: string;
       isAvailable?: boolean;
+      changeReason?: string;
+      changedBy?: string;
     },
   ): Promise<MenuItem | null> {
     let primaryCategory: Category | null = null;
@@ -240,38 +253,79 @@ export class PgStore implements Store {
       if (!primaryCategory) throw new CategoryNotFoundError();
     }
 
-    const [updated] = await db
-      .update(menuItemsTable)
-      .set({
-        ...(patch.name !== undefined ? { name: patch.name } : {}),
-        ...(patch.price !== undefined ? { price: patch.price } : {}),
-        ...(patch.category !== undefined ? { category: patch.category } : {}),
-        ...(primaryCategory !== null ? { category: primaryCategory.name } : {}),
-        ...(shouldUpdatePrimary
-          ? {
-              primaryCategoryId: primaryCategory?.id ?? null,
-              primaryCategoryName: primaryCategory?.name ?? null,
-            }
-          : {}),
-        ...(patch.description !== undefined
-          ? { description: patch.description }
-          : {}),
-        ...(patch.image_url !== undefined ? { imageUrl: patch.image_url } : {}),
-        ...(patch.isAvailable !== undefined
-          ? { isAvailable: patch.isAvailable }
-          : {}),
-      })
-      .where(eq(menuItemsTable.id, menuId))
-      .returning();
+    const [insertedVersion] = await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(menuItemsTable)
+        .where(
+          and(
+            eq(menuItemsTable.id, menuId),
+            eq(menuItemsTable.isCurrentVersion, true),
+          ),
+        )
+        .limit(1);
 
-    if (!updated) return null;
+      if (!current) return [];
 
-    if (primaryCategory) {
-      await this.ensureActiveMenuCategoryLink(menuId, primaryCategory.id);
-    }
+      await tx
+        .update(menuItemsTable)
+        .set({ isCurrentVersion: false })
+        .where(eq(menuItemsTable.id, current.id));
+
+      const [created] = await tx
+        .insert(menuItemsTable)
+        .values({
+          name: patch.name ?? current.name,
+          price: patch.price ?? current.price,
+          category: primaryCategory?.name ?? patch.category ?? current.category,
+          primaryCategoryId: shouldUpdatePrimary
+            ? primaryCategory?.id ?? null
+            : current.primaryCategoryId,
+          primaryCategoryName: shouldUpdatePrimary
+            ? primaryCategory?.name ?? null
+            : current.primaryCategoryName,
+          description: patch.description ?? current.description,
+          imageUrl: patch.image_url ?? current.imageUrl,
+          isAvailable: patch.isAvailable ?? current.isAvailable,
+          version: current.version + 1,
+          menuItemGroupId: current.menuItemGroupId,
+          isCurrentVersion: true,
+          changeReason:
+            patch.changeReason?.trim() || "Menu item updated",
+          changedBy: patch.changedBy ?? null,
+          previousVersionId: current.id,
+        })
+        .returning();
+
+      if (!created) return [];
+
+      const oldLinks = await tx
+        .select({ categoryId: menuItemCategoriesTable.categoryId })
+        .from(menuItemCategoriesTable)
+        .where(
+          and(
+            eq(menuItemCategoriesTable.menuItemId, current.id),
+            isNull(menuItemCategoriesTable.removedAt),
+          ),
+        );
+      const categoryIds = new Set(oldLinks.map((link) => link.categoryId));
+      if (primaryCategory) categoryIds.add(primaryCategory.id);
+      if (categoryIds.size > 0) {
+        await tx.insert(menuItemCategoriesTable).values(
+          Array.from(categoryIds).map((categoryId) => ({
+            menuItemId: created.id,
+            categoryId,
+          })),
+        );
+      }
+
+      return [created];
+    });
+
+    if (!insertedVersion) return null;
 
     await this.reloadFromDatabase();
-    return this.menu.find((item) => item.id === menuId) ?? null;
+    return this.menu.find((item) => item.id === insertedVersion.id) ?? null;
   }
 
   async deleteMenuItem(menuId: number): Promise<MenuItem | null> {
@@ -294,6 +348,12 @@ export class PgStore implements Store {
       description: removed.description,
       image_url: removed.imageUrl,
       is_available: removed.isAvailable ?? true,
+      version: removed.version,
+      menu_item_group_id: removed.menuItemGroupId,
+      is_current_version: removed.isCurrentVersion,
+      change_reason: removed.changeReason,
+      changed_by: removed.changedBy,
+      previous_version_id: removed.previousVersionId,
     };
 
     const idx = this.menu.findIndex((item) => item.id === menuId);
@@ -580,7 +640,7 @@ export class PgStore implements Store {
   async createWalkInOrder(input: {
     staffUserId: string;
     guestName?: string | null;
-    items: Array<{ itemId: number; qty: number }>;
+    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;
     pickupTime?: string | null;
@@ -590,7 +650,11 @@ export class PgStore implements Store {
     | { ok: true; order: Order }
     | {
         ok: false;
-        code: "EMPTY_ORDER" | "MENU_ITEM_NOT_FOUND" | "MENU_ITEM_UNAVAILABLE";
+        code:
+          | "EMPTY_ORDER"
+          | "MENU_ITEM_NOT_FOUND"
+          | "MENU_VERSION_CHANGED"
+          | "MENU_ITEM_UNAVAILABLE";
       }
   > {
     const requestedItems = input.items.filter((item) => item.qty > 0);
@@ -604,10 +668,22 @@ export class PgStore implements Store {
       if (!menuItem) {
         return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
       }
+      if (
+        !menuItem.is_current_version ||
+        (requestedItem.menuItemVersion !== undefined &&
+          requestedItem.menuItemVersion !== menuItem.version)
+      ) {
+        return { ok: false, code: "MENU_VERSION_CHANGED" };
+      }
       if (!menuItem.is_available) {
         return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
       }
-      orderItems.push({ item: { ...menuItem }, qty: requestedItem.qty });
+      orderItems.push({
+        item: { ...menuItem },
+        qty: requestedItem.qty,
+        menu_item_version: menuItem.version,
+        menu_item_group_id: menuItem.menu_item_group_id,
+      });
     }
 
     const now = new Date();
@@ -641,6 +717,8 @@ export class PgStore implements Store {
       orderItems.map((orderItem) => ({
         orderId: inserted.id,
         itemId: orderItem.item.id,
+        menuItemVersion: orderItem.menu_item_version,
+        menuItemGroupId: orderItem.menu_item_group_id,
         name: orderItem.item.name,
         price: orderItem.item.price,
         category: orderItem.item.category,
@@ -690,6 +768,7 @@ export class PgStore implements Store {
           | "ORDER_NOT_FOUND"
           | "MENU_ITEM_NOT_FOUND"
           | "MENU_ITEM_UNAVAILABLE"
+          | "MENU_VERSION_CHANGED"
           | "ORDER_NOT_OWNED"
           | "ORDER_NOT_EDITABLE";
       }
@@ -701,15 +780,33 @@ export class PgStore implements Store {
     if (order.status !== "pending")
       return { ok: false, code: "ORDER_NOT_EDITABLE" };
 
-    const menuItem = this.menu.find((item) => item.id === input.itemId);
-    if (!menuItem) return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
-
     const existingIdx = order.items.findIndex(
       (oi) => oi.item.id === input.itemId,
     );
     const existingQty =
       existingIdx !== -1 ? order.items[existingIdx]?.qty ?? 0 : 0;
-    if (!menuItem.is_available && input.qty > existingQty) {
+
+    const menuItem = this.menu.find((item) => item.id === input.itemId);
+    if (!menuItem && input.qty > existingQty) {
+      return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
+    }
+    if (menuItem && input.qty > existingQty) {
+      if (!menuItem.is_current_version) {
+        return { ok: false, code: "MENU_VERSION_CHANGED" };
+      }
+      const existingItem =
+        existingIdx !== -1 ? order.items[existingIdx] : undefined;
+      if (
+        existingItem &&
+        !this.isOrderItemCurrentVersion(existingItem, menuItem)
+      ) {
+        return { ok: false, code: "MENU_VERSION_CHANGED" };
+      }
+    }
+    if (!menuItem && existingIdx === -1) {
+      return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
+    }
+    if (menuItem && !menuItem.is_available && input.qty > existingQty) {
       return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
     }
 
@@ -741,6 +838,8 @@ export class PgStore implements Store {
       await db.insert(orderItemsTable).values({
         orderId,
         itemId: menuItem.id,
+        menuItemVersion: menuItem.version,
+        menuItemGroupId: menuItem.menu_item_group_id,
         name: menuItem.name,
         price: menuItem.price,
         category: menuItem.category,
@@ -748,7 +847,12 @@ export class PgStore implements Store {
         imageUrl: menuItem.image_url,
         qty: input.qty,
       });
-      order.items.push({ item: { ...menuItem }, qty: input.qty });
+      order.items.push({
+        item: { ...menuItem },
+        qty: input.qty,
+        menu_item_version: menuItem.version,
+        menu_item_group_id: menuItem.menu_item_group_id,
+      });
     }
 
     order.total = calculateTotal(order.items);
@@ -758,6 +862,38 @@ export class PgStore implements Store {
       .where(eq(ordersTable.id, orderId));
 
     return { ok: true, order };
+  }
+
+  validateOrderItemVersions(
+    orderId: number,
+  ): { ok: true } | { ok: false; code: "MENU_VERSION_CHANGED"; itemName?: string } {
+    const order = this.orders.find((item) => item.id === orderId);
+    if (!order) return { ok: true };
+
+    for (const orderItem of order.items) {
+      const groupId =
+        orderItem.menu_item_group_id ?? orderItem.item.menu_item_group_id;
+      const version = orderItem.menu_item_version ?? orderItem.item.version;
+      const currentItem = groupId
+        ? this.menu.find(
+            (item) =>
+              item.menu_item_group_id === groupId && item.is_current_version,
+          )
+        : this.menu.find(
+            (item) =>
+              item.id === orderItem.item.id && item.is_current_version,
+          );
+
+      if (!currentItem || currentItem.version !== version) {
+        return {
+          ok: false,
+          code: "MENU_VERSION_CHANGED",
+          itemName: orderItem.item.name,
+        };
+      }
+    }
+
+    return { ok: true };
   }
 
   async submitOrder(
@@ -778,6 +914,7 @@ export class PgStore implements Store {
           | "ORDER_NOT_FOUND"
           | "ORDER_NOT_OWNED"
           | "ORDER_NOT_EDITABLE"
+          | "MENU_VERSION_CHANGED"
           | "EMPTY_ORDER";
       }
   > {
@@ -788,6 +925,10 @@ export class PgStore implements Store {
     if (order.status !== "pending")
       return { ok: false, code: "ORDER_NOT_EDITABLE" };
     if (order.items.length === 0) return { ok: false, code: "EMPTY_ORDER" };
+    const versionValidation = this.validateOrderItemVersions(orderId);
+    if (!versionValidation.ok) {
+      return { ok: false, code: "MENU_VERSION_CHANGED" };
+    }
 
     const submittedAt = new Date().toISOString();
     const pickupTime = input.pickupTime ? new Date(input.pickupTime) : null;
@@ -1099,7 +1240,10 @@ export class PgStore implements Store {
       if (!revenueOrderStatuses.includes(order.status)) continue;
 
       for (const orderItem of order.items) {
-        const key = `${orderItem.item.id}:${orderItem.item.name}:${orderItem.item.category}`;
+        const key =
+          orderItem.menu_item_group_id ??
+          orderItem.item.menu_item_group_id ??
+          String(orderItem.item.id);
         const sales = salesByItem.get(key) ?? {
           itemId: orderItem.item.id,
           name: orderItem.item.name,
@@ -1521,6 +1665,19 @@ export class PgStore implements Store {
     return `#${String(orderId).padStart(4, "0")}`;
   }
 
+  private isOrderItemCurrentVersion(
+    orderItem: OrderItem,
+    currentItem: MenuItem,
+  ): boolean {
+    const groupId =
+      orderItem.menu_item_group_id ?? orderItem.item.menu_item_group_id;
+    const version = orderItem.menu_item_version ?? orderItem.item.version;
+    return (
+      groupId === currentItem.menu_item_group_id &&
+      version === currentItem.version
+    );
+  }
+
   private parseAnalyticsDateBound(
     value: string | undefined,
     isEnd: boolean,
@@ -1604,6 +1761,12 @@ export class PgStore implements Store {
           description: item.description,
           imageUrl: item.image_url,
           isAvailable: item.is_available ?? true,
+          version: item.version ?? 1,
+          menuItemGroupId: item.menu_item_group_id ?? String(item.id),
+          isCurrentVersion: item.is_current_version ?? true,
+          changeReason: item.change_reason ?? "Initial version",
+          changedBy: item.changed_by ?? null,
+          previousVersionId: item.previous_version_id ?? null,
         })),
       );
     }
@@ -1692,6 +1855,12 @@ export class PgStore implements Store {
       description: row.description,
       image_url: row.imageUrl,
       is_available: row.isAvailable ?? true,
+      version: row.version,
+      menu_item_group_id: row.menuItemGroupId,
+      is_current_version: row.isCurrentVersion,
+      change_reason: row.changeReason,
+      changed_by: row.changedBy,
+      previous_version_id: row.previousVersionId,
     }));
 
     const itemsByOrderId = new Map<number, OrderItem[]>();
@@ -1706,8 +1875,16 @@ export class PgStore implements Store {
           description: row.description,
           image_url: row.imageUrl,
           is_available: true,
+          version: row.menuItemVersion ?? 1,
+          menu_item_group_id: row.menuItemGroupId ?? String(row.itemId),
+          is_current_version: false,
+          change_reason: null,
+          changed_by: null,
+          previous_version_id: null,
         },
         qty: row.qty,
+        menu_item_version: row.menuItemVersion,
+        menu_item_group_id: row.menuItemGroupId,
       });
       itemsByOrderId.set(row.orderId, items);
     }

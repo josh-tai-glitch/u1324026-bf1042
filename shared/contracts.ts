@@ -4,6 +4,7 @@ import { z } from "zod";
 // 這裡是前後端共用的業務型別定義。
 // 型別（TypeScript type）由 Zod schema 自動推導，不需要手動維護兩份。
 
+// Menu / category schemas
 export const categorySchema = z.object({
   id: z.number().int().min(1),
   name: z.string().min(1),
@@ -36,6 +37,7 @@ export const menuItemSchema = z.object({
   is_available: z.boolean().default(true),
 });
 
+// Auth / RBAC schemas
 export const roleSchema = z.enum([
   "admin",
   "owner",
@@ -80,6 +82,7 @@ export const roleRequestSchema = z.object({
   reviewNote: z.string().nullable(),
 });
 
+// Audit log schemas
 export const auditLogActionSchema = z.enum([
   "role_update",
   "role_request_review",
@@ -121,6 +124,7 @@ export const auditLogSchema = z.object({
   createdAt: z.string().min(1),
 });
 
+// Order schemas
 export const orderItemSchema = z.object({
   item: menuItemSchema,
   qty: z.number().min(0),
@@ -171,6 +175,7 @@ export const orderSchema = z.object({
   submittedAt: z.string().min(1).optional(),
 });
 
+// Analytics schemas
 export const categorySalesSchema = z.object({
   category: z.string().min(1),
   quantity: z.number().min(0),
@@ -247,6 +252,7 @@ export const analyticsTrendsSchema = z.object({
   cancellationRate: z.number().min(0).max(1),
 });
 
+// Derived TypeScript Types
 export type MenuItem = z.infer<typeof menuItemSchema>;
 export type Category = z.infer<typeof categorySchema>;
 export type MenuCategoryLink = z.infer<typeof menuCategoryLinkSchema>;

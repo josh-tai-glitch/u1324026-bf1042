@@ -296,6 +296,7 @@ export default function App() {
   const accountSectionRef = useRef<HTMLElement | null>(null);
   const lastAuditLogsAutoLoadTab = useRef<ManagerTab | null>(null);
 
+  // Role / permission helpers
   const roles = user?.roles?.length ? user.roles : defaultRoles;
   const hasRole = useCallback((role: Role) => roles.includes(role), [roles]);
   const hasAnyRole = useCallback(
@@ -357,6 +358,8 @@ export default function App() {
     startDate: appliedAnalyticsStartDate,
     endDate: appliedAnalyticsEndDate,
   });
+
+  // Analytics derived helpers
   const maxDailyRevenue = analyticsTrends
     ? Math.max(0, ...analyticsTrends.dailyRevenue.map((row) => row.revenue))
     : 0;
@@ -368,6 +371,8 @@ export default function App() {
         (row) => row.orderCount > 0 || row.revenue > 0,
       ).length
     : 0;
+
+  // Order board helpers
   const filteredBoardOrders = useMemo(() => {
     if (orderStatusFilter === "all") {
       return historyOrders;
@@ -866,6 +871,7 @@ export default function App() {
     }
   }
 
+  // Audit log loading helpers
   const loadAuditLogs = useCallback(async () => {
     if (!canManageMenu) return;
 

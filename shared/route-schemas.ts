@@ -26,6 +26,7 @@ export type { Order };
 
 // ─── API Layer Error Response（API 層錯誤格式定義）────────────────────────
 
+// API error / response helpers
 export const apiErrorResponseSchema = z.object({
   error: z.string(),
   message: z.string().optional(),
@@ -35,6 +36,7 @@ export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;
 
 // ─── API Layer Order Response（Order 的 API 層呈現）──────────────────────
 
+// Order response mapper
 export const orderResponseSchema = orderSchema.extend({
   createdAtTaipei: z.string().min(1),
 });
@@ -54,6 +56,7 @@ export function toOrderResponse(order: Order): OrderResponse {
 
 // ─── Request Schemas（按 route 分組）────────────────────────────────────
 
+// Request params/body schemas
 /** POST /api/menu */
 export const createMenuItemBodySchema = z.object({
   name: z.string().min(1),
@@ -211,6 +214,7 @@ export const updateUserRolesBodySchema = z.object({
   roles: z.array(roleSchema).min(1),
 });
 
+// Analytics query schemas
 export const analyticsDateRangeQuerySchema = z.object({
   range: z
     .enum(["all", "today", "last7Days", "thisMonth", "custom"])
@@ -223,6 +227,7 @@ export const topItemsAnalyticsQuerySchema = analyticsDateRangeQuerySchema.extend
   limit: z.string().regex(/^[0-9]+$/).optional(),
 });
 
+// Admin query schemas
 export const getAuditLogsQuerySchema = z.object({
   limit: z.string().regex(/^[0-9]+$/).optional(),
   action: auditLogActionSchema.optional(),
@@ -273,6 +278,7 @@ export const removeMenuItemCategoryParamsSchema = z.object({
 
 // ─── Response Schemas（API envelope 層）─────────────────────────────────
 
+// Response envelope schemas
 export const menuListResponseSchema = z.object({
   data: z.array(menuItemSchema),
 });

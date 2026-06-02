@@ -7,7 +7,6 @@ import toTaipeiDateTime from "./util.ts";
 import {
   apiErrorResponseSchema,
   auditLogLooseListResponseSchema,
-  auditLogListResponseSchema,
   analyticsDateRangeQuerySchema,
   analyticsTrendsResponseSchema,
   assignMenuItemCategoryBodySchema,
@@ -290,6 +289,7 @@ app.use(
 );
 
 // ─── Better Auth Routes ───────────────────────────────────────────────────────
+// Auth / session routes
 // ⚠️ 注意：不能使用 app.mount("/api/auth", auth.handler)
 // 原因：Better Auth handler 是標準的 fetch handler function，
 //       但 Elysia 的 .mount() 期望的是 Elysia instance 或特定格式的 handler。
@@ -395,6 +395,7 @@ app.post("/api/sign-out", async ({ request }) => {
 });
 
 // 菜單路由
+// Categories
 app.get("/api/categories", ({ query }) => {
   const status =
     (query as { status?: "active" | "inactive" | "all" }).status ?? "active";
@@ -568,6 +569,7 @@ app.delete(
   },
 );
 
+// Public menu / menu management
 app.get("/api/menu", () => ({ data: [...store.getMenu()] }), {
   detail: {
     tags: ["menu"],
@@ -829,6 +831,7 @@ app.delete(
   },
 );
 
+// Customer orders / cart
 app.get(
   "/api/orders",
   async ({ request }) => {
@@ -935,6 +938,7 @@ app.post(
 );
 
 // 獲取單筆訂單
+// Manager orders / order operations
 app.post(
   "/api/orders/walk-in",
   async ({ body, request, set }) => {
@@ -1575,6 +1579,7 @@ app.post(
   },
 );
 
+// Role requests
 app.post(
   "/api/users/me/role-request",
   async ({ body, request, set }) => {
@@ -1629,6 +1634,7 @@ app.post(
   },
 );
 
+// Analytics
 app.get(
   "/api/admin/analytics/summary",
   async ({ query, request }) => {
@@ -1742,6 +1748,7 @@ app.get(
   },
 );
 
+// Audit logs
 app.get(
   "/api/admin/audit-logs",
   async ({ query, request, set }) => {
@@ -1787,6 +1794,7 @@ app.get(
   },
 );
 
+// Role requests / admin role management
 app.get(
   "/api/admin/role-requests",
   async ({ query, request }) => {
@@ -1969,6 +1977,7 @@ app.patch(
 );
 
 // 健康檢查路由
+// Health / static assets
 app.get("/health", () => ({ status: "ok" }), {
   detail: {
     tags: ["system"],

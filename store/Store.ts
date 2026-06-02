@@ -99,6 +99,7 @@ export type GetAuditLogsInput = {
 export interface Store {
   init(): Promise<void>;
 
+  // Menu / categories
   getMenu(): ReadonlyArray<MenuItem>;
   createMenuItem(input: {
     name: string;
@@ -153,6 +154,7 @@ export interface Store {
     categoryId: number,
   ): Promise<MenuItem | null>;
 
+  // Orders
   getOrders(): ReadonlyArray<Order>;
   getCurrentOrderByUserId(userId: string): Order | undefined;
   getOrderHistoryByUserId(userId: string): ReadonlyArray<Order>;
@@ -171,6 +173,8 @@ export interface Store {
     | { ok: true; order: Order }
     | { ok: false; code: CreateWalkInOrderErrorCode }
   >;
+
+  // Order operations
   updateOrderItem(
     orderId: number,
     input: {
@@ -252,6 +256,7 @@ export interface Store {
     | { ok: false; code: UpdateOrderRatingErrorCode }
   >;
 
+  // Analytics
   getCategorySalesAnalytics(
     input?: AnalyticsDateRangeInput,
   ): ReadonlyArray<CategorySales>;
@@ -261,6 +266,8 @@ export interface Store {
   ): ReadonlyArray<TopItemSales>;
   getAnalyticsSummary(input?: AnalyticsDateRangeInput): AnalyticsSummary;
   getAnalyticsTrends(input?: AnalyticsDateRangeInput): AnalyticsTrends;
+
+  // Audit logs
   appendAuditLog(input: AppendAuditLogInput): Promise<void>;
   getAuditLogs(input?: GetAuditLogsInput): ReadonlyArray<AuditLog>;
 }

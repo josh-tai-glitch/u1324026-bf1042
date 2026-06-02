@@ -29,6 +29,7 @@ export class CategoryNotFoundError extends Error {
 export type UpdateOrderItemErrorCode =
   | "ORDER_NOT_FOUND"
   | "MENU_ITEM_NOT_FOUND"
+  | "MENU_ITEM_UNAVAILABLE"
   | "ORDER_NOT_OWNED"
   | "ORDER_NOT_EDITABLE";
 
@@ -64,7 +65,8 @@ export type UpdateOrderRatingErrorCode =
 
 export type CreateWalkInOrderErrorCode =
   | "EMPTY_ORDER"
-  | "MENU_ITEM_NOT_FOUND";
+  | "MENU_ITEM_NOT_FOUND"
+  | "MENU_ITEM_UNAVAILABLE";
 
 export type CategoryStatusFilter = "active" | "inactive" | "all";
 
@@ -79,6 +81,7 @@ export interface Store {
     primaryCategoryId?: number;
     description: string;
     image_url: string;
+    isAvailable?: boolean;
   }): Promise<MenuItem>;
   updateMenuItem(
     menuId: number,
@@ -89,6 +92,7 @@ export interface Store {
       primaryCategoryId?: number | null;
       description?: string;
       image_url?: string;
+      isAvailable?: boolean;
     },
   ): Promise<MenuItem | null>;
   deleteMenuItem(menuId: number): Promise<MenuItem | null>;

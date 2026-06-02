@@ -146,6 +146,7 @@ export class PgStore implements Store {
     primaryCategoryId?: number;
     description: string;
     image_url: string;
+    isAvailable?: boolean;
   }): Promise<MenuItem> {
     const primaryCategory =
       input.primaryCategoryId !== undefined
@@ -163,6 +164,7 @@ export class PgStore implements Store {
         category: primaryCategory?.name ?? input.category,
         description: input.description,
         imageUrl: input.image_url,
+        isAvailable: input.isAvailable ?? true,
         primaryCategoryId: primaryCategory?.id ?? null,
         primaryCategoryName: primaryCategory?.name ?? null,
       })
@@ -189,6 +191,7 @@ export class PgStore implements Store {
       primaryCategoryId?: number | null;
       description?: string;
       image_url?: string;
+      isAvailable?: boolean;
     },
   ): Promise<MenuItem | null> {
     let primaryCategory: Category | null = null;
@@ -215,6 +218,9 @@ export class PgStore implements Store {
           ? { description: patch.description }
           : {}),
         ...(patch.image_url !== undefined ? { imageUrl: patch.image_url } : {}),
+        ...(patch.isAvailable !== undefined
+          ? { isAvailable: patch.isAvailable }
+          : {}),
       })
       .where(eq(menuItemsTable.id, menuId))
       .returning();
@@ -248,6 +254,7 @@ export class PgStore implements Store {
         this.menu.find((item) => item.id === menuId)?.categories ?? [],
       description: removed.description,
       image_url: removed.imageUrl,
+      is_available: removed.isAvailable ?? true,
     };
 
     const idx = this.menu.findIndex((item) => item.id === menuId);
@@ -542,7 +549,10 @@ export class PgStore implements Store {
     paymentStatus?: PaymentStatus;
   }): Promise<
     | { ok: true; order: Order }
-    | { ok: false; code: "EMPTY_ORDER" | "MENU_ITEM_NOT_FOUND" }
+    | {
+        ok: false;
+        code: "EMPTY_ORDER" | "MENU_ITEM_NOT_FOUND" | "MENU_ITEM_UNAVAILABLE";
+      }
   > {
     const requestedItems = input.items.filter((item) => item.qty > 0);
     if (requestedItems.length === 0) {
@@ -554,6 +564,9 @@ export class PgStore implements Store {
       const menuItem = this.menu.find((item) => item.id === requestedItem.itemId);
       if (!menuItem) {
         return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
+      }
+      if (!menuItem.is_available) {
+        return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
       }
       orderItems.push({ item: { ...menuItem }, qty: requestedItem.qty });
     }
@@ -637,6 +650,7 @@ export class PgStore implements Store {
         code:
           | "ORDER_NOT_FOUND"
           | "MENU_ITEM_NOT_FOUND"
+          | "MENU_ITEM_UNAVAILABLE"
           | "ORDER_NOT_OWNED"
           | "ORDER_NOT_EDITABLE";
       }
@@ -654,6 +668,11 @@ export class PgStore implements Store {
     const existingIdx = order.items.findIndex(
       (oi) => oi.item.id === input.itemId,
     );
+    const existingQty =
+      existingIdx !== -1 ? order.items[existingIdx]?.qty ?? 0 : 0;
+    if (!menuItem.is_available && input.qty > existingQty) {
+      return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
+    }
 
     if (existingIdx !== -1) {
       if (input.qty === 0) {
@@ -1195,6 +1214,7 @@ export class PgStore implements Store {
           category: item.category,
           description: item.description,
           imageUrl: item.image_url,
+          isAvailable: item.is_available ?? true,
         })),
       );
     }
@@ -1273,6 +1293,7 @@ export class PgStore implements Store {
       categories: categoriesByMenuId.get(row.id) ?? [],
       description: row.description,
       image_url: row.imageUrl,
+      is_available: row.isAvailable ?? true,
     }));
 
     const itemsByOrderId = new Map<number, OrderItem[]>();
@@ -1286,6 +1307,7 @@ export class PgStore implements Store {
           category: row.category,
           description: row.description,
           image_url: row.imageUrl,
+          is_available: true,
         },
         qty: row.qty,
       });

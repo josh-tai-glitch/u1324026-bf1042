@@ -33,6 +33,7 @@ export const menuItemSchema = z.object({
   categories: z.array(categorySchema).optional(),
   description: z.string(),
   image_url: z.string().min(1),
+  is_available: z.boolean().default(true),
 });
 
 export const roleSchema = z.enum([

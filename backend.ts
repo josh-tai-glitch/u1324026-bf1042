@@ -469,7 +469,9 @@ app.post(
       primaryCategoryId?: number;
       description: string;
       image_url: string;
+      isAvailable?: boolean;
     };
+    input.isAvailable = input.isAvailable ?? true;
     let newMenuItem;
     try {
       newMenuItem = await store.createMenuItem(input);
@@ -513,6 +515,7 @@ app.patch(
       primaryCategoryId?: number | null;
       description?: string;
       image_url?: string;
+      isAvailable?: boolean;
     };
     let menuItem;
     try {
@@ -789,6 +792,9 @@ app.post(
         case "MENU_ITEM_NOT_FOUND":
           set.status = 404;
           return { error: "Menu item not found" };
+        case "MENU_ITEM_UNAVAILABLE":
+          set.status = 409;
+          return { error: "Menu item is unavailable" };
         default:
           set.status = 500;
           return { error: "Unexpected store state" };
@@ -811,6 +817,7 @@ app.post(
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
+      409: apiErrorResponseSchema,
       500: apiErrorResponseSchema,
     },
   },
@@ -885,6 +892,9 @@ app.patch(
         case "MENU_ITEM_NOT_FOUND":
           set.status = 404;
           return { error: "Menu item not found" };
+        case "MENU_ITEM_UNAVAILABLE":
+          set.status = 409;
+          return { error: "Menu item is unavailable" };
         case "ORDER_NOT_OWNED":
           set.status = 403;
           return { error: "Forbidden" };

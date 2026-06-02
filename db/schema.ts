@@ -52,6 +52,7 @@ export const menuItemsTable = appSchema.table("menu_items", {
   primaryCategoryName: text("primary_category_name"),
   description: text("description").notNull(),
   imageUrl: text("image_url").notNull(),
+  isAvailable: boolean("is_available").notNull().default(true),
 });
 
 export const menuItemCategoriesTable = appSchema.table(

@@ -58,6 +58,7 @@ export const createMenuItemBodySchema = z.object({
   primaryCategoryId: z.number().int().min(1).optional(),
   description: z.string().min(1),
   image_url: z.string().min(1),
+  isAvailable: z.boolean().optional(),
 });
 
 /** PATCH /api/menu/:id */
@@ -72,6 +73,7 @@ export const updateMenuItemBodySchema = z.object({
   primaryCategoryId: z.number().int().min(1).nullable().optional(),
   description: z.string().min(1).optional(),
   image_url: z.string().min(1).optional(),
+  isAvailable: z.boolean().optional(),
 });
 
 /** DELETE /api/menu/:id */

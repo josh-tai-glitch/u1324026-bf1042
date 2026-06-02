@@ -49,6 +49,7 @@ const defaultMenu: MenuItem[] = [
     category: "餐點",
     description: "現煎雞蛋搭配火腿與生菜，使用微烤白吐司，口感清爽不油膩。",
     image_url: "/imgs/menu/ham-egg-toast.webp",
+    is_available: true,
   },
   {
     id: 2,
@@ -57,6 +58,7 @@ const defaultMenu: MenuItem[] = [
     category: "餐點",
     description: "厚切豬排搭配起司與生菜，外酥內嫩，適合喜歡有咬勁的你。",
     image_url: "/imgs/menu/cheese-pork-burger.webp",
+    is_available: true,
   },
   {
     id: 3,
@@ -65,6 +67,7 @@ const defaultMenu: MenuItem[] = [
     category: "餐點",
     description: "自調鮪魚沙拉配上煎蛋與生菜，口味濃郁但不會太鹹。",
     image_url: "/imgs/menu/tuna-egg-toast.webp",
+    is_available: true,
   },
   {
     id: 4,
@@ -73,6 +76,7 @@ const defaultMenu: MenuItem[] = [
     category: "餐點",
     description: "煎到微酥的蛋餅皮包裹煙燻培根與雞蛋，是經典台式早餐選擇。",
     image_url: "/imgs/menu/bacon-egg-roll.webp",
+    is_available: true,
   },
 ];
 
@@ -156,6 +160,7 @@ function normalizeMenuItem(item: Partial<MenuItem>): MenuItem {
       : [],
     description: item.description ?? "",
     image_url: item.image_url ?? "",
+    is_available: item.is_available ?? true,
   };
 }
 
@@ -316,6 +321,7 @@ export class JsonFileStore implements Store {
     primaryCategoryId?: number;
     description: string;
     image_url: string;
+    isAvailable?: boolean;
   }): Promise<MenuItem> {
     const primaryCategory =
       input.primaryCategoryId !== undefined
@@ -335,6 +341,7 @@ export class JsonFileStore implements Store {
       categories: primaryCategory ? [{ ...primaryCategory }] : [],
       description: input.description,
       image_url: input.image_url,
+      is_available: input.isAvailable ?? true,
     };
 
     this.menu.push(newMenuItem);
@@ -352,6 +359,7 @@ export class JsonFileStore implements Store {
       primaryCategoryId?: number | null;
       description?: string;
       image_url?: string;
+      isAvailable?: boolean;
     },
   ): Promise<MenuItem | null> {
     const menuItem = this.menu.find((item) => item.id === menuId);
@@ -389,6 +397,7 @@ export class JsonFileStore implements Store {
     }
     menuItem.description = patch.description ?? menuItem.description;
     menuItem.image_url = patch.image_url ?? menuItem.image_url;
+    menuItem.is_available = patch.isAvailable ?? menuItem.is_available;
 
     await this.persist();
 
@@ -625,7 +634,10 @@ export class JsonFileStore implements Store {
     paymentStatus?: PaymentStatus;
   }): Promise<
     | { ok: true; order: Order }
-    | { ok: false; code: "EMPTY_ORDER" | "MENU_ITEM_NOT_FOUND" }
+    | {
+        ok: false;
+        code: "EMPTY_ORDER" | "MENU_ITEM_NOT_FOUND" | "MENU_ITEM_UNAVAILABLE";
+      }
   > {
     const requestedItems = input.items.filter((item) => item.qty > 0);
     if (requestedItems.length === 0) {
@@ -637,6 +649,9 @@ export class JsonFileStore implements Store {
       const menuItem = this.menu.find((item) => item.id === requestedItem.itemId);
       if (!menuItem) {
         return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
+      }
+      if (!menuItem.is_available) {
+        return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
       }
       orderItems.push({ item: menuItem, qty: requestedItem.qty });
     }
@@ -686,6 +701,7 @@ export class JsonFileStore implements Store {
         code:
           | "ORDER_NOT_FOUND"
           | "MENU_ITEM_NOT_FOUND"
+          | "MENU_ITEM_UNAVAILABLE"
           | "ORDER_NOT_OWNED"
           | "ORDER_NOT_EDITABLE";
       }
@@ -711,6 +727,13 @@ export class JsonFileStore implements Store {
     const existingItemIndex = order.items.findIndex(
       (orderItem) => orderItem.item.id === input.itemId,
     );
+    const existingQty =
+      existingItemIndex !== -1
+        ? order.items[existingItemIndex]?.qty ?? 0
+        : 0;
+    if (!menuItem.is_available && input.qty > existingQty) {
+      return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
+    }
 
     if (existingItemIndex !== -1) {
       const existingOrderItem = order.items[existingItemIndex];

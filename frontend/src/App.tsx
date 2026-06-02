@@ -904,6 +904,9 @@ export default function App() {
       if (!user) {
         throw new Error("Please sign in first.");
       }
+      if (!item.is_available) {
+        throw new Error("This item is sold out.");
+      }
 
       const targetOrderId = await ensureOrder();
       const currentQty = cartQtyByItemId[item.id] ?? 0;
@@ -1371,6 +1374,11 @@ export default function App() {
       setStatusMessage("Select a menu item and quantity first.");
       return;
     }
+    const selectedItem = items.find((item) => item.id === itemId);
+    if (!selectedItem?.is_available) {
+      setStatusMessage("This item is sold out.");
+      return;
+    }
 
     setWalkInOrderItems((currentItems) => {
       const existing = currentItems.find((item) => item.itemId === itemId);
@@ -1541,6 +1549,38 @@ export default function App() {
     } catch (menuError) {
       setMenuMessage(
         menuError instanceof Error ? menuError.message : "Delete failed.",
+      );
+    } finally {
+      setMenuBusy(false);
+    }
+  }
+
+  async function toggleMenuItemAvailability(item: MenuItem) {
+    if (!canManageMenu) return;
+
+    setMenuBusy(true);
+    setMenuMessage("");
+    try {
+      const response = await fetch(buildApiUrl(`/api/menu/${item.id}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ isAvailable: !item.is_available }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await loadMenu();
+      setMenuMessage(
+        item.is_available ? "Menu item marked sold out." : "Menu item available.",
+      );
+    } catch (menuError) {
+      setMenuMessage(
+        menuError instanceof Error
+          ? menuError.message
+          : "Availability update failed.",
       );
     } finally {
       setMenuBusy(false);
@@ -2262,8 +2302,13 @@ export default function App() {
                       >
                         <option value="">Select menu item</option>
                         {items.map((item) => (
-                          <option key={item.id} value={item.id}>
+                          <option
+                            key={item.id}
+                            value={item.id}
+                            disabled={!item.is_available}
+                          >
                             {item.name} - ${item.price}
+                            {item.is_available ? "" : " - Sold out"}
                           </option>
                         ))}
                       </select>
@@ -3369,7 +3414,12 @@ export default function App() {
                       />
                     </figure>
                     <div className="card-body">
-                      <h3 className="card-title text-lg">{item.name}</h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="card-title text-lg">{item.name}</h3>
+                        {!item.is_available ? (
+                          <span className="badge badge-error">Sold out</span>
+                        ) : null}
+                      </div>
                       {item.primary_category_name ? (
                         <span className="badge badge-primary w-fit">
                           Primary: {item.primary_category_name}
@@ -3411,11 +3461,15 @@ export default function App() {
                           onClick={() => {
                             void addToCart(item);
                           }}
-                          disabled={!user || activeItemId === item.id}
+                          disabled={
+                            !user || !item.is_available || activeItemId === item.id
+                          }
                         >
-                          {activeItemId === item.id
-                            ? "Adding..."
-                            : `Add${
+                          {!item.is_available
+                            ? "Sold out"
+                            : activeItemId === item.id
+                              ? "Adding..."
+                              : `Add${
                                 cartQtyByItemId[item.id]
                                   ? ` (${cartQtyByItemId[item.id]})`
                                   : ""
@@ -3455,6 +3509,17 @@ export default function App() {
                             </button>
                           </div>
                           <div className="card-actions justify-end">
+                            <button
+                              className="btn btn-sm btn-warning btn-outline"
+                              onClick={() => {
+                                void toggleMenuItemAvailability(item);
+                              }}
+                              disabled={menuBusy}
+                            >
+                              {item.is_available
+                                ? "Mark sold out"
+                                : "Mark available"}
+                            </button>
                             <button
                               className="btn btn-sm btn-outline"
                               onClick={() => startEditMenuItem(item)}

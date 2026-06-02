@@ -9,6 +9,7 @@ import {
   auditLogLooseListResponseSchema,
   auditLogListResponseSchema,
   analyticsDateRangeQuerySchema,
+  analyticsTrendsResponseSchema,
   assignMenuItemCategoryBodySchema,
   assignMenuItemCategoryParamsSchema,
   analyticsSummaryResponseSchema,
@@ -1709,6 +1710,32 @@ app.get(
     },
     response: {
       200: topItemSalesListResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.get(
+  "/api/admin/analytics/trends",
+  async ({ query, request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    return {
+      data: store.getAnalyticsTrends(getAnalyticsDateRange(query)),
+    };
+  },
+  {
+    query: analyticsDateRangeQuerySchema,
+    detail: {
+      tags: ["admin"],
+      summary: "Get analytics trends",
+      description:
+        "Return daily revenue, hourly order, rating, and cancellation trends.",
+    },
+    response: {
+      200: analyticsTrendsResponseSchema,
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
     },

@@ -5,6 +5,7 @@ import type {
   Category,
   CategorySales,
   AnalyticsSummary,
+  AnalyticsTrends,
   FulfillmentType,
   MenuItem,
   Order,
@@ -259,6 +260,7 @@ export interface Store {
     input?: AnalyticsDateRangeInput,
   ): ReadonlyArray<TopItemSales>;
   getAnalyticsSummary(input?: AnalyticsDateRangeInput): AnalyticsSummary;
+  getAnalyticsTrends(input?: AnalyticsDateRangeInput): AnalyticsTrends;
   appendAuditLog(input: AppendAuditLogInput): Promise<void>;
   getAuditLogs(input?: GetAuditLogsInput): ReadonlyArray<AuditLog>;
 }

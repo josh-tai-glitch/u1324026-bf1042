@@ -2,6 +2,7 @@ import { mkdir, rename } from "node:fs/promises";
 import type {
   AuditLog,
   AnalyticsSummary,
+  AnalyticsTrends,
   Category,
   CategorySales,
   FulfillmentType,
@@ -1173,6 +1174,73 @@ export class JsonFileStore implements Store {
     return summary;
   }
 
+  getAnalyticsTrends(input?: AnalyticsDateRangeInput): AnalyticsTrends {
+    const analyticsOrders = this.getAnalyticsOrders(input);
+    const formalOrders = analyticsOrders.filter((order) => order.status !== "pending");
+    const revenueOrders = analyticsOrders.filter((order) =>
+      revenueOrderStatuses.includes(order.status),
+    );
+    const dailyByDate = new Map<
+      string,
+      { date: string; revenue: number; orderCount: number }
+    >();
+    const hourlyOrders = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      orderCount: 0,
+      revenue: 0,
+    }));
+    const ratingDistribution = {
+      "1": 0,
+      "2": 0,
+      "3": 0,
+      "4": 0,
+      "5": 0,
+    };
+    let lowRatingCount = 0;
+
+    for (const order of revenueOrders) {
+      const orderDate = this.getAnalyticsOrderDate(order);
+      if (!orderDate) continue;
+
+      const date = this.formatAnalyticsDateOnly(orderDate);
+      const daily = dailyByDate.get(date) ?? {
+        date,
+        revenue: 0,
+        orderCount: 0,
+      };
+      daily.revenue += order.total;
+      daily.orderCount += 1;
+      dailyByDate.set(date, daily);
+
+      const hourly = hourlyOrders[orderDate.getHours()];
+      hourly.orderCount += 1;
+      hourly.revenue += order.total;
+    }
+
+    for (const order of analyticsOrders) {
+      if (order.rating === null) continue;
+      const rating = Math.trunc(order.rating);
+      if (rating < 1 || rating > 5) continue;
+      ratingDistribution[String(rating) as keyof typeof ratingDistribution] += 1;
+      if (rating < 3) lowRatingCount += 1;
+    }
+
+    const cancelledCount = analyticsOrders.filter(
+      (order) => order.status === "cancelled",
+    ).length;
+
+    return {
+      dailyRevenue: Array.from(dailyByDate.values()).sort((a, b) =>
+        a.date.localeCompare(b.date),
+      ),
+      hourlyOrders,
+      ratingDistribution,
+      lowRatingCount,
+      cancellationRate:
+        formalOrders.length > 0 ? cancelledCount / formalOrders.length : 0,
+    };
+  }
+
   async appendAuditLog(input: AppendAuditLogInput): Promise<void> {
     const auditLog: AuditLog = {
       id: ++this.auditLogIdCounter,
@@ -1223,6 +1291,18 @@ export class JsonFileStore implements Store {
       if (end && date > end) return false;
       return true;
     });
+  }
+
+  private getAnalyticsOrderDate(order: Order): Date | null {
+    const date = new Date(order.submittedAt ?? order.createdAt);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private formatAnalyticsDateOnly(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   }
 
   private parseAnalyticsDateBound(

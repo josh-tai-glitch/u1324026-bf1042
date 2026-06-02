@@ -5,6 +5,7 @@ import {
   auditLogSchema,
   auditLogTargetTypeSchema,
   analyticsSummarySchema,
+  analyticsTrendsSchema,
   categorySchema,
   categorySalesSchema,
   fulfillmentTypeSchema,
@@ -294,6 +295,10 @@ export const categorySalesListResponseSchema = z.object({
 
 export const analyticsSummaryResponseSchema = z.object({
   data: analyticsSummarySchema,
+});
+
+export const analyticsTrendsResponseSchema = z.object({
+  data: analyticsTrendsSchema,
 });
 
 export const topItemSalesListResponseSchema = z.object({

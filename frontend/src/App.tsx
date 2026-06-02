@@ -6,6 +6,7 @@ import type {
   AuditLogAction,
   AuditLogTargetType,
   AnalyticsSummary,
+  AnalyticsTrends,
   Category,
   CategorySales,
   FulfillmentType,
@@ -262,6 +263,8 @@ export default function App() {
   // Analytics state
   const [analyticsSummary, setAnalyticsSummary] =
     useState<AnalyticsSummary | null>(null);
+  const [analyticsTrends, setAnalyticsTrends] =
+    useState<AnalyticsTrends | null>(null);
   const [categorySales, setCategorySales] = useState<CategorySales[]>([]);
   const [topItemSales, setTopItemSales] = useState<TopItemSales[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
@@ -354,6 +357,17 @@ export default function App() {
     startDate: appliedAnalyticsStartDate,
     endDate: appliedAnalyticsEndDate,
   });
+  const maxDailyRevenue = analyticsTrends
+    ? Math.max(0, ...analyticsTrends.dailyRevenue.map((row) => row.revenue))
+    : 0;
+  const maxHourlyOrderCount = analyticsTrends
+    ? Math.max(0, ...analyticsTrends.hourlyOrders.map((row) => row.orderCount))
+    : 0;
+  const activeHourlyRows = analyticsTrends
+    ? analyticsTrends.hourlyOrders.filter(
+        (row) => row.orderCount > 0 || row.revenue > 0,
+      ).length
+    : 0;
   const filteredBoardOrders = useMemo(() => {
     if (orderStatusFilter === "all") {
       return historyOrders;
@@ -512,6 +526,15 @@ export default function App() {
     if (!metadata) return "-";
     const summary = JSON.stringify(metadata);
     return summary.length > 160 ? `${summary.slice(0, 157)}...` : summary;
+  }
+
+  function formatTrendHour(hour: number): string {
+    return `${String(hour).padStart(2, "0")}:00`;
+  }
+
+  function getTrendBarWidth(value: number, maxValue: number): string {
+    if (maxValue <= 0 || value <= 0) return "0%";
+    return `${Math.max(4, Math.round((value / maxValue) * 100))}%`;
   }
 
   function formatPickupNumber(orderId: number): string {
@@ -751,7 +774,12 @@ export default function App() {
     setAnalyticsLoading(true);
     setAnalyticsMessage("");
     try {
-      const [summaryResponse, categoryResponse, topItemsResponse] =
+      const [
+        summaryResponse,
+        categoryResponse,
+        topItemsResponse,
+        trendsResponse,
+      ] =
         await Promise.all([
           fetch(buildApiUrl(`/api/admin/analytics/summary${analyticsSuffix}`), {
             credentials: "include",
@@ -767,6 +795,9 @@ export default function App() {
           credentials: "include",
           },
         ),
+        fetch(buildApiUrl(`/api/admin/analytics/trends${analyticsSuffix}`), {
+          credentials: "include",
+        }),
       ]);
 
       if (!summaryResponse.ok) {
@@ -778,6 +809,9 @@ export default function App() {
       if (!topItemsResponse.ok) {
         throw new Error(await readApiError(topItemsResponse));
       }
+      if (!trendsResponse.ok) {
+        throw new Error(await readApiError(trendsResponse));
+      }
 
       const summaryPayload =
         (await summaryResponse.json()) as ApiDataResponse<AnalyticsSummary>;
@@ -785,8 +819,11 @@ export default function App() {
         (await categoryResponse.json()) as ApiDataResponse<CategorySales[]>;
       const topItemsPayload =
         (await topItemsResponse.json()) as ApiDataResponse<TopItemSales[]>;
+      const trendsPayload =
+        (await trendsResponse.json()) as ApiDataResponse<AnalyticsTrends>;
 
       setAnalyticsSummary(summaryPayload?.data ?? null);
+      setAnalyticsTrends(trendsPayload?.data ?? null);
       setCategorySales(
         Array.isArray(categoryPayload?.data) ? categoryPayload.data : [],
       );
@@ -939,6 +976,7 @@ export default function App() {
     } else {
       setCategorySales([]);
       setTopItemSales([]);
+      setAnalyticsTrends(null);
       setAnalyticsMessage("");
     }
   }, [canManageMenu, loadAnalytics]);
@@ -3467,6 +3505,170 @@ export default function App() {
                   </span>
                 </div>
               )}
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold">Trends</h3>
+                  <p className="text-sm opacity-70">
+                    Track daily revenue, peak ordering hours, ratings, and
+                    cancellation rate for the selected range.
+                  </p>
+                </div>
+                {analyticsTrends ? (
+                  <>
+                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                      <div className="stat rounded-box border border-base-300 bg-base-200">
+                        <div className="stat-title">Cancellation rate</div>
+                        <div className="stat-value text-error">
+                          {(analyticsTrends.cancellationRate * 100).toFixed(1)}
+                          %
+                        </div>
+                        <div className="stat-desc">
+                          cancelled / formal orders
+                        </div>
+                      </div>
+                      <div className="rounded-box border border-base-300 bg-base-200 p-4">
+                        <h4 className="mb-2 font-semibold">
+                          Rating distribution
+                        </h4>
+                        <div className="space-y-2">
+                          {(["5", "4", "3", "2", "1"] as const).map(
+                            (rating) => {
+                              const count =
+                                analyticsTrends.ratingDistribution[rating];
+                              const maxRatingCount = Math.max(
+                                0,
+                                ...Object.values(
+                                  analyticsTrends.ratingDistribution,
+                                ),
+                              );
+                              return (
+                                <div
+                                  className="grid grid-cols-[64px_1fr_48px] items-center gap-2 text-sm"
+                                  key={rating}
+                                >
+                                  <span>{rating} stars</span>
+                                  <div className="h-2 rounded bg-base-300">
+                                    <div
+                                      className="h-2 rounded bg-warning"
+                                      style={{
+                                        width: getTrendBarWidth(
+                                          count,
+                                          maxRatingCount,
+                                        ),
+                                      }}
+                                    />
+                                  </div>
+                                  <span className="text-right">{count}</span>
+                                </div>
+                              );
+                            },
+                          )}
+                        </div>
+                        <p className="mt-3 text-sm opacity-70">
+                          Low rating count: {analyticsTrends.lowRatingCount}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      <div>
+                        <h4 className="mb-2 font-semibold">
+                          Daily revenue trend
+                        </h4>
+                        {analyticsTrends.dailyRevenue.length === 0 ? (
+                          <div className="alert">
+                            <span>No daily trend data</span>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="table">
+                              <thead>
+                                <tr>
+                                  <th>Date</th>
+                                  <th>Revenue</th>
+                                  <th>Orders</th>
+                                  <th>Trend</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {analyticsTrends.dailyRevenue.map((row) => (
+                                  <tr key={row.date}>
+                                    <td>{row.date}</td>
+                                    <td>${row.revenue}</td>
+                                    <td>{row.orderCount}</td>
+                                    <td className="min-w-36">
+                                      <div className="h-2 rounded bg-base-300">
+                                        <div
+                                          className="h-2 rounded bg-success"
+                                          style={{
+                                            width: getTrendBarWidth(
+                                              row.revenue,
+                                              maxDailyRevenue,
+                                            ),
+                                          }}
+                                        />
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="mb-2 font-semibold">
+                          Hourly order trend
+                        </h4>
+                        {activeHourlyRows === 0 ? (
+                          <div className="alert">
+                            <span>No hourly trend data</span>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            {analyticsTrends.hourlyOrders.map((row) => (
+                              <div
+                                className="rounded-box border border-base-300 p-3"
+                                key={row.hour}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-medium">
+                                    {formatTrendHour(row.hour)}
+                                  </span>
+                                  <span className="badge badge-outline">
+                                    {row.orderCount} orders
+                                  </span>
+                                </div>
+                                <div className="mt-2 h-2 rounded bg-base-300">
+                                  <div
+                                    className="h-2 rounded bg-primary"
+                                    style={{
+                                      width: getTrendBarWidth(
+                                        row.orderCount,
+                                        maxHourlyOrderCount,
+                                      ),
+                                    }}
+                                  />
+                                </div>
+                                <p className="mt-2 text-sm opacity-70">
+                                  Revenue: ${row.revenue}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="alert">
+                    <span>
+                      {analyticsLoading
+                        ? "Loading trends..."
+                        : "No trend data yet."}
+                    </span>
+                  </div>
+                )}
+              </div>
               {!analyticsLoading &&
               categorySales.length === 0 &&
               topItemSales.length === 0 ? (

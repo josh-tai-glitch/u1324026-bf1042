@@ -187,6 +187,26 @@ export const topItemSalesSchema = z.object({
   orderCount: z.number().int().min(0),
 });
 
+export const analyticsDailyRevenueSchema = z.object({
+  date: z.string().min(1),
+  revenue: z.number().min(0),
+  orderCount: z.number().int().min(0),
+});
+
+export const analyticsHourlyOrdersSchema = z.object({
+  hour: z.number().int().min(0).max(23),
+  orderCount: z.number().int().min(0),
+  revenue: z.number().min(0),
+});
+
+export const analyticsRatingDistributionSchema = z.object({
+  "1": z.number().int().min(0),
+  "2": z.number().int().min(0),
+  "3": z.number().int().min(0),
+  "4": z.number().int().min(0),
+  "5": z.number().int().min(0),
+});
+
 // ─── Derived TypeScript Types（自動推導，永不過時）───────────────────────────
 export const analyticsSummarySchema = z.object({
   totalRevenue: z.number().min(0),
@@ -219,6 +239,14 @@ export const analyticsSummarySchema = z.object({
   }),
 });
 
+export const analyticsTrendsSchema = z.object({
+  dailyRevenue: z.array(analyticsDailyRevenueSchema),
+  hourlyOrders: z.array(analyticsHourlyOrdersSchema),
+  ratingDistribution: analyticsRatingDistributionSchema,
+  lowRatingCount: z.number().int().min(0),
+  cancellationRate: z.number().min(0).max(1),
+});
+
 export type MenuItem = z.infer<typeof menuItemSchema>;
 export type Category = z.infer<typeof categorySchema>;
 export type MenuCategoryLink = z.infer<typeof menuCategoryLinkSchema>;
@@ -240,6 +268,7 @@ export type Order = z.infer<typeof orderSchema>;
 export type CategorySales = z.infer<typeof categorySalesSchema>;
 export type TopItemSales = z.infer<typeof topItemSalesSchema>;
 export type AnalyticsSummary = z.infer<typeof analyticsSummarySchema>;
+export type AnalyticsTrends = z.infer<typeof analyticsTrendsSchema>;
 
 export interface ApiDataResponse<T> {
   data: T;

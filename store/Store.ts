@@ -119,6 +119,7 @@ export interface Store {
     description: string;
     image_url: string;
     isAvailable?: boolean;
+    displayOrder?: number;
   }): Promise<MenuItem>;
   updateMenuItem(
     menuId: number,
@@ -133,6 +134,10 @@ export interface Store {
       changeReason?: string;
       changedBy?: string;
     },
+  ): Promise<MenuItem | null>;
+  updateMenuItemDisplayOrder(
+    menuId: number,
+    displayOrder: number,
   ): Promise<MenuItem | null>;
   deleteMenuItem(menuId: number): Promise<MenuItem | null>;
 

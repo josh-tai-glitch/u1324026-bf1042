@@ -172,7 +172,10 @@ export class PgStore implements Store {
   }
 
   getCurrentMenu(): ReadonlyArray<MenuItem> {
-    return this.menu.filter((item) => item.is_current_version);
+    return this.menu
+      .filter((item) => item.is_current_version)
+      .slice()
+      .sort((a, b) => a.display_order - b.display_order || a.id - b.id);
   }
 
   getMenuItemVersionHistoryById(menuId: number): ReadonlyArray<MenuItem> {
@@ -200,6 +203,7 @@ export class PgStore implements Store {
     description: string;
     image_url: string;
     isAvailable?: boolean;
+    displayOrder?: number;
   }): Promise<MenuItem> {
     const primaryCategory =
       input.primaryCategoryId !== undefined
@@ -218,6 +222,7 @@ export class PgStore implements Store {
         description: input.description,
         imageUrl: input.image_url,
         isAvailable: input.isAvailable ?? true,
+        displayOrder: input.displayOrder ?? 0,
         version: 1,
         menuItemGroupId: randomUUID(),
         isCurrentVersion: true,
@@ -296,6 +301,7 @@ export class PgStore implements Store {
           description: patch.description ?? current.description,
           imageUrl: patch.image_url ?? current.imageUrl,
           isAvailable: patch.isAvailable ?? current.isAvailable,
+          displayOrder: current.displayOrder,
           version: current.version + 1,
           menuItemGroupId: current.menuItemGroupId,
           isCurrentVersion: true,
@@ -337,6 +343,27 @@ export class PgStore implements Store {
     return this.menu.find((item) => item.id === insertedVersion.id) ?? null;
   }
 
+  async updateMenuItemDisplayOrder(
+    menuId: number,
+    displayOrder: number,
+  ): Promise<MenuItem | null> {
+    const [updated] = await db
+      .update(menuItemsTable)
+      .set({ displayOrder })
+      .where(
+        and(
+          eq(menuItemsTable.id, menuId),
+          eq(menuItemsTable.isCurrentVersion, true),
+        ),
+      )
+      .returning();
+
+    if (!updated) return null;
+
+    await this.reloadFromDatabase();
+    return this.menu.find((item) => item.id === updated.id) ?? null;
+  }
+
   async deleteMenuItem(menuId: number): Promise<MenuItem | null> {
     const [removed] = await db
       .delete(menuItemsTable)
@@ -357,6 +384,7 @@ export class PgStore implements Store {
       description: removed.description,
       image_url: removed.imageUrl,
       is_available: removed.isAvailable ?? true,
+      display_order: removed.displayOrder ?? 0,
       version: removed.version,
       menu_item_group_id: removed.menuItemGroupId,
       is_current_version: removed.isCurrentVersion,
@@ -1788,6 +1816,7 @@ export class PgStore implements Store {
           description: item.description,
           imageUrl: item.image_url,
           isAvailable: item.is_available ?? true,
+          displayOrder: item.display_order ?? 0,
           version: item.version ?? 1,
           menuItemGroupId: item.menu_item_group_id ?? String(item.id),
           isCurrentVersion: item.is_current_version ?? true,
@@ -1818,7 +1847,7 @@ export class PgStore implements Store {
     const menuRows = await db
       .select()
       .from(menuItemsTable)
-      .orderBy(asc(menuItemsTable.id));
+      .orderBy(asc(menuItemsTable.displayOrder), asc(menuItemsTable.id));
 
     const menuCategoryRows = await db
       .select({
@@ -1882,6 +1911,7 @@ export class PgStore implements Store {
       description: row.description,
       image_url: row.imageUrl,
       is_available: row.isAvailable ?? true,
+      display_order: row.displayOrder ?? 0,
       version: row.version,
       menu_item_group_id: row.menuItemGroupId,
       is_current_version: row.isCurrentVersion,
@@ -1902,6 +1932,7 @@ export class PgStore implements Store {
           description: row.description,
           image_url: row.imageUrl,
           is_available: true,
+          display_order: 0,
           version: row.menuItemVersion ?? 1,
           menu_item_group_id: row.menuItemGroupId ?? String(row.itemId),
           is_current_version: false,

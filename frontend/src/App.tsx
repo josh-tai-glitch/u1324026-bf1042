@@ -251,6 +251,12 @@ export default function App() {
   const [menuHistoryLoadingId, setMenuHistoryLoadingId] = useState<
     number | null
   >(null);
+  const [displayOrderDrafts, setDisplayOrderDrafts] = useState<
+    Record<number, string>
+  >({});
+  const [displayOrderUpdatingId, setDisplayOrderUpdatingId] = useState<
+    number | null
+  >(null);
 
   // Cart / order state
   const [orderId, setOrderId] = useState<number | null>(null);
@@ -1173,6 +1179,11 @@ export default function App() {
     const categories = Object.keys(groupedItems).sort((a, b) =>
       a.localeCompare(b),
     );
+    for (const groupItems of Object.values(groupedItems)) {
+      groupItems.sort(
+        (a, b) => a.display_order - b.display_order || a.id - b.id,
+      );
+    }
 
     return { groupedItems, categories };
   }, [items]);
@@ -1971,6 +1982,63 @@ export default function App() {
       );
     } finally {
       setMenuHistoryLoadingId(null);
+    }
+  }
+
+  async function updateMenuItemDisplayOrder(item: MenuItem): Promise<void> {
+    if (!canManageMenu) return;
+
+    const value = Number.parseInt(
+      displayOrderDrafts[item.id] ?? String(item.display_order),
+      10,
+    );
+    if (!Number.isFinite(value) || value < 0) {
+      setMenuMessage("Display order must be a non-negative number.");
+      return;
+    }
+
+    setDisplayOrderUpdatingId(item.id);
+    setMenuMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/menu/${item.id}/display-order`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ displayOrder: value }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<MenuItem>;
+      const updated = payload?.data;
+      if (!updated) {
+        throw new Error("Display order update failed: invalid payload");
+      }
+
+      setItems((currentItems) =>
+        currentItems
+          .map((menuItem) => (menuItem.id === updated.id ? updated : menuItem))
+          .sort((a, b) => a.display_order - b.display_order || a.id - b.id),
+      );
+      setDisplayOrderDrafts((currentDrafts) => {
+        const nextDrafts = { ...currentDrafts };
+        delete nextDrafts[item.id];
+        return nextDrafts;
+      });
+      setMenuMessage(`Display order updated for ${updated.name}.`);
+    } catch (displayOrderError) {
+      setMenuMessage(
+        displayOrderError instanceof Error
+          ? displayOrderError.message
+          : "Unable to update display order.",
+      );
+    } finally {
+      setDisplayOrderUpdatingId(null);
     }
   }
 
@@ -4646,6 +4714,11 @@ export default function App() {
                           Last change: {item.change_reason}
                         </p>
                       ) : null}
+                      {canManageMenu ? (
+                        <p className="text-xs opacity-70">
+                          Display order: {item.display_order}
+                        </p>
+                      ) : null}
                       <p className="text-sm opacity-80 line-clamp-2 min-h-[2.75rem]">
                         {item.description}
                       </p>
@@ -4675,6 +4748,40 @@ export default function App() {
                       </div>
                       {canManageMenu ? (
                         <div className="space-y-3">
+                          <div className="flex flex-wrap items-end gap-2">
+                            <label className="form-control flex-1 min-w-32">
+                              <span className="label-text mb-1">
+                                Display order
+                              </span>
+                              <input
+                                className="input input-bordered input-sm"
+                                min={0}
+                                step={1}
+                                type="number"
+                                value={
+                                  displayOrderDrafts[item.id] ??
+                                  String(item.display_order)
+                                }
+                                onChange={(event) => {
+                                  setDisplayOrderDrafts((currentDrafts) => ({
+                                    ...currentDrafts,
+                                    [item.id]: event.target.value,
+                                  }));
+                                }}
+                              />
+                            </label>
+                            <button
+                              className="btn btn-sm btn-outline"
+                              disabled={displayOrderUpdatingId === item.id}
+                              onClick={() => {
+                                void updateMenuItemDisplayOrder(item);
+                              }}
+                            >
+                              {displayOrderUpdatingId === item.id
+                                ? "Saving..."
+                                : "Save order"}
+                            </button>
+                          </div>
                           <div className="flex gap-2">
                             <select
                               className="select select-bordered select-sm flex-1"
@@ -4761,6 +4868,7 @@ export default function App() {
                                         <th>Version</th>
                                         <th>Name</th>
                                         <th>Price</th>
+                                        <th>Order</th>
                                         <th>Status</th>
                                         <th>Reason</th>
                                         <th>Changed by</th>
@@ -4774,6 +4882,7 @@ export default function App() {
                                             <td>v{historyItem.version}</td>
                                             <td>{historyItem.name}</td>
                                             <td>${historyItem.price}</td>
+                                            <td>{historyItem.display_order}</td>
                                             <td>
                                               {historyItem.is_available
                                                 ? "Available"

@@ -78,6 +78,14 @@ export const menuItemHistoryParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),
 });
 
+export const updateMenuItemDisplayOrderParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
+export const updateMenuItemDisplayOrderBodySchema = z.object({
+  displayOrder: z.number().int().min(0),
+});
+
 export const updateMenuItemBodySchema = z.object({
   name: z.string().min(1).optional(),
   price: z.number().int().min(0).optional(),

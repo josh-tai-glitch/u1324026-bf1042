@@ -172,6 +172,7 @@ function normalizeMenuItem(item: Partial<MenuItem>): MenuItem {
     description: item.description ?? "",
     image_url: item.image_url ?? "",
     is_available: item.is_available ?? true,
+    display_order: item.display_order ?? 0,
     version: item.version ?? 1,
     menu_item_group_id: item.menu_item_group_id ?? String(id),
     is_current_version: item.is_current_version ?? true,
@@ -367,7 +368,10 @@ export class JsonFileStore implements Store {
   }
 
   getCurrentMenu(): ReadonlyArray<MenuItem> {
-    return this.menu.filter((item) => item.is_current_version);
+    return this.menu
+      .filter((item) => item.is_current_version)
+      .slice()
+      .sort((a, b) => a.display_order - b.display_order || a.id - b.id);
   }
 
   getMenuItemVersionHistoryById(menuId: number): ReadonlyArray<MenuItem> {
@@ -387,6 +391,7 @@ export class JsonFileStore implements Store {
     description: string;
     image_url: string;
     isAvailable?: boolean;
+    displayOrder?: number;
   }): Promise<MenuItem> {
     const primaryCategory =
       input.primaryCategoryId !== undefined
@@ -407,6 +412,7 @@ export class JsonFileStore implements Store {
       description: input.description,
       image_url: input.image_url,
       is_available: input.isAvailable ?? true,
+      display_order: input.displayOrder ?? 0,
       version: 1,
       menu_item_group_id: randomUUID(),
       is_current_version: true,
@@ -458,6 +464,7 @@ export class JsonFileStore implements Store {
       description: patch.description ?? menuItem.description,
       image_url: patch.image_url ?? menuItem.image_url,
       is_available: patch.isAvailable ?? menuItem.is_available,
+      display_order: menuItem.display_order,
       version: menuItem.version + 1,
       is_current_version: true,
       change_reason: patch.changeReason?.trim() || "Menu item updated",
@@ -488,6 +495,20 @@ export class JsonFileStore implements Store {
     await this.persist();
 
     return nextMenuItem;
+  }
+
+  async updateMenuItemDisplayOrder(
+    menuId: number,
+    displayOrder: number,
+  ): Promise<MenuItem | null> {
+    const menuItem = this.menu.find((item) => item.id === menuId);
+    if (!menuItem || !menuItem.is_current_version) {
+      return null;
+    }
+
+    menuItem.display_order = displayOrder;
+    await this.persist();
+    return menuItem;
   }
 
   async deleteMenuItem(menuId: number): Promise<MenuItem | null> {

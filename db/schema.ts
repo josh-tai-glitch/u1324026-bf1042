@@ -54,6 +54,7 @@ export const menuItemsTable = appSchema.table("menu_items", {
   description: text("description").notNull(),
   imageUrl: text("image_url").notNull(),
   isAvailable: boolean("is_available").notNull().default(true),
+  displayOrder: integer("display_order").notNull().default(0),
   version: integer("version").notNull().default(1),
   menuItemGroupId: text("menu_item_group_id").notNull(),
   isCurrentVersion: boolean("is_current_version").notNull().default(true),

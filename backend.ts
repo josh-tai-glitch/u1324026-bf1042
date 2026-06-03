@@ -51,6 +51,8 @@ import {
   topItemSalesListResponseSchema,
   topItemsAnalyticsQuerySchema,
   updateCategoryBodySchema,
+  updateMenuItemDisplayOrderBodySchema,
+  updateMenuItemDisplayOrderParamsSchema,
   updateMenuItemBodySchema,
   updateMenuItemParamsSchema,
   updateOrderBodySchema,
@@ -722,6 +724,55 @@ app.patch(
       tags: ["menu"],
       summary: "Update a menu item",
       description: "Update fields of an existing menu item.",
+    },
+    response: {
+      200: menuItemResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.patch(
+  "/api/menu/:id/display-order",
+  async ({ params, body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const menuId = parseInt(params.id, 10);
+    const input = body as { displayOrder: number };
+    const menuItem = await store.updateMenuItemDisplayOrder(
+      menuId,
+      input.displayOrder,
+    );
+
+    if (!menuItem) {
+      set.status = 404;
+      return { error: "Menu item not found" };
+    }
+
+    await writeAuditLog(user, {
+      action: "menu_update",
+      targetType: "menu_item",
+      targetId: String(menuItem.id),
+      message: `Updated display order for ${menuItem.name}`,
+      metadata: {
+        displayOrder: menuItem.display_order,
+        version: menuItem.version,
+        menuItemGroupId: menuItem.menu_item_group_id,
+      },
+    });
+    return { data: menuItem };
+  },
+  {
+    params: updateMenuItemDisplayOrderParamsSchema,
+    body: updateMenuItemDisplayOrderBodySchema,
+    detail: {
+      tags: ["menu"],
+      summary: "Update menu item display order",
+      description:
+        "Update the display order of a current menu item without creating a new version.",
     },
     response: {
       200: menuItemResponseSchema,

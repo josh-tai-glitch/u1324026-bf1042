@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import toTaipeiDateTime from "./util.ts";
 import {
   apiErrorResponseSchema,
+  apiErrorOrVersionConflictResponseSchema,
   auditLogLooseListResponseSchema,
   analyticsDateRangeQuerySchema,
   analyticsInsightsResponseSchema,
@@ -30,6 +31,8 @@ import {
   getAuditLogsQuerySchema,
   getOrderByIdParamsSchema,
   healthResponseSchema,
+  menuItemHistoryParamsSchema,
+  menuItemHistoryResponseSchema,
   menuItemResponseSchema,
   menuListResponseSchema,
   nullableOrderResponseEnvelopeSchema,
@@ -82,7 +85,7 @@ import { db } from "./db/client.ts";
 import { roleRequests } from "./db/schema.ts";
 import { user as authUser } from "./db/auth-schema.ts";
 
-// 從環境變量獲取配置
+// Runtime configuration
 const port = parseInt(process.env.PORT || "3000", 10);
 const host = process.env.HOST || "localhost";
 const allowedOrigin = process.env.API_ALLOWED_ORIGIN || "*";
@@ -228,6 +231,7 @@ async function writeAuditLog(
 function respondMenuVersionChanged(
   set: { status: number },
   scope: "cart" | "menu",
+  itemName?: string,
 ) {
   set.status = 409;
   return {
@@ -235,6 +239,8 @@ function respondMenuVersionChanged(
       scope === "cart"
         ? "Menu item version changed. Please refresh your cart."
         : "Menu item version changed. Please refresh menu.",
+    code: "MENU_VERSION_CHANGED" as const,
+    ...(itemName ? { itemName } : {}),
   };
 }
 
@@ -278,8 +284,8 @@ function toRoleRequestResponse(
   };
 }
 
-// ─── Auth Helper ──────────────────────────────────────────────────────────────
-// 簡化的 helper 函數，用於保護路由並獲取 user，失敗時拋出 401 錯誤
+// Auth helper
+// Protect routes and return the current user, or throw a JSON 401 response.
 async function requireUser(request: Request) {
   const user = await getCurrentUser(request);
   if (!user) {
@@ -293,7 +299,7 @@ async function requireUser(request: Request) {
 
 const app = new Elysia();
 
-// ─── CORS Plugin ──────────────────────────────────────────────────────────────
+// CORS plugin
 app.use(
   cors({
     origin:
@@ -304,15 +310,12 @@ app.use(
   }),
 );
 
-// ─── Better Auth Routes ───────────────────────────────────────────────────────
+// Better Auth routes
 // Auth / session routes
-// ⚠️ 注意：不能使用 app.mount("/api/auth", auth.handler)
-// 原因：Better Auth handler 是標準的 fetch handler function，
-//       但 Elysia 的 .mount() 期望的是 Elysia instance 或特定格式的 handler。
-//       測試結果：.mount() 會導致 404 錯誤。
+// Better Auth exposes a standard fetch handler, so the wildcard routes are
+// defined explicitly instead of using Elysia mount.
 //
-// ✅ 正確做法：使用 wildcard 路由明確處理 GET 和 POST
-// 必須在其他 API 路由之前定義，確保 Better Auth 路由優先匹配
+// Keep these before the API routes so Better Auth paths match first.
 app.get("/api/auth/*", ({ request }) => auth.handler(request));
 app.post("/api/auth/*", ({ request }) => auth.handler(request));
 
@@ -340,7 +343,7 @@ app.get(
   },
 );
 
-// ─── OpenAPI Plugin ───────────────────────────────────────────────────────────
+// OpenAPI plugin
 app.use(
   openapi({
     path: "/openapi",
@@ -369,28 +372,26 @@ app.use(
   }),
 );
 
-// 請求記錄中間件
-// ─── Request Logger ───────────────────────────────────────────────────────────
+// Request logger
 app.onRequest(({ request }) => {
   console.log(
     `[${toTaipeiDateTime(new Date().toISOString())}] ${request.method} ${new URL(request.url).pathname}`,
   );
 });
 
-// API 路由
+// API routes
 
-// ─── Sign-out Proxy ───────────────────────────────────────────────────────────
-// Better Auth 的 /api/auth/sign-out 有 CSRF origin 驗證（比對 trustedOrigins）。
-// production 環境若 BETTER_AUTH_URL 設定錯誤（如仍是 localhost），
-// 瀏覽器送出的 Origin（正式網址）不在白名單，導致 sign-out 回 403 但前端不知道，
-// 造成「看似登出，實際 session 仍在」的假登出。
+// Sign-out proxy
+// Better Auth sign-out checks CSRF origin against trusted origins. This proxy
+// forwards the request with the configured Better Auth origin so production
+// sign-out still works when the app origin differs.
 //
-// 解法：在 Elysia 層加一個 proxy，以 server 信任的 baseURL 當 Origin 轉發給 Better Auth。
-// 安全性：session 識別仍靠 cookie，CSRF bypass 只在 server 端發生，不降低安全性。
+// Session identity still comes from the cookie; only the server-side origin is
+// normalized for Better Auth.
 app.post("/api/sign-out", async ({ request }) => {
   const baBaseUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
 
-  // 複製原始 headers，強制覆寫 origin 為 Better Auth 信任的 baseURL
+  // Copy headers and force the origin to Better Auth's trusted base URL.
   const proxiedHeaders = new Headers(request.headers);
   proxiedHeaders.set("origin", baBaseUrl);
 
@@ -410,7 +411,7 @@ app.post("/api/sign-out", async ({ request }) => {
   return res;
 });
 
-// 菜單路由
+// Menu and category routes
 // Categories
 app.get("/api/categories", ({ query }) => {
   const status =
@@ -731,6 +732,37 @@ app.patch(
   },
 );
 
+app.get(
+  "/api/menu/:id/history",
+  async ({ params, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const menuId = parseInt(params.id, 10);
+    const history = store.getMenuItemVersionHistoryById(menuId);
+    if (history.length === 0) {
+      set.status = 404;
+      return { error: "Menu item not found" };
+    }
+
+    return { data: history };
+  },
+  {
+    params: menuItemHistoryParamsSchema,
+    detail: {
+      tags: ["menu"],
+      summary: "Get menu item version history",
+      description: "Return all versions for a logical menu item.",
+    },
+    response: {
+      200: menuItemHistoryResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
 app.delete(
   "/api/menu/:id",
   async ({ params, request, set }) => {
@@ -774,7 +806,7 @@ app.delete(
   },
 );
 
-// 訂單列表路由
+// Menu item category routes
 app.post(
   "/api/menu/:id/categories",
   async ({ params, body, request, set }) => {
@@ -884,7 +916,7 @@ app.get(
   },
 );
 
-// 取得使用者目前進行中的訂單
+// Current cart order
 app.get(
   "/api/orders/current",
   async ({ request }) => {
@@ -908,7 +940,7 @@ app.get(
   },
 );
 
-// 取得使用者歷史訂單
+// Customer order history
 app.get(
   "/api/orders/history",
   async ({ request }) => {
@@ -933,7 +965,7 @@ app.get(
   },
 );
 
-// 創建新訂單
+// Create pending order
 app.post(
   "/api/orders",
   async ({ request, set }) => {
@@ -962,7 +994,7 @@ app.post(
   },
 );
 
-// 獲取單筆訂單
+// Walk-in order
 // Manager orders / order operations
 app.post(
   "/api/orders/walk-in",
@@ -999,7 +1031,7 @@ app.post(
           set.status = 404;
           return { error: "Menu item not found" };
         case "MENU_VERSION_CHANGED":
-          return respondMenuVersionChanged(set, "menu");
+          return respondMenuVersionChanged(set, "menu", result.itemName);
         case "MENU_ITEM_UNAVAILABLE":
           set.status = 409;
           return { error: "Menu item is unavailable" };
@@ -1039,7 +1071,7 @@ app.post(
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
-      409: apiErrorResponseSchema,
+      409: apiErrorOrVersionConflictResponseSchema,
       500: apiErrorResponseSchema,
     },
   },
@@ -1081,7 +1113,7 @@ app.get(
   },
 );
 
-// 更新訂單項目
+// Update order item quantity
 app.patch(
   "/api/orders/:id",
   async ({ params, body, request, set }) => {
@@ -1115,7 +1147,7 @@ app.patch(
           set.status = 404;
           return { error: "Menu item not found" };
         case "MENU_VERSION_CHANGED":
-          return respondMenuVersionChanged(set, "cart");
+          return respondMenuVersionChanged(set, "cart", result.itemName);
         case "MENU_ITEM_UNAVAILABLE":
           set.status = 409;
           return { error: "Menu item is unavailable" };
@@ -1146,13 +1178,13 @@ app.patch(
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
-      409: apiErrorResponseSchema,
+      409: apiErrorOrVersionConflictResponseSchema,
       500: apiErrorResponseSchema,
     },
   },
 );
 
-// 更新訂單狀態
+// Update order status
 app.patch(
   "/api/orders/:id/status",
   async ({ params, body, request, set }) => {
@@ -1240,7 +1272,7 @@ app.patch(
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
-      409: apiErrorResponseSchema,
+      409: apiErrorOrVersionConflictResponseSchema,
       500: apiErrorResponseSchema,
     },
   },
@@ -1312,7 +1344,7 @@ app.patch(
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
-      409: apiErrorResponseSchema,
+      409: apiErrorOrVersionConflictResponseSchema,
       500: apiErrorResponseSchema,
     },
   },
@@ -1381,7 +1413,7 @@ app.patch(
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
-      409: apiErrorResponseSchema,
+      409: apiErrorOrVersionConflictResponseSchema,
       500: apiErrorResponseSchema,
     },
   },
@@ -1431,7 +1463,7 @@ app.delete(
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
-      409: apiErrorResponseSchema,
+      409: apiErrorOrVersionConflictResponseSchema,
       500: apiErrorResponseSchema,
     },
   },
@@ -1578,7 +1610,7 @@ app.post(
           set.status = 409;
           return { error: "Order already submitted" };
         case "MENU_VERSION_CHANGED":
-          return respondMenuVersionChanged(set, "cart");
+          return respondMenuVersionChanged(set, "cart", result.itemName);
         case "EMPTY_ORDER":
           set.status = 400;
           return { error: "Empty order cannot be submitted" };
@@ -2036,7 +2068,7 @@ app.patch(
   },
 );
 
-// 健康檢查路由
+// Health route
 // Health / static assets
 app.get("/health", () => ({ status: "ok" }), {
   detail: {
@@ -2049,13 +2081,13 @@ app.get("/health", () => ({ status: "ok" }), {
   },
 });
 
-// ─── Manual Static File & SPA Fallback ────────────────────────────────────────
-// 完全手動處理靜態檔案和 SPA fallback，避免 staticPlugin 的路由衝突問題
+// Manual static file and SPA fallback
+// Serve built frontend assets without adding another route plugin.
 if (hasPublicAssets) {
   app.get("*", async ({ request }) => {
     const pathname = new URL(request.url).pathname;
 
-    // API 路徑返回 404
+    // API routes return 404 through the API fallback.
     if (pathname.startsWith("/api/") || pathname.startsWith("/openapi")) {
       return new Response(JSON.stringify({ error: "Not found" }), {
         status: 404,
@@ -2063,18 +2095,18 @@ if (hasPublicAssets) {
       });
     }
 
-    // 嘗試回傳對應的靜態檔案
+    // Try to serve the matching static asset.
     const staticFile = Bun.file(`./public${pathname}`);
     if (pathname !== "/" && (await staticFile.exists())) {
       return staticFile;
     }
 
-    // SPA fallback: 回傳 index.html
+    // SPA fallback: return index.html.
     return Bun.file("./public/index.html");
   });
 }
 
-// 全域錯誤處理
+// Global error handler
 app.onError(({ error, set, code }) => {
   if (error instanceof Response) {
     return error;
@@ -2092,19 +2124,19 @@ app.onError(({ error, set, code }) => {
   return { error: "Internal server error" };
 });
 
-// 啟動服務器
+// Start server
 await store.init();
 
 app.listen(port, () => {
-  console.log(`🍳 早餐店 API 運行在 http://${host}:${port}`);
-  console.log(`🌐 Web App: http://${host}:${port}`);
-  console.log(`📋 菜單 API: http://${host}:${port}/api/menu`);
-  console.log(`📦 訂單 API: http://${host}:${port}/api/orders`);
-  console.log(`💚 健康檢查: http://${host}:${port}/health`);
-  console.log(`🔐 CORS Origin: ${allowedOrigin}`);
+  console.log(`Breakfast API: http://${host}:${port}`);
+  console.log(`Web App: http://${host}:${port}`);
+  console.log(`Menu API: http://${host}:${port}/api/menu`);
+  console.log(`Orders API: http://${host}:${port}/api/orders`);
+  console.log(`Health check: http://${host}:${port}/health`);
+  console.log(`CORS Origin: ${allowedOrigin}`);
   if (!hasPublicAssets) {
     console.log(
-      "⚠️ public/ 不存在，目前只提供 API。若要提供前端頁面，先執行 bun run build:frontend",
+      "public/ does not exist; serving API only. Run bun run build:frontend to serve the web app.",
     );
   }
 });

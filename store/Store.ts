@@ -110,6 +110,7 @@ export interface Store {
   // Menu / categories
   getMenu(): ReadonlyArray<MenuItem>;
   getCurrentMenu(): ReadonlyArray<MenuItem>;
+  getMenuItemVersionHistoryById(menuId: number): ReadonlyArray<MenuItem>;
   createMenuItem(input: {
     name: string;
     price: number;
@@ -182,7 +183,7 @@ export interface Store {
     paymentStatus?: PaymentStatus;
   }): Promise<
     | { ok: true; order: Order }
-    | { ok: false; code: CreateWalkInOrderErrorCode }
+    | { ok: false; code: CreateWalkInOrderErrorCode; itemName?: string }
   >;
 
   // Order operations
@@ -194,7 +195,8 @@ export interface Store {
       qty: number;
     },
   ): Promise<
-    { ok: true; order: Order } | { ok: false; code: UpdateOrderItemErrorCode }
+    | { ok: true; order: Order }
+    | { ok: false; code: UpdateOrderItemErrorCode; itemName?: string }
   >;
   validateOrderItemVersions(
     orderId: number,
@@ -210,7 +212,8 @@ export interface Store {
       paymentStatus?: PaymentStatus;
     },
   ): Promise<
-    { ok: true; order: Order } | { ok: false; code: SubmitOrderErrorCode }
+    | { ok: true; order: Order }
+    | { ok: false; code: SubmitOrderErrorCode; itemName?: string }
   >;
   updateOrderStatus(
     orderId: number,

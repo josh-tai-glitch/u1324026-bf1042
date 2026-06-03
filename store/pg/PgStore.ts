@@ -175,6 +175,15 @@ export class PgStore implements Store {
     return this.menu.filter((item) => item.is_current_version);
   }
 
+  getMenuItemVersionHistoryById(menuId: number): ReadonlyArray<MenuItem> {
+    const target = this.menu.find((item) => item.id === menuId);
+    if (!target) return [];
+    return this.menu
+      .filter((item) => item.menu_item_group_id === target.menu_item_group_id)
+      .slice()
+      .sort((a, b) => b.version - a.version || b.id - a.id);
+  }
+
   getCategories(input: { status?: CategoryStatusFilter } = {}): ReadonlyArray<Category> {
     const status = input.status ?? "active";
     if (status === "all") return this.allCategories;
@@ -655,6 +664,7 @@ export class PgStore implements Store {
           | "MENU_ITEM_NOT_FOUND"
           | "MENU_VERSION_CHANGED"
           | "MENU_ITEM_UNAVAILABLE";
+        itemName?: string;
       }
   > {
     const requestedItems = input.items.filter((item) => item.qty > 0);
@@ -673,7 +683,11 @@ export class PgStore implements Store {
         (requestedItem.menuItemVersion !== undefined &&
           requestedItem.menuItemVersion !== menuItem.version)
       ) {
-        return { ok: false, code: "MENU_VERSION_CHANGED" };
+        return {
+          ok: false,
+          code: "MENU_VERSION_CHANGED",
+          itemName: menuItem.name,
+        };
       }
       if (!menuItem.is_available) {
         return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
@@ -771,6 +785,7 @@ export class PgStore implements Store {
           | "MENU_VERSION_CHANGED"
           | "ORDER_NOT_OWNED"
           | "ORDER_NOT_EDITABLE";
+        itemName?: string;
       }
   > {
     const order = this.orders.find((o) => o.id === orderId);
@@ -792,7 +807,11 @@ export class PgStore implements Store {
     }
     if (menuItem && input.qty > existingQty) {
       if (!menuItem.is_current_version) {
-        return { ok: false, code: "MENU_VERSION_CHANGED" };
+        return {
+          ok: false,
+          code: "MENU_VERSION_CHANGED",
+          itemName: menuItem.name,
+        };
       }
       const existingItem =
         existingIdx !== -1 ? order.items[existingIdx] : undefined;
@@ -800,7 +819,11 @@ export class PgStore implements Store {
         existingItem &&
         !this.isOrderItemCurrentVersion(existingItem, menuItem)
       ) {
-        return { ok: false, code: "MENU_VERSION_CHANGED" };
+        return {
+          ok: false,
+          code: "MENU_VERSION_CHANGED",
+          itemName: existingItem.item.name,
+        };
       }
     }
     if (!menuItem && existingIdx === -1) {
@@ -927,7 +950,11 @@ export class PgStore implements Store {
     if (order.items.length === 0) return { ok: false, code: "EMPTY_ORDER" };
     const versionValidation = this.validateOrderItemVersions(orderId);
     if (!versionValidation.ok) {
-      return { ok: false, code: "MENU_VERSION_CHANGED" };
+      return {
+        ok: false,
+        code: "MENU_VERSION_CHANGED",
+        itemName: versionValidation.itemName,
+      };
     }
 
     const submittedAt = new Date().toISOString();

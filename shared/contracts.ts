@@ -43,6 +43,8 @@ export const menuItemSchema = z.object({
   previous_version_id: z.number().int().nullable(),
 });
 
+export const menuItemHistorySchema = z.array(menuItemSchema);
+
 // Auth / RBAC schemas
 export const roleSchema = z.enum([
   "admin",
@@ -305,6 +307,7 @@ export const analyticsInsightsSchema = z.object({
 
 // Derived TypeScript Types
 export type MenuItem = z.infer<typeof menuItemSchema>;
+export type MenuItemHistory = z.infer<typeof menuItemHistorySchema>;
 export type Category = z.infer<typeof categorySchema>;
 export type MenuCategoryLink = z.infer<typeof menuCategoryLinkSchema>;
 export type Role = z.infer<typeof roleSchema>;

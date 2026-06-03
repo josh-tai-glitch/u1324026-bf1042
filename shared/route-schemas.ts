@@ -74,6 +74,10 @@ export const updateMenuItemParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),
 });
 
+export const menuItemHistoryParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
 export const updateMenuItemBodySchema = z.object({
   name: z.string().min(1).optional(),
   price: z.number().int().min(0).optional(),
@@ -296,6 +300,21 @@ export const menuListResponseSchema = z.object({
 export const menuItemResponseSchema = z.object({
   data: menuItemSchema,
 });
+
+export const menuItemHistoryResponseSchema = z.object({
+  data: z.array(menuItemSchema),
+});
+
+export const versionConflictResponseSchema = z.object({
+  error: z.string(),
+  code: z.literal("MENU_VERSION_CHANGED"),
+  itemName: z.string().optional(),
+});
+
+export const apiErrorOrVersionConflictResponseSchema = z.union([
+  apiErrorResponseSchema,
+  versionConflictResponseSchema,
+]);
 
 export const categoryResponseSchema = z.object({
   data: categorySchema,

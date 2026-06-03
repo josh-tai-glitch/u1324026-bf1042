@@ -370,6 +370,15 @@ export class JsonFileStore implements Store {
     return this.menu.filter((item) => item.is_current_version);
   }
 
+  getMenuItemVersionHistoryById(menuId: number): ReadonlyArray<MenuItem> {
+    const target = this.menu.find((item) => item.id === menuId);
+    if (!target) return [];
+    return this.menu
+      .filter((item) => item.menu_item_group_id === target.menu_item_group_id)
+      .slice()
+      .sort((a, b) => b.version - a.version || b.id - a.id);
+  }
+
   async createMenuItem(input: {
     name: string;
     price: number;
@@ -718,6 +727,7 @@ export class JsonFileStore implements Store {
           | "MENU_ITEM_NOT_FOUND"
           | "MENU_VERSION_CHANGED"
           | "MENU_ITEM_UNAVAILABLE";
+        itemName?: string;
       }
   > {
     const requestedItems = input.items.filter((item) => item.qty > 0);
@@ -736,7 +746,11 @@ export class JsonFileStore implements Store {
         (requestedItem.menuItemVersion !== undefined &&
           requestedItem.menuItemVersion !== menuItem.version)
       ) {
-        return { ok: false, code: "MENU_VERSION_CHANGED" };
+        return {
+          ok: false,
+          code: "MENU_VERSION_CHANGED",
+          itemName: menuItem.name,
+        };
       }
       if (!menuItem.is_available) {
         return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
@@ -798,6 +812,7 @@ export class JsonFileStore implements Store {
           | "MENU_VERSION_CHANGED"
           | "ORDER_NOT_OWNED"
           | "ORDER_NOT_EDITABLE";
+        itemName?: string;
       }
   > {
     const order = this.orders.find((targetOrder) => targetOrder.id === orderId);
@@ -827,7 +842,11 @@ export class JsonFileStore implements Store {
     }
     if (menuItem && input.qty > existingQty) {
       if (!menuItem.is_current_version) {
-        return { ok: false, code: "MENU_VERSION_CHANGED" };
+        return {
+          ok: false,
+          code: "MENU_VERSION_CHANGED",
+          itemName: menuItem.name,
+        };
       }
       const existingItem =
         existingItemIndex !== -1 ? order.items[existingItemIndex] : undefined;
@@ -835,7 +854,11 @@ export class JsonFileStore implements Store {
         existingItem &&
         !this.isOrderItemCurrentVersion(existingItem, menuItem)
       ) {
-        return { ok: false, code: "MENU_VERSION_CHANGED" };
+        return {
+          ok: false,
+          code: "MENU_VERSION_CHANGED",
+          itemName: existingItem.item.name,
+        };
       }
     }
     if (!menuItem && existingItemIndex === -1) {
@@ -940,7 +963,11 @@ export class JsonFileStore implements Store {
     }
     const versionValidation = this.validateOrderItemVersions(orderId);
     if (!versionValidation.ok) {
-      return { ok: false, code: "MENU_VERSION_CHANGED" };
+      return {
+        ok: false,
+        code: "MENU_VERSION_CHANGED",
+        itemName: versionValidation.itemName,
+      };
     }
 
     order.status = "submitted";

@@ -150,6 +150,10 @@ type AnalyticsDateFilters = {
   endDate: string;
 };
 type ApiErrorPayload = { error?: string; message?: string };
+type ApiErrorDetails = ApiErrorPayload & {
+  code?: string;
+  itemName?: string;
+};
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
 type ManagerTab =
   | "orders"
@@ -183,6 +187,28 @@ async function readApiError(response: Response) {
   } catch {
     return `HTTP ${response.status}`;
   }
+}
+
+async function readApiErrorDetails(response: Response): Promise<ApiErrorDetails> {
+  try {
+    const payload = (await response.json()) as ApiErrorDetails;
+    return {
+      error: payload.error,
+      message: payload.message,
+      code: payload.code,
+      itemName: payload.itemName,
+    };
+  } catch {
+    return { error: `HTTP ${response.status}` };
+  }
+}
+
+function formatApiErrorDetails(details: ApiErrorDetails) {
+  const message = details.message || details.error || "Request failed.";
+  if (details.code === "MENU_VERSION_CHANGED" && details.itemName) {
+    return `${message} Changed item: ${details.itemName}`;
+  }
+  return message;
 }
 
 function isMenuVersionChangedMessage(message: string) {
@@ -219,6 +245,12 @@ export default function App() {
   const [selectedCategoryByItemId, setSelectedCategoryByItemId] = useState<
     Record<number, string>
   >({});
+  const [menuHistoryByItemId, setMenuHistoryByItemId] = useState<
+    Record<number, MenuItem[]>
+  >({});
+  const [menuHistoryLoadingId, setMenuHistoryLoadingId] = useState<
+    number | null
+  >(null);
 
   // Cart / order state
   const [orderId, setOrderId] = useState<number | null>(null);
@@ -1151,17 +1183,27 @@ export default function App() {
 
   const cartDetails = useMemo(() => {
     const itemById = new Map(items.map((item) => [item.id, item]));
+    const currentItemByGroupId = new Map(
+      items.map((item) => [item.menu_item_group_id, item]),
+    );
 
     return Object.entries(cartQtyByItemId)
       .map(([itemIdText, qty]) => {
         const itemId = Number(itemIdText);
         const item = itemById.get(itemId) ?? cartItemSnapshotsById[itemId];
         if (!item || qty <= 0) return null;
+        const currentItem =
+          currentItemByGroupId.get(item.menu_item_group_id) ??
+          itemById.get(itemId);
+        const hasPriceChanged =
+          Boolean(currentItem) && currentItem?.price !== item.price;
 
         return {
           itemId,
           qty,
           item,
+          currentItem,
+          hasPriceChanged,
           subtotal: item.price * qty,
         };
       })
@@ -1243,7 +1285,7 @@ export default function App() {
     });
 
     if (!response.ok) {
-      throw new Error(await readApiError(response));
+      throw new Error(formatApiErrorDetails(await readApiErrorDetails(response)));
     }
 
     const payload = (await response.json()) as ApiDataResponse<Order>;
@@ -1486,7 +1528,8 @@ export default function App() {
       );
 
       if (!response.ok) {
-        throw new Error(`Submit order failed: ${await readApiError(response)}`);
+        const details = await readApiErrorDetails(response);
+        throw new Error(`Submit order failed: ${formatApiErrorDetails(details)}`);
       }
 
       resetCartState();
@@ -1528,7 +1571,7 @@ export default function App() {
       );
 
       if (!response.ok) {
-        throw new Error(await readApiError(response));
+        throw new Error(formatApiErrorDetails(await readApiErrorDetails(response)));
       }
 
       const payload = (await response.json()) as ApiDataResponse<Order>;
@@ -1884,6 +1927,40 @@ export default function App() {
       }
     } finally {
       setWalkInBusy(false);
+    }
+  }
+
+  async function loadMenuItemHistory(item: MenuItem): Promise<void> {
+    if (!canManageMenu) return;
+
+    setMenuHistoryLoadingId(item.id);
+    setMenuMessage("");
+
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/menu/${item.id}/history`),
+        {
+          credentials: "include",
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<MenuItem[]>;
+      setMenuHistoryByItemId((currentHistory) => ({
+        ...currentHistory,
+        [item.id]: Array.isArray(payload?.data) ? payload.data : [],
+      }));
+    } catch (historyError) {
+      setMenuMessage(
+        historyError instanceof Error
+          ? historyError.message
+          : "Unable to load menu history.",
+      );
+    } finally {
+      setMenuHistoryLoadingId(null);
     }
   }
 
@@ -4533,6 +4610,11 @@ export default function App() {
                           ))}
                         </div>
                       ) : null}
+                      {canManageMenu && item.change_reason ? (
+                        <p className="text-xs opacity-70">
+                          Last change: {item.change_reason}
+                        </p>
+                      ) : null}
                       <p className="text-sm opacity-80 line-clamp-2 min-h-[2.75rem]">
                         {item.description}
                       </p>
@@ -4611,6 +4693,17 @@ export default function App() {
                               Edit
                             </button>
                             <button
+                              className="btn btn-sm btn-outline"
+                              onClick={() => {
+                                void loadMenuItemHistory(item);
+                              }}
+                              disabled={menuHistoryLoadingId === item.id}
+                            >
+                              {menuHistoryLoadingId === item.id
+                                ? "Loading..."
+                                : "View history"}
+                            </button>
+                            <button
                               className="btn btn-sm btn-error btn-outline"
                               onClick={() => {
                                 void deleteMenuItem(item);
@@ -4620,6 +4713,61 @@ export default function App() {
                               Delete
                             </button>
                           </div>
+                          {menuHistoryByItemId[item.id] ? (
+                            <details className="rounded-box border border-base-300 p-3">
+                              <summary className="cursor-pointer font-medium">
+                                Version history
+                              </summary>
+                              {menuHistoryByItemId[item.id].length === 0 ? (
+                                <p className="mt-2 text-sm opacity-70">
+                                  No version history.
+                                </p>
+                              ) : (
+                                <div className="mt-2 overflow-x-auto">
+                                  <table className="table table-sm">
+                                    <thead>
+                                      <tr>
+                                        <th>Version</th>
+                                        <th>Name</th>
+                                        <th>Price</th>
+                                        <th>Status</th>
+                                        <th>Reason</th>
+                                        <th>Changed by</th>
+                                        <th>Previous</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {menuHistoryByItemId[item.id].map(
+                                        (historyItem) => (
+                                          <tr key={historyItem.id}>
+                                            <td>v{historyItem.version}</td>
+                                            <td>{historyItem.name}</td>
+                                            <td>${historyItem.price}</td>
+                                            <td>
+                                              {historyItem.is_available
+                                                ? "Available"
+                                                : "Sold out"}
+                                            </td>
+                                            <td>
+                                              {historyItem.change_reason ||
+                                                "-"}
+                                            </td>
+                                            <td>
+                                              {historyItem.changed_by || "-"}
+                                            </td>
+                                            <td>
+                                              {historyItem.previous_version_id ??
+                                                "-"}
+                                            </td>
+                                          </tr>
+                                        ),
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </details>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -4894,6 +5042,15 @@ export default function App() {
                         <p className="text-sm opacity-70">
                           ${detail.item.price} x {detail.qty}
                         </p>
+                        {detail.hasPriceChanged && detail.currentItem ? (
+                          <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                            <span className="badge badge-warning">
+                              Price changed
+                            </span>
+                            <span>Snapshot: ${detail.item.price}</span>
+                            <span>Current: ${detail.currentItem.price}</span>
+                          </div>
+                        ) : null}
                       </div>
                       <div className="flex flex-col items-end gap-2">
                         <p className="font-bold">${detail.subtotal}</p>

@@ -16,6 +16,7 @@ import type {
   OrderIssueType,
   OrderStatus,
   PaymentMethod,
+  PriceSensitivityItem,
   Role,
   RoleRequest,
   SessionUser,
@@ -342,6 +343,9 @@ export default function App() {
     useState<AnalyticsTrends | null>(null);
   const [analyticsInsights, setAnalyticsInsights] =
     useState<AnalyticsInsights | null>(null);
+  const [priceSensitivity, setPriceSensitivity] = useState<
+    PriceSensitivityItem[]
+  >([]);
   const [categorySales, setCategorySales] = useState<CategorySales[]>([]);
   const [topItemSales, setTopItemSales] = useState<TopItemSales[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
@@ -894,20 +898,23 @@ export default function App() {
         topItemsResponse,
         trendsResponse,
         insightsResponse,
-      ] =
-        await Promise.all([
-          fetch(buildApiUrl(`/api/admin/analytics/summary${analyticsSuffix}`), {
-            credentials: "include",
-          }),
-        fetch(buildApiUrl(`/api/admin/analytics/category-sales${analyticsSuffix}`), {
+        priceSensitivityResponse,
+      ] = await Promise.all([
+        fetch(buildApiUrl(`/api/admin/analytics/summary${analyticsSuffix}`), {
           credentials: "include",
         }),
+        fetch(
+          buildApiUrl(`/api/admin/analytics/category-sales${analyticsSuffix}`),
+          {
+            credentials: "include",
+          },
+        ),
         fetch(
           buildApiUrl(
             `/api/admin/analytics/top-items?${topItemsQuery.toString()}`,
           ),
           {
-          credentials: "include",
+            credentials: "include",
           },
         ),
         fetch(buildApiUrl(`/api/admin/analytics/trends${analyticsSuffix}`), {
@@ -916,6 +923,14 @@ export default function App() {
         fetch(buildApiUrl(`/api/admin/analytics/insights${analyticsSuffix}`), {
           credentials: "include",
         }),
+        fetch(
+          buildApiUrl(
+            `/api/admin/analytics/price-sensitivity${analyticsSuffix}`,
+          ),
+          {
+            credentials: "include",
+          },
+        ),
       ]);
 
       if (!summaryResponse.ok) {
@@ -933,6 +948,9 @@ export default function App() {
       if (!insightsResponse.ok) {
         throw new Error(await readApiError(insightsResponse));
       }
+      if (!priceSensitivityResponse.ok) {
+        throw new Error(await readApiError(priceSensitivityResponse));
+      }
 
       const summaryPayload =
         (await summaryResponse.json()) as ApiDataResponse<AnalyticsSummary>;
@@ -944,6 +962,10 @@ export default function App() {
         (await trendsResponse.json()) as ApiDataResponse<AnalyticsTrends>;
       const insightsPayload =
         (await insightsResponse.json()) as ApiDataResponse<AnalyticsInsights>;
+      const priceSensitivityPayload =
+        (await priceSensitivityResponse.json()) as ApiDataResponse<
+          PriceSensitivityItem[]
+        >;
 
       setAnalyticsSummary(summaryPayload?.data ?? null);
       setAnalyticsTrends(trendsPayload?.data ?? null);
@@ -953,6 +975,11 @@ export default function App() {
       );
       setTopItemSales(
         Array.isArray(topItemsPayload?.data) ? topItemsPayload.data : [],
+      );
+      setPriceSensitivity(
+        Array.isArray(priceSensitivityPayload?.data)
+          ? priceSensitivityPayload.data
+          : [],
       );
     } catch (analyticsError) {
       setAnalyticsMessage(
@@ -4240,6 +4267,63 @@ export default function App() {
                         ? "Loading insights..."
                         : "No insight data yet."}
                     </span>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold">Price sensitivity</h3>
+                  <p className="text-sm opacity-70">
+                    Compare quantity and revenue across historical snapshot
+                    prices for the same menu item.
+                  </p>
+                </div>
+                {priceSensitivity.length === 0 ? (
+                  <div className="alert">
+                    <span>No price sensitivity data yet.</span>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Item</th>
+                          <th>Category</th>
+                          <th>Current price</th>
+                          <th>Total qty</th>
+                          <th>Total revenue</th>
+                          <th>Price points</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {priceSensitivity.map((row) => (
+                          <tr key={row.menuItemGroupId}>
+                            <td>{row.name}</td>
+                            <td>{row.category}</td>
+                            <td>
+                              {row.currentPrice === null
+                                ? "-"
+                                : `$${row.currentPrice}`}
+                            </td>
+                            <td>{row.totalQuantity}</td>
+                            <td>${row.totalRevenue}</td>
+                            <td>
+                              <div className="flex flex-wrap gap-2">
+                                {row.pricePoints.map((point) => (
+                                  <span
+                                    className="badge badge-outline"
+                                    key={`${row.menuItemGroupId}-${point.price}`}
+                                  >
+                                    ${point.price}: {point.quantity} sold / $
+                                    {point.revenue} / {point.orderCount} orders
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>

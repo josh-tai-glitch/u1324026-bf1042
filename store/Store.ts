@@ -14,6 +14,7 @@ import type {
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
+  PriceSensitivityAnalytics,
   Role,
   TopItemSales,
 } from "../shared/contracts.ts";
@@ -289,6 +290,9 @@ export interface Store {
   getAnalyticsSummary(input?: AnalyticsDateRangeInput): AnalyticsSummary;
   getAnalyticsTrends(input?: AnalyticsDateRangeInput): AnalyticsTrends;
   getAnalyticsInsights(input?: AnalyticsDateRangeInput): AnalyticsInsights;
+  getPriceSensitivityAnalytics(
+    input?: AnalyticsDateRangeInput,
+  ): PriceSensitivityAnalytics;
 
   // Audit logs
   appendAuditLog(input: AppendAuditLogInput): Promise<void>;

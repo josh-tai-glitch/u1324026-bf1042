@@ -38,6 +38,7 @@ import {
   nullableOrderResponseEnvelopeSchema,
   orderListResponseSchema,
   orderResponseEnvelopeSchema,
+  priceSensitivityAnalyticsResponseSchema,
   removeMenuItemCategoryParamsSchema,
   reviewRoleRequestBodySchema,
   reviewRoleRequestParamsSchema,
@@ -1830,6 +1831,32 @@ app.get(
     },
     response: {
       200: topItemSalesListResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.get(
+  "/api/admin/analytics/price-sensitivity",
+  async ({ query, request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    return {
+      data: store.getPriceSensitivityAnalytics(getAnalyticsDateRange(query)),
+    };
+  },
+  {
+    query: analyticsDateRangeQuerySchema,
+    detail: {
+      tags: ["admin"],
+      summary: "Get price sensitivity analytics",
+      description:
+        "Compare quantity and revenue across historical snapshot prices for each menu item.",
+    },
+    response: {
+      200: priceSensitivityAnalyticsResponseSchema,
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
     },

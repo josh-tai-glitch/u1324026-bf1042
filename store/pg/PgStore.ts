@@ -17,6 +17,7 @@ import type {
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
+  PriceSensitivityAnalytics,
   Role,
   TopItemSales,
 } from "../../shared/contracts.ts";
@@ -1333,6 +1334,95 @@ export class PgStore implements Store {
   }
 
   // ── Private ─────────────────────────────────────────────────
+
+  getPriceSensitivityAnalytics(
+    input?: AnalyticsDateRangeInput,
+  ): PriceSensitivityAnalytics {
+    const itemsByGroup = new Map<
+      string,
+      {
+        menuItemGroupId: string;
+        snapshotName: string;
+        snapshotCategory: string;
+        totalQuantity: number;
+        totalRevenue: number;
+        pointsByPrice: Map<
+          number,
+          { quantity: number; revenue: number; orderIds: Set<number> }
+        >;
+      }
+    >();
+
+    for (const order of this.getAnalyticsOrders(input)) {
+      if (!revenueOrderStatuses.includes(order.status)) continue;
+
+      for (const orderItem of order.items) {
+        const groupId =
+          orderItem.menu_item_group_id ??
+          orderItem.item.menu_item_group_id ??
+          String(orderItem.item.id);
+        const group = itemsByGroup.get(groupId) ?? {
+          menuItemGroupId: groupId,
+          snapshotName: orderItem.item.name,
+          snapshotCategory: orderItem.item.category || "Uncategorized",
+          totalQuantity: 0,
+          totalRevenue: 0,
+          pointsByPrice: new Map<
+            number,
+            { quantity: number; revenue: number; orderIds: Set<number> }
+          >(),
+        };
+        const price = orderItem.item.price;
+        const revenue = price * orderItem.qty;
+        const point = group.pointsByPrice.get(price) ?? {
+          quantity: 0,
+          revenue: 0,
+          orderIds: new Set<number>(),
+        };
+
+        point.quantity += orderItem.qty;
+        point.revenue += revenue;
+        point.orderIds.add(order.id);
+        group.pointsByPrice.set(price, point);
+        group.totalQuantity += orderItem.qty;
+        group.totalRevenue += revenue;
+        itemsByGroup.set(groupId, group);
+      }
+    }
+
+    return Array.from(itemsByGroup.values())
+      .map((group) => {
+        const currentItem = this.menu.find(
+          (item) =>
+            item.menu_item_group_id === group.menuItemGroupId &&
+            item.is_current_version,
+        );
+
+        return {
+          menuItemGroupId: group.menuItemGroupId,
+          name: currentItem?.name ?? group.snapshotName,
+          category:
+            currentItem?.category ?? group.snapshotCategory ?? "Uncategorized",
+          currentPrice: currentItem?.price ?? null,
+          totalQuantity: group.totalQuantity,
+          totalRevenue: group.totalRevenue,
+          pricePoints: Array.from(group.pointsByPrice.entries())
+            .map(([price, point]) => ({
+              price,
+              quantity: point.quantity,
+              revenue: point.revenue,
+              orderCount: point.orderIds.size,
+            }))
+            .sort((a, b) => a.price - b.price),
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.totalRevenue - a.totalRevenue ||
+          b.totalQuantity - a.totalQuantity ||
+          a.name.localeCompare(b.name),
+      );
+  }
 
   getAnalyticsSummary(input?: AnalyticsDateRangeInput): AnalyticsSummary {
     const today = new Date().toLocaleDateString();

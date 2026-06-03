@@ -203,6 +203,27 @@ export const topItemSalesSchema = z.object({
   orderCount: z.number().int().min(0),
 });
 
+export const priceSensitivityPointSchema = z.object({
+  price: z.number().min(0),
+  quantity: z.number().min(0),
+  revenue: z.number().min(0),
+  orderCount: z.number().int().min(0),
+});
+
+export const priceSensitivityItemSchema = z.object({
+  menuItemGroupId: z.string().min(1),
+  name: z.string().min(1),
+  category: z.string().min(1),
+  currentPrice: z.number().min(0).nullable(),
+  totalQuantity: z.number().min(0),
+  totalRevenue: z.number().min(0),
+  pricePoints: z.array(priceSensitivityPointSchema),
+});
+
+export const priceSensitivityAnalyticsSchema = z.array(
+  priceSensitivityItemSchema,
+);
+
 export const analyticsDailyRevenueSchema = z.object({
   date: z.string().min(1),
   revenue: z.number().min(0),
@@ -328,6 +349,13 @@ export type OrderIssueType = z.infer<typeof orderIssueTypeSchema>;
 export type Order = z.infer<typeof orderSchema>;
 export type CategorySales = z.infer<typeof categorySalesSchema>;
 export type TopItemSales = z.infer<typeof topItemSalesSchema>;
+export type PriceSensitivityPoint = z.infer<
+  typeof priceSensitivityPointSchema
+>;
+export type PriceSensitivityItem = z.infer<typeof priceSensitivityItemSchema>;
+export type PriceSensitivityAnalytics = z.infer<
+  typeof priceSensitivityAnalyticsSchema
+>;
 export type AnalyticsSummary = z.infer<typeof analyticsSummarySchema>;
 export type AnalyticsTrends = z.infer<typeof analyticsTrendsSchema>;
 export type AnalyticsInsights = z.infer<typeof analyticsInsightsSchema>;

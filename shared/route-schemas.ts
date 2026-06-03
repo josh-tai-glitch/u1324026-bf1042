@@ -16,6 +16,7 @@ import {
   orderStatusSchema,
   paymentMethodSchema,
   paymentStatusSchema,
+  priceSensitivityAnalyticsSchema,
   roleRequestSchema,
   roleSchema,
   sessionUserSchema,
@@ -346,6 +347,10 @@ export const analyticsTrendsResponseSchema = z.object({
 
 export const analyticsInsightsResponseSchema = z.object({
   data: analyticsInsightsSchema,
+});
+
+export const priceSensitivityAnalyticsResponseSchema = z.object({
+  data: priceSensitivityAnalyticsSchema,
 });
 
 export const topItemSalesListResponseSchema = z.object({

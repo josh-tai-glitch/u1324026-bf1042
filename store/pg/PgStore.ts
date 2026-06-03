@@ -30,6 +30,7 @@ import {
   orderItemsTable,
   ordersTable,
 } from "../../db/schema.ts";
+import { menuRepository } from "../menu/MenuRepository.ts";
 import {
   CategoryNotFoundError,
   CategorySlugConflictError,
@@ -173,19 +174,11 @@ export class PgStore implements Store {
   }
 
   getCurrentMenu(): ReadonlyArray<MenuItem> {
-    return this.menu
-      .filter((item) => item.is_current_version)
-      .slice()
-      .sort((a, b) => a.display_order - b.display_order || a.id - b.id);
+    return menuRepository.getCurrentMenu(this.menu);
   }
 
   getMenuItemVersionHistoryById(menuId: number): ReadonlyArray<MenuItem> {
-    const target = this.menu.find((item) => item.id === menuId);
-    if (!target) return [];
-    return this.menu
-      .filter((item) => item.menu_item_group_id === target.menu_item_group_id)
-      .slice()
-      .sort((a, b) => b.version - a.version || b.id - a.id);
+    return menuRepository.getMenuItemVersionHistoryById(this.menu, menuId);
   }
 
   getCategories(input: { status?: CategoryStatusFilter } = {}): ReadonlyArray<Category> {
@@ -922,27 +915,16 @@ export class PgStore implements Store {
     const order = this.orders.find((item) => item.id === orderId);
     if (!order) return { ok: true };
 
-    for (const orderItem of order.items) {
-      const groupId =
-        orderItem.menu_item_group_id ?? orderItem.item.menu_item_group_id;
-      const version = orderItem.menu_item_version ?? orderItem.item.version;
-      const currentItem = groupId
-        ? this.menu.find(
-            (item) =>
-              item.menu_item_group_id === groupId && item.is_current_version,
-          )
-        : this.menu.find(
-            (item) =>
-              item.id === orderItem.item.id && item.is_current_version,
-          );
-
-      if (!currentItem || currentItem.version !== version) {
-        return {
-          ok: false,
-          code: "MENU_VERSION_CHANGED",
-          itemName: orderItem.item.name,
-        };
-      }
+    const validation = menuRepository.validateOrderItemVersions(
+      this.menu,
+      order.items,
+    );
+    if (!validation.ok) {
+      return {
+        ok: false,
+        code: "MENU_VERSION_CHANGED",
+        itemName: validation.itemName,
+      };
     }
 
     return { ok: true };

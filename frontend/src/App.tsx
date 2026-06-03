@@ -265,6 +265,7 @@ export default function App() {
   const [cartTotal, setCartTotal] = useState(0);
   const [activeItemId, setActiveItemId] = useState<number | null>(null);
   const [actionError, setActionError] = useState("");
+  const [isRefreshingCartVersion, setIsRefreshingCartVersion] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartBusyItemId, setCartBusyItemId] = useState<number | null>(null);
   const [isClearingCart, setIsClearingCart] = useState(false);
@@ -1298,11 +1299,20 @@ export default function App() {
     return updatedOrder;
   }
 
+  async function refreshCartVersionState(): Promise<void> {
+    setIsRefreshingCartVersion(true);
+    try {
+      await Promise.all([loadMenu(), loadCurrentOrder()]);
+    } finally {
+      setIsRefreshingCartVersion(false);
+    }
+  }
+
   async function refreshMenuAndCurrentOrderAfterVersionConflict(
     message: string,
   ) {
     setActionError(message);
-    await Promise.all([loadMenu(), loadCurrentOrder()]);
+    await refreshCartVersionState();
   }
 
   async function refreshMenuAfterWalkInVersionConflict(message: string) {
@@ -2614,7 +2624,28 @@ export default function App() {
 
         {actionError ? (
           <div className="alert alert-warning mb-4">
-            <span>{actionError}</span>
+            <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <span>{actionError}</span>
+                {isMenuVersionChangedMessage(actionError) ? (
+                  <p className="mt-1 text-sm">
+                    The menu has changed. Please review your cart before
+                    checkout.
+                  </p>
+                ) : null}
+              </div>
+              {isMenuVersionChangedMessage(actionError) ? (
+                <button
+                  className="btn btn-sm btn-outline"
+                  onClick={() => {
+                    void refreshCartVersionState();
+                  }}
+                  disabled={isRefreshingCartVersion}
+                >
+                  {isRefreshingCartVersion ? "Refreshing..." : "Refresh cart"}
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
 

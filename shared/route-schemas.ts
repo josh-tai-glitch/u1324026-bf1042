@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { Order } from "./contracts.ts";
 import {
+  abTestAnalyticsSchema,
+  abTestGroupSchema,
   auditLogActionSchema,
   auditLogSchema,
   auditLogTargetTypeSchema,
@@ -89,6 +91,7 @@ export const createMenuItemBodySchema = z.object({
   description: z.string().min(1),
   image_url: z.string().min(1),
   isAvailable: z.boolean().optional(),
+  abTestGroup: abTestGroupSchema.nullable().optional(),
 });
 
 /** PATCH /api/menu/:id */
@@ -116,6 +119,7 @@ export const updateMenuItemBodySchema = z.object({
   description: z.string().min(1).optional(),
   image_url: z.string().min(1).optional(),
   isAvailable: z.boolean().optional(),
+  abTestGroup: abTestGroupSchema.nullable().optional(),
   changeReason: z.string().min(1).optional(),
 });
 
@@ -407,6 +411,10 @@ export const analyticsInsightsResponseSchema = z.object({
 
 export const priceSensitivityAnalyticsResponseSchema = z.object({
   data: priceSensitivityAnalyticsSchema,
+});
+
+export const abTestAnalyticsResponseSchema = z.object({
+  data: abTestAnalyticsSchema,
 });
 
 export const topItemSalesListResponseSchema = z.object({

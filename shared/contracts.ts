@@ -24,6 +24,9 @@ export const menuCategoryLinkSchema = z.object({
   removedAt: z.string().min(1).nullable(),
 });
 
+export const abTestGroupSchema = z.enum(["control", "variant_a", "variant_b"]);
+export const nullableAbTestGroupSchema = abTestGroupSchema.nullable();
+
 export const menuItemSchema = z.object({
   id: z.number().int().min(1),
   name: z.string().min(1),
@@ -44,6 +47,7 @@ export const menuItemSchema = z.object({
   change_reason: z.string().nullable(),
   changed_by: z.string().nullable(),
   previous_version_id: z.number().int().nullable(),
+  ab_test_group: nullableAbTestGroupSchema.default(null),
 });
 
 export const menuItemHistorySchema = z.array(menuItemSchema);
@@ -166,6 +170,7 @@ export const orderItemSchema = z.object({
   menu_item_version_major: z.number().int().min(1).nullable().optional(),
   menu_item_version_minor: z.number().int().min(0).nullable().optional(),
   menu_item_group_id: z.string().nullable(),
+  ab_test_group: nullableAbTestGroupSchema.default(null),
 });
 
 export const orderStatusSchema = z.enum([
@@ -196,6 +201,7 @@ export const orderSchema = z.object({
   discountAmount: z.number().min(0).default(0),
   promoCode: z.string().nullable().default(null),
   total: z.number().min(0),
+  abTestGroup: nullableAbTestGroupSchema.default(null),
   status: orderStatusSchema,
   orderSource: orderSourceSchema.default("customer"),
   guestName: z.string().nullable().default(null),
@@ -232,6 +238,16 @@ export const topItemSalesSchema = z.object({
   revenue: z.number().min(0),
   orderCount: z.number().int().min(0),
 });
+
+export const abTestAnalyticsItemSchema = z.object({
+  group: abTestGroupSchema,
+  orderCount: z.number().int().min(0),
+  revenue: z.number().int().min(0),
+  quantity: z.number().int().min(0),
+  averageOrderValue: z.number().min(0),
+});
+
+export const abTestAnalyticsSchema = z.array(abTestAnalyticsItemSchema);
 
 export const priceSensitivityPointSchema = z.object({
   price: z.number().min(0),
@@ -360,6 +376,7 @@ export const analyticsInsightsSchema = z.object({
 // Derived TypeScript Types
 export type MenuItem = z.infer<typeof menuItemSchema>;
 export type MenuItemHistory = z.infer<typeof menuItemHistorySchema>;
+export type AbTestGroup = z.infer<typeof abTestGroupSchema>;
 export type DiscountType = z.infer<typeof discountTypeSchema>;
 export type Promotion = z.infer<typeof promotionSchema>;
 export type PromotionDiscountPreview = z.infer<
@@ -384,6 +401,7 @@ export type OrderIssueType = z.infer<typeof orderIssueTypeSchema>;
 export type Order = z.infer<typeof orderSchema>;
 export type CategorySales = z.infer<typeof categorySalesSchema>;
 export type TopItemSales = z.infer<typeof topItemSalesSchema>;
+export type AbTestAnalyticsItem = z.infer<typeof abTestAnalyticsItemSchema>;
 export type PriceSensitivityPoint = z.infer<
   typeof priceSensitivityPointSchema
 >;

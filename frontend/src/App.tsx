@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import type {
+  AbTestAnalyticsItem,
+  AbTestGroup,
   ApiDataResponse,
   AuditLog,
   AuditLogAction,
@@ -39,6 +41,12 @@ const orderIssueTypeOptions: OrderIssueType[] = [
   "need_customer_confirmation",
   "special_request_problem",
   "other",
+];
+const abTestGroupOptions: Array<{ id: "" | AbTestGroup; label: string }> = [
+  { id: "", label: "No A/B group" },
+  { id: "control", label: "Control" },
+  { id: "variant_a", label: "Variant A" },
+  { id: "variant_b", label: "Variant B" },
 ];
 const orderBoardFilters = [
   { id: "active", label: "Active" },
@@ -123,6 +131,7 @@ const emptyMenuForm = {
   primaryCategoryId: "",
   description: "",
   image_url: "",
+  abTestGroup: "",
   changeReason: "",
 };
 const emptyCategoryForm = {
@@ -240,6 +249,13 @@ function formatSemanticVersion(
   item: Pick<MenuItem, "version" | "version_major" | "version_minor">,
 ) {
   return `v${item.version_major ?? 1}.${item.version_minor ?? Math.max(item.version - 1, 0)}`;
+}
+
+function formatAbTestGroup(group?: AbTestGroup | null) {
+  if (group === "control") return "Control";
+  if (group === "variant_a") return "Variant A";
+  if (group === "variant_b") return "Variant B";
+  return "No A/B group";
 }
 
 export default function App() {
@@ -385,6 +401,9 @@ export default function App() {
     useState<AnalyticsInsights | null>(null);
   const [priceSensitivity, setPriceSensitivity] = useState<
     PriceSensitivityItem[]
+  >([]);
+  const [abTestAnalytics, setAbTestAnalytics] = useState<
+    AbTestAnalyticsItem[]
   >([]);
   const [categorySales, setCategorySales] = useState<CategorySales[]>([]);
   const [topItemSales, setTopItemSales] = useState<TopItemSales[]>([]);
@@ -966,6 +985,7 @@ export default function App() {
         trendsResponse,
         insightsResponse,
         priceSensitivityResponse,
+        abTestResponse,
       ] = await Promise.all([
         fetch(buildApiUrl(`/api/admin/analytics/summary${analyticsSuffix}`), {
           credentials: "include",
@@ -998,6 +1018,9 @@ export default function App() {
             credentials: "include",
           },
         ),
+        fetch(buildApiUrl(`/api/admin/analytics/ab-tests${analyticsSuffix}`), {
+          credentials: "include",
+        }),
       ]);
 
       if (!summaryResponse.ok) {
@@ -1018,6 +1041,9 @@ export default function App() {
       if (!priceSensitivityResponse.ok) {
         throw new Error(await readApiError(priceSensitivityResponse));
       }
+      if (!abTestResponse.ok) {
+        throw new Error(await readApiError(abTestResponse));
+      }
 
       const summaryPayload =
         (await summaryResponse.json()) as ApiDataResponse<AnalyticsSummary>;
@@ -1033,6 +1059,8 @@ export default function App() {
         (await priceSensitivityResponse.json()) as ApiDataResponse<
           PriceSensitivityItem[]
         >;
+      const abTestPayload =
+        (await abTestResponse.json()) as ApiDataResponse<AbTestAnalyticsItem[]>;
 
       setAnalyticsSummary(summaryPayload?.data ?? null);
       setAnalyticsTrends(trendsPayload?.data ?? null);
@@ -1047,6 +1075,9 @@ export default function App() {
         Array.isArray(priceSensitivityPayload?.data)
           ? priceSensitivityPayload.data
           : [],
+      );
+      setAbTestAnalytics(
+        Array.isArray(abTestPayload?.data) ? abTestPayload.data : [],
       );
     } catch (analyticsError) {
       setAnalyticsMessage(
@@ -2276,6 +2307,7 @@ export default function App() {
         : "",
       description: item.description,
       image_url: item.image_url,
+      abTestGroup: item.ab_test_group ?? "",
       changeReason: "",
     });
   }
@@ -2298,6 +2330,9 @@ export default function App() {
         category: menuForm.category.trim(),
         description: menuForm.description.trim(),
         image_url: menuForm.image_url.trim(),
+        abTestGroup: menuForm.abTestGroup
+          ? (menuForm.abTestGroup as AbTestGroup)
+          : null,
         ...(menuForm.primaryCategoryId
           ? { primaryCategoryId: Number(menuForm.primaryCategoryId) }
           : editingMenuId
@@ -4669,6 +4704,45 @@ export default function App() {
                   </div>
                 )}
               </div>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold">A/B testing</h3>
+                  <p className="text-sm opacity-70">
+                    Compare revenue and order behavior across control and menu
+                    variants.
+                  </p>
+                </div>
+                {abTestAnalytics.length === 0 ? (
+                  <div className="alert">
+                    <span>No A/B test data yet.</span>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Group</th>
+                          <th>Orders</th>
+                          <th>Quantity</th>
+                          <th>Revenue</th>
+                          <th>Average order value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {abTestAnalytics.map((row) => (
+                          <tr key={row.group}>
+                            <td>{formatAbTestGroup(row.group)}</td>
+                            <td>{row.orderCount}</td>
+                            <td>{row.quantity}</td>
+                            <td>${row.revenue}</td>
+                            <td>${row.averageOrderValue.toFixed(0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
               {!analyticsLoading &&
               categorySales.length === 0 &&
               topItemSales.length === 0 ? (
@@ -4851,6 +4925,19 @@ export default function App() {
                   {categories.map((category) => (
                     <option key={category.id} value={category.id}>
                       {category.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="select select-bordered"
+                  value={menuForm.abTestGroup}
+                  onChange={(event) =>
+                    updateMenuForm("abTestGroup", event.target.value)
+                  }
+                >
+                  {abTestGroupOptions.map((option) => (
+                    <option key={option.id || "none"} value={option.id}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
@@ -5294,6 +5381,11 @@ export default function App() {
                         {!item.is_available ? (
                           <span className="badge badge-error">Sold out</span>
                         ) : null}
+                        {canManageMenu ? (
+                          <span className="badge badge-secondary badge-outline">
+                            A/B: {formatAbTestGroup(item.ab_test_group)}
+                          </span>
+                        ) : null}
                       </div>
                       {item.primary_category_name ? (
                         <span className="badge badge-primary w-fit">
@@ -5483,6 +5575,7 @@ export default function App() {
                                         <th>Version</th>
                                         <th>Name</th>
                                         <th>Price</th>
+                                        <th>A/B group</th>
                                         <th>Order</th>
                                         <th>Status</th>
                                         <th>Reason</th>
@@ -5502,6 +5595,11 @@ export default function App() {
                                             </td>
                                             <td>{historyItem.name}</td>
                                             <td>${historyItem.price}</td>
+                                            <td>
+                                              {formatAbTestGroup(
+                                                historyItem.ab_test_group,
+                                              )}
+                                            </td>
                                             <td>{historyItem.display_order}</td>
                                             <td>
                                               {historyItem.is_available

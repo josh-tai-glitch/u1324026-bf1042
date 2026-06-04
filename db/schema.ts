@@ -73,6 +73,7 @@ export const menuItemsTable = appSchema.table("menu_items", {
   changeReason: text("change_reason"),
   changedBy: text("changed_by").references(() => user.id),
   previousVersionId: integer("previous_version_id"),
+  abTestGroup: text("ab_test_group"),
 });
 
 export const menuItemCategoriesTable = appSchema.table(
@@ -106,6 +107,7 @@ export const ordersTable = appSchema.table("orders", {
   discountAmount: integer("discount_amount").notNull().default(0),
   promoCode: text("promo_code"),
   total: integer("total").notNull().default(0),
+  abTestGroup: text("ab_test_group"),
   status: text("status").notNull().default("pending"),
   orderSource: text("order_source").notNull().default("customer"),
   guestName: text("guest_name"),
@@ -167,6 +169,7 @@ export const orderItemsTable = appSchema.table(
     menuItemVersionMajor: integer("menu_item_version_major"),
     menuItemVersionMinor: integer("menu_item_version_minor"),
     menuItemGroupId: text("menu_item_group_id"),
+    abTestGroup: text("ab_test_group"),
     name: text("name").notNull(),
     price: integer("price").notNull(),
     category: text("category").notNull(),

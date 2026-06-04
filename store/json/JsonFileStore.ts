@@ -2,6 +2,8 @@ import { mkdir, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type {
   AuditLog,
+  AbTestAnalyticsItem,
+  AbTestGroup,
   AnalyticsInsights,
   AnalyticsSummary,
   AnalyticsTrends,
@@ -35,6 +37,7 @@ import {
   type AppendAuditLogInput,
   type CategoryStatusFilter,
   type GetAuditLogsInput,
+  type GetCurrentMenuInput,
   type PromotionStatusFilter,
   type Store,
 } from "../Store.ts";
@@ -169,6 +172,12 @@ function toPaymentStatus(value: unknown): PaymentStatus {
   return value === "paid" ? "paid" : "unpaid";
 }
 
+function toAbTestGroup(value: unknown): AbTestGroup | null {
+  return value === "control" || value === "variant_a" || value === "variant_b"
+    ? value
+    : null;
+}
+
 function normalizeMenuItem(item: Partial<MenuItem>): MenuItem {
   const id = item.id ?? 0;
   return {
@@ -184,6 +193,7 @@ function normalizeMenuItem(item: Partial<MenuItem>): MenuItem {
     description: item.description ?? "",
     image_url: item.image_url ?? "",
     is_available: item.is_available ?? true,
+    ab_test_group: toAbTestGroup(item.ab_test_group),
     display_order: item.display_order ?? 0,
     version: item.version ?? 1,
     version_major: item.version_major ?? 1,
@@ -362,6 +372,9 @@ export class JsonFileStore implements Store {
               orderItem.menu_item_group_id ??
               orderItem.item.menu_item_group_id ??
               null,
+            ab_test_group: toAbTestGroup(
+              orderItem.ab_test_group ?? orderItem.item.ab_test_group,
+            ),
           })),
           subtotal:
             typeof order.subtotal === "number" && order.subtotal > 0
@@ -372,6 +385,7 @@ export class JsonFileStore implements Store {
               ? order.discountAmount
               : 0,
           promoCode: order.promoCode ?? null,
+          abTestGroup: toAbTestGroup(order.abTestGroup),
           total: order.total ?? 0,
           status: toOrderStatus(order.status),
           orderSource: order.orderSource === "walk_in" ? "walk_in" : "customer",
@@ -416,8 +430,8 @@ export class JsonFileStore implements Store {
     return this.menu;
   }
 
-  getCurrentMenu(): ReadonlyArray<MenuItem> {
-    return menuRepository.getCurrentMenu(this.menu);
+  getCurrentMenu(input: GetCurrentMenuInput = {}): ReadonlyArray<MenuItem> {
+    return menuRepository.getCurrentMenu(this.menu, input);
   }
 
   getMenuItemVersionHistoryById(menuId: number): ReadonlyArray<MenuItem> {
@@ -519,6 +533,7 @@ export class JsonFileStore implements Store {
     description: string;
     image_url: string;
     isAvailable?: boolean;
+    abTestGroup?: AbTestGroup | null;
     displayOrder?: number;
   }): Promise<MenuItem> {
     const primaryCategory =
@@ -540,6 +555,7 @@ export class JsonFileStore implements Store {
       description: input.description,
       image_url: input.image_url,
       is_available: input.isAvailable ?? true,
+      ab_test_group: input.abTestGroup ?? null,
       display_order: input.displayOrder ?? 0,
       version: 1,
       version_major: 1,
@@ -567,6 +583,7 @@ export class JsonFileStore implements Store {
       description?: string;
       image_url?: string;
       isAvailable?: boolean;
+      abTestGroup?: AbTestGroup | null;
       changeReason?: string;
       changedBy?: string;
     },
@@ -597,6 +614,7 @@ export class JsonFileStore implements Store {
         description: patch.description,
         image_url: patch.image_url,
         is_available: patch.isAvailable,
+        ab_test_group: patch.abTestGroup,
       },
     });
     nextMenuItem.categories = (menuItem.categories ?? []).map((category) => ({
@@ -837,6 +855,7 @@ export class JsonFileStore implements Store {
       subtotal: 0,
       discountAmount: 0,
       promoCode: null,
+      abTestGroup: null,
       total: 0,
       status: "pending",
       orderSource: "customer",
@@ -873,6 +892,7 @@ export class JsonFileStore implements Store {
     paymentMethod: PaymentMethod;
     paymentStatus?: PaymentStatus;
     promoCode?: string | null;
+    abTestGroup?: AbTestGroup;
   }): Promise<
     | { ok: true; order: Order }
     | {
@@ -920,6 +940,7 @@ export class JsonFileStore implements Store {
         menu_item_version_major: menuItem.version_major,
         menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
+        ab_test_group: menuItem.ab_test_group,
       });
     }
 
@@ -938,6 +959,7 @@ export class JsonFileStore implements Store {
       subtotal,
       discountAmount,
       promoCode,
+      abTestGroup: input.abTestGroup ?? "control",
       total,
       status: "submitted",
       orderSource: "walk_in",
@@ -1054,6 +1076,7 @@ export class JsonFileStore implements Store {
         menu_item_version_major: menuItem.version_major,
         menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
+        ab_test_group: menuItem.ab_test_group,
       });
     }
 
@@ -1097,6 +1120,7 @@ export class JsonFileStore implements Store {
       paymentMethod: PaymentMethod;
       paymentStatus?: PaymentStatus;
       promoCode?: string | null;
+      abTestGroup?: AbTestGroup;
     },
   ): Promise<
     | { ok: true; order: Order }
@@ -1150,6 +1174,7 @@ export class JsonFileStore implements Store {
     order.subtotal = subtotal;
     order.discountAmount = discountAmount;
     order.promoCode = promoCode;
+    order.abTestGroup = input.abTestGroup ?? "control";
     order.total = total;
     order.submittedAt = new Date().toISOString();
     order.fulfillmentType = input.fulfillmentType;
@@ -1523,6 +1548,46 @@ export class JsonFileStore implements Store {
           b.totalQuantity - a.totalQuantity ||
           a.name.localeCompare(b.name),
       );
+  }
+
+  getAbTestAnalytics(
+    input?: AnalyticsDateRangeInput,
+  ): ReadonlyArray<AbTestAnalyticsItem> {
+    const analyticsByGroup = new Map<
+      AbTestGroup,
+      { orderCount: number; revenue: number; quantity: number }
+    >();
+
+    for (const group of ["control", "variant_a", "variant_b"] satisfies AbTestGroup[]) {
+      analyticsByGroup.set(group, { orderCount: 0, revenue: 0, quantity: 0 });
+    }
+
+    for (const order of this.getAnalyticsOrders(input)) {
+      if (!revenueOrderStatuses.includes(order.status)) continue;
+
+      const group = order.abTestGroup ?? "control";
+      const analytics = analyticsByGroup.get(group) ?? {
+        orderCount: 0,
+        revenue: 0,
+        quantity: 0,
+      };
+      analytics.orderCount += 1;
+      analytics.revenue += order.total;
+      analytics.quantity += order.items.reduce(
+        (sum, orderItem) => sum + orderItem.qty,
+        0,
+      );
+      analyticsByGroup.set(group, analytics);
+    }
+
+    return Array.from(analyticsByGroup.entries()).map(([group, analytics]) => ({
+      group,
+      orderCount: analytics.orderCount,
+      revenue: analytics.revenue,
+      quantity: analytics.quantity,
+      averageOrderValue:
+        analytics.orderCount > 0 ? analytics.revenue / analytics.orderCount : 0,
+    }));
   }
 
   getAnalyticsSummary(input?: AnalyticsDateRangeInput): AnalyticsSummary {

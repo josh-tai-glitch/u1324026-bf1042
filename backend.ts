@@ -7,6 +7,7 @@ import toTaipeiDateTime from "./util.ts";
 import {
   apiErrorResponseSchema,
   apiErrorOrVersionConflictResponseSchema,
+  abTestAnalyticsResponseSchema,
   auditLogLooseListResponseSchema,
   analyticsDateRangeQuerySchema,
   analyticsInsightsResponseSchema,
@@ -94,6 +95,7 @@ import {
   type AnalyticsDateRangeInput,
 } from "./store/Store.ts";
 import { createStore } from "./store/index.ts";
+import { menuRepository } from "./store/menu/MenuRepository.ts";
 import { auth, getCurrentUser } from "./auth/better-auth.ts";
 import {
   DEMO_AUTH_COOKIE_NAME,
@@ -982,7 +984,18 @@ app.delete(
 );
 
 // Public menu / menu management
-app.get("/api/menu", () => ({ data: [...store.getCurrentMenu()] }), {
+app.get("/api/menu", async ({ request }) => {
+  const user = await getCurrentUser(request);
+  const canSeeAllMenuItems = user?.roles.some((role) =>
+    role === "owner" || role === "admin" || role === "staff"
+  );
+  if (canSeeAllMenuItems) {
+    return { data: [...store.getCurrentMenu()] };
+  }
+
+  const abTestGroup = menuRepository.resolveAbTestGroupForUserId(user?.id);
+  return { data: [...store.getCurrentMenu({ abTestGroup })] };
+}, {
   detail: {
     tags: ["menu"],
     summary: "List menu items",
@@ -1007,6 +1020,7 @@ app.post(
       description: string;
       image_url: string;
       isAvailable?: boolean;
+      abTestGroup?: "control" | "variant_a" | "variant_b" | null;
     };
     input.isAvailable = input.isAvailable ?? true;
     let newMenuItem;
@@ -1031,6 +1045,7 @@ app.post(
         category: newMenuItem.category,
         primaryCategoryId: newMenuItem.primary_category_id,
         isAvailable: newMenuItem.is_available,
+        abTestGroup: newMenuItem.ab_test_group,
         version: newMenuItem.version,
         menuItemGroupId: newMenuItem.menu_item_group_id,
       },
@@ -1068,6 +1083,7 @@ app.patch(
       description?: string;
       image_url?: string;
       isAvailable?: boolean;
+      abTestGroup?: "control" | "variant_a" | "variant_b" | null;
       changeReason?: string;
       changedBy?: string;
     };
@@ -1102,6 +1118,7 @@ app.patch(
       metadata: {
         patchKeys: Object.keys(patch),
         isAvailable: menuItem.is_available,
+        abTestGroup: menuItem.ab_test_group,
         version: menuItem.version,
         versionMajor: menuItem.version_major,
         versionMinor: menuItem.version_minor,
@@ -1469,6 +1486,7 @@ app.post(
       paymentMethod: input.paymentMethod,
       paymentStatus: input.paymentStatus ?? "unpaid",
       promoCode: input.promoCode ?? null,
+      abTestGroup: "control",
     });
 
     if (result.ok === false) {
@@ -2043,6 +2061,7 @@ app.post(
       paymentStatus?: "unpaid" | "paid";
       promoCode?: string | null;
     };
+    const abTestGroup = menuRepository.resolveAbTestGroupForUserId(user.id);
     const result = await store.submitOrder(orderId, {
       userId: user.id,
       fulfillmentType: input.fulfillmentType,
@@ -2051,6 +2070,7 @@ app.post(
       paymentMethod: input.paymentMethod,
       paymentStatus: input.paymentStatus ?? "unpaid",
       promoCode: input.promoCode ?? null,
+      abTestGroup,
     });
 
     if (result.ok === false) {
@@ -2264,6 +2284,32 @@ app.get(
     },
     response: {
       200: priceSensitivityAnalyticsResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.get(
+  "/api/admin/analytics/ab-tests",
+  async ({ query, request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    return {
+      data: store.getAbTestAnalytics(getAnalyticsDateRange(query)),
+    };
+  },
+  {
+    query: analyticsDateRangeQuerySchema,
+    detail: {
+      tags: ["admin"],
+      summary: "Get A/B test analytics",
+      description:
+        "Compare order count, revenue, quantity, and average order value across menu A/B groups.",
+    },
+    response: {
+      200: abTestAnalyticsResponseSchema,
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
     },

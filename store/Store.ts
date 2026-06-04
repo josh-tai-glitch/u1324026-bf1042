@@ -2,6 +2,8 @@ import type {
   AuditLog,
   AuditLogAction,
   AuditLogTargetType,
+  AbTestAnalyticsItem,
+  AbTestGroup,
   Category,
   CategorySales,
   AnalyticsInsights,
@@ -89,6 +91,10 @@ export type CreateWalkInOrderErrorCode =
 
 export type CategoryStatusFilter = "active" | "inactive" | "all";
 export type PromotionStatusFilter = "active" | "inactive" | "all";
+
+export type GetCurrentMenuInput = {
+  abTestGroup?: AbTestGroup;
+};
 export type AnalyticsDateRangeInput = {
   startDate?: string;
   endDate?: string;
@@ -120,7 +126,7 @@ export interface Store {
 
   // Menu / categories
   getMenu(): ReadonlyArray<MenuItem>;
-  getCurrentMenu(): ReadonlyArray<MenuItem>;
+  getCurrentMenu(input?: GetCurrentMenuInput): ReadonlyArray<MenuItem>;
   getMenuItemVersionHistoryById(menuId: number): ReadonlyArray<MenuItem>;
   createMenuItem(input: {
     name: string;
@@ -131,6 +137,7 @@ export interface Store {
     image_url: string;
     isAvailable?: boolean;
     displayOrder?: number;
+    abTestGroup?: AbTestGroup | null;
   }): Promise<MenuItem>;
   updateMenuItem(
     menuId: number,
@@ -142,6 +149,7 @@ export interface Store {
       description?: string;
       image_url?: string;
       isAvailable?: boolean;
+      abTestGroup?: AbTestGroup | null;
       changeReason?: string;
       changedBy?: string;
     },
@@ -221,6 +229,7 @@ export interface Store {
     paymentMethod: PaymentMethod;
     paymentStatus?: PaymentStatus;
     promoCode?: string | null;
+    abTestGroup?: AbTestGroup;
   }): Promise<
     | { ok: true; order: Order }
     | { ok: false; code: CreateWalkInOrderErrorCode; itemName?: string }
@@ -251,6 +260,7 @@ export interface Store {
       paymentMethod: PaymentMethod;
       paymentStatus?: PaymentStatus;
       promoCode?: string | null;
+      abTestGroup?: AbTestGroup;
     },
   ): Promise<
     | { ok: true; order: Order }
@@ -328,6 +338,9 @@ export interface Store {
   getPriceSensitivityAnalytics(
     input?: AnalyticsDateRangeInput,
   ): PriceSensitivityAnalytics;
+  getAbTestAnalytics(
+    input?: AnalyticsDateRangeInput,
+  ): ReadonlyArray<AbTestAnalyticsItem>;
 
   // Audit logs
   appendAuditLog(input: AppendAuditLogInput): Promise<void>;

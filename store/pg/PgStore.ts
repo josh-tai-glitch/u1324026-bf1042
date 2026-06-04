@@ -4,6 +4,8 @@ import type {
   AuditLog,
   AuditLogAction,
   AuditLogTargetType,
+  AbTestAnalyticsItem,
+  AbTestGroup,
   AnalyticsInsights,
   AnalyticsSummary,
   AnalyticsTrends,
@@ -46,6 +48,7 @@ import {
   type AnalyticsDateRangeInput,
   type AppendAuditLogInput,
   type CategoryStatusFilter,
+  type GetCurrentMenuInput,
   type GetAuditLogsInput,
   type PromotionStatusFilter,
   type Store,
@@ -110,6 +113,8 @@ const visibleOrderHistoryStatuses = [
   "cancelled",
 ] satisfies OrderStatus[];
 
+const abTestGroups = ["control", "variant_a", "variant_b"] satisfies AbTestGroup[];
+
 const nextOrderStatusByStatus: Partial<Record<OrderStatus, OrderStatus>> = {
   submitted: "preparing",
   preparing: "ready",
@@ -150,6 +155,12 @@ function toOrderStatus(value: string): OrderStatus {
     : "pending";
 }
 
+function toAbTestGroup(value: string | null | undefined): AbTestGroup | null {
+  return abTestGroups.includes(value as AbTestGroup)
+    ? (value as AbTestGroup)
+    : null;
+}
+
 function toOrderIssueType(value: unknown): OrderIssueType | null {
   return value === "out_of_stock" ||
     value === "need_customer_confirmation" ||
@@ -184,8 +195,8 @@ export class PgStore implements Store {
     return this.menu;
   }
 
-  getCurrentMenu(): ReadonlyArray<MenuItem> {
-    return menuRepository.getCurrentMenu(this.menu);
+  getCurrentMenu(input: GetCurrentMenuInput = {}): ReadonlyArray<MenuItem> {
+    return menuRepository.getCurrentMenu(this.menu, input);
   }
 
   getMenuItemVersionHistoryById(menuId: number): ReadonlyArray<MenuItem> {
@@ -311,6 +322,7 @@ export class PgStore implements Store {
     image_url: string;
     isAvailable?: boolean;
     displayOrder?: number;
+    abTestGroup?: AbTestGroup | null;
   }): Promise<MenuItem> {
     const primaryCategory =
       input.primaryCategoryId !== undefined
@@ -338,6 +350,7 @@ export class PgStore implements Store {
         changeReason: "Initial version",
         changedBy: null,
         previousVersionId: null,
+        abTestGroup: input.abTestGroup ?? null,
         primaryCategoryId: primaryCategory?.id ?? null,
         primaryCategoryName: primaryCategory?.name ?? null,
       })
@@ -365,6 +378,7 @@ export class PgStore implements Store {
       description?: string;
       image_url?: string;
       isAvailable?: boolean;
+      abTestGroup?: AbTestGroup | null;
       changeReason?: string;
       changedBy?: string;
     },
@@ -422,6 +436,7 @@ export class PgStore implements Store {
                 description: patch.description,
                 image_url: patch.image_url,
                 is_available: patch.isAvailable,
+                ab_test_group: patch.abTestGroup,
               },
             }) === "major"
               ? (current.versionMajor ?? 1) + 1
@@ -436,6 +451,7 @@ export class PgStore implements Store {
                 description: patch.description,
                 image_url: patch.image_url,
                 is_available: patch.isAvailable,
+                ab_test_group: patch.abTestGroup,
               },
             }) === "major"
               ? 0
@@ -446,6 +462,10 @@ export class PgStore implements Store {
             patch.changeReason?.trim() || "Menu item updated",
           changedBy: patch.changedBy ?? null,
           previousVersionId: current.id,
+          abTestGroup:
+            patch.abTestGroup !== undefined
+              ? patch.abTestGroup
+              : current.abTestGroup,
         })
         .returning();
 
@@ -798,6 +818,7 @@ export class PgStore implements Store {
       discountAmount: inserted.discountAmount ?? 0,
       promoCode: inserted.promoCode ?? null,
       total: inserted.total,
+      abTestGroup: null,
       status: "pending",
       orderSource: "customer",
       guestName: null,
@@ -834,6 +855,7 @@ export class PgStore implements Store {
     paymentMethod: PaymentMethod;
     paymentStatus?: PaymentStatus;
     promoCode?: string | null;
+    abTestGroup?: AbTestGroup;
   }): Promise<
     | { ok: true; order: Order }
     | {
@@ -881,6 +903,7 @@ export class PgStore implements Store {
         menu_item_version_major: menuItem.version_major,
         menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
+        ab_test_group: menuItem.ab_test_group,
       });
     }
 
@@ -904,6 +927,7 @@ export class PgStore implements Store {
         discountAmount,
         promoCode,
         total,
+        abTestGroup: input.abTestGroup ?? "control",
         status: "submitted",
         orderSource: "walk_in",
         guestName: input.guestName?.trim() || null,
@@ -928,6 +952,7 @@ export class PgStore implements Store {
         menuItemVersionMajor: orderItem.menu_item_version_major,
         menuItemVersionMinor: orderItem.menu_item_version_minor,
         menuItemGroupId: orderItem.menu_item_group_id,
+        abTestGroup: orderItem.ab_test_group,
         name: orderItem.item.name,
         price: orderItem.item.price,
         category: orderItem.item.category,
@@ -945,6 +970,7 @@ export class PgStore implements Store {
       discountAmount,
       promoCode,
       total,
+      abTestGroup: input.abTestGroup ?? "control",
       status: "submitted",
       orderSource: "walk_in",
       guestName: input.guestName?.trim() || null,
@@ -1063,6 +1089,7 @@ export class PgStore implements Store {
         menuItemVersionMajor: menuItem.version_major,
         menuItemVersionMinor: menuItem.version_minor,
         menuItemGroupId: menuItem.menu_item_group_id,
+        abTestGroup: menuItem.ab_test_group,
         name: menuItem.name,
         price: menuItem.price,
         category: menuItem.category,
@@ -1077,6 +1104,7 @@ export class PgStore implements Store {
         menu_item_version_major: menuItem.version_major,
         menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
+        ab_test_group: menuItem.ab_test_group,
       });
     }
 
@@ -1128,6 +1156,7 @@ export class PgStore implements Store {
       paymentMethod: PaymentMethod;
       paymentStatus?: PaymentStatus;
       promoCode?: string | null;
+      abTestGroup?: AbTestGroup;
     },
   ): Promise<
     | { ok: true; order: Order }
@@ -1179,6 +1208,7 @@ export class PgStore implements Store {
         discountAmount,
         promoCode,
         total,
+        abTestGroup: input.abTestGroup ?? "control",
         submittedAt: new Date(submittedAt),
         fulfillmentType: input.fulfillmentType,
         customerNote: input.customerNote?.trim() || null,
@@ -1193,6 +1223,7 @@ export class PgStore implements Store {
     order.discountAmount = discountAmount;
     order.promoCode = promoCode;
     order.total = total;
+    order.abTestGroup = input.abTestGroup ?? "control";
     order.submittedAt = submittedAt;
     order.fulfillmentType = input.fulfillmentType;
     order.customerNote = input.customerNote?.trim() || null;
@@ -1611,6 +1642,46 @@ export class PgStore implements Store {
           b.totalQuantity - a.totalQuantity ||
           a.name.localeCompare(b.name),
       );
+  }
+
+  getAbTestAnalytics(
+    input?: AnalyticsDateRangeInput,
+  ): ReadonlyArray<AbTestAnalyticsItem> {
+    const analyticsByGroup = new Map<
+      AbTestGroup,
+      { orderCount: number; revenue: number; quantity: number }
+    >();
+
+    for (const group of abTestGroups) {
+      analyticsByGroup.set(group, { orderCount: 0, revenue: 0, quantity: 0 });
+    }
+
+    for (const order of this.getAnalyticsOrders(input)) {
+      if (!revenueOrderStatuses.includes(order.status)) continue;
+
+      const group = order.abTestGroup ?? "control";
+      const analytics = analyticsByGroup.get(group) ?? {
+        orderCount: 0,
+        revenue: 0,
+        quantity: 0,
+      };
+      analytics.orderCount += 1;
+      analytics.revenue += order.total;
+      analytics.quantity += order.items.reduce(
+        (sum, orderItem) => sum + orderItem.qty,
+        0,
+      );
+      analyticsByGroup.set(group, analytics);
+    }
+
+    return Array.from(analyticsByGroup.entries()).map(([group, analytics]) => ({
+      group,
+      orderCount: analytics.orderCount,
+      revenue: analytics.revenue,
+      quantity: analytics.quantity,
+      averageOrderValue:
+        analytics.orderCount > 0 ? analytics.revenue / analytics.orderCount : 0,
+    }));
   }
 
   getAnalyticsSummary(input?: AnalyticsDateRangeInput): AnalyticsSummary {
@@ -2208,6 +2279,7 @@ export class PgStore implements Store {
       change_reason: row.changeReason,
       changed_by: row.changedBy,
       previous_version_id: row.previousVersionId,
+      ab_test_group: row.abTestGroup === null ? null : toAbTestGroup(row.abTestGroup),
     }));
 
     const itemsByOrderId = new Map<number, OrderItem[]>();
@@ -2233,12 +2305,14 @@ export class PgStore implements Store {
           change_reason: null,
           changed_by: null,
           previous_version_id: null,
+          ab_test_group: row.abTestGroup === null ? null : toAbTestGroup(row.abTestGroup),
         },
         qty: row.qty,
         menu_item_version: row.menuItemVersion,
         menu_item_version_major: row.menuItemVersionMajor,
         menu_item_version_minor: row.menuItemVersionMinor,
         menu_item_group_id: row.menuItemGroupId,
+        ab_test_group: row.abTestGroup === null ? null : toAbTestGroup(row.abTestGroup),
       });
       itemsByOrderId.set(row.orderId, items);
     }
@@ -2251,6 +2325,7 @@ export class PgStore implements Store {
       discountAmount: row.discountAmount ?? 0,
       promoCode: row.promoCode ?? null,
       total: row.total,
+      abTestGroup: row.abTestGroup === null ? null : toAbTestGroup(row.abTestGroup),
       status: toOrderStatus(row.status),
       orderSource: row.orderSource === "walk_in" ? "walk_in" : "customer",
       guestName: row.guestName ?? null,
@@ -2414,6 +2489,7 @@ export class PgStore implements Store {
       change_reason: row.changeReason,
       changed_by: row.changedBy,
       previous_version_id: row.previousVersionId,
+      ab_test_group: row.abTestGroup === null ? null : toAbTestGroup(row.abTestGroup),
     };
   }
 }

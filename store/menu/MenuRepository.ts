@@ -1,4 +1,8 @@
-import type { MenuItem, OrderItem } from "../../shared/contracts.ts";
+import type {
+  AbTestGroup,
+  MenuItem,
+  OrderItem,
+} from "../../shared/contracts.ts";
 
 export type MenuVersionChangeLevel = "major" | "minor";
 
@@ -13,11 +17,40 @@ export type MenuVersionValidationResult =
     };
 
 export class MenuRepository {
-  getCurrentMenu(menu: ReadonlyArray<MenuItem>): MenuItem[] {
-    return menu
+  getCurrentMenu(
+    menu: ReadonlyArray<MenuItem>,
+    input: { abTestGroup?: AbTestGroup } = {},
+  ): MenuItem[] {
+    const currentMenu = menu
       .filter((item) => item.is_current_version)
       .slice()
       .sort((a, b) => a.display_order - b.display_order || a.id - b.id);
+    return input.abTestGroup
+      ? this.filterMenuForAbTestGroup(currentMenu, input.abTestGroup)
+      : currentMenu;
+  }
+
+  resolveAbTestGroupForUserId(userId?: string | null): AbTestGroup {
+    if (!userId) return "control";
+
+    let hash = 0;
+    for (const char of userId) {
+      hash = (hash + char.charCodeAt(0)) % 9973;
+    }
+
+    const bucket = hash % 3;
+    if (bucket === 1) return "variant_a";
+    if (bucket === 2) return "variant_b";
+    return "control";
+  }
+
+  filterMenuForAbTestGroup(
+    menu: ReadonlyArray<MenuItem>,
+    group: AbTestGroup,
+  ): MenuItem[] {
+    return menu.filter(
+      (item) => item.ab_test_group === null || item.ab_test_group === group,
+    );
   }
 
   getMenuItemVersionHistoryById(
@@ -53,6 +86,7 @@ export class MenuRepository {
         | "description"
         | "image_url"
         | "is_available"
+        | "ab_test_group"
       >
     >;
   }): MenuVersionChangeLevel {
@@ -111,6 +145,7 @@ export class MenuRepository {
         | "description"
         | "image_url"
         | "is_available"
+        | "ab_test_group"
       >
     >;
   }): MenuItem {

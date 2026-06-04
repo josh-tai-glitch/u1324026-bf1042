@@ -216,6 +216,12 @@ function isMenuVersionChangedMessage(message: string) {
   return message.toLowerCase().includes("version changed");
 }
 
+function formatSemanticVersion(
+  item: Pick<MenuItem, "version" | "version_major" | "version_minor">,
+) {
+  return `v${item.version_major ?? 1}.${item.version_minor ?? Math.max(item.version - 1, 0)}`;
+}
+
 export default function App() {
   // Auth / session state
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -4758,7 +4764,10 @@ export default function App() {
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="card-title text-lg">{item.name}</h3>
                         <span className="badge badge-outline">
-                          v{item.version}
+                          {formatSemanticVersion(item)}
+                          <span className="ml-2 text-xs opacity-70">
+                            Serial #{item.version}
+                          </span>
                         </span>
                         {!item.is_available ? (
                           <span className="badge badge-error">Sold out</span>
@@ -4963,7 +4972,12 @@ export default function App() {
                                       {menuHistoryByItemId[item.id].map(
                                         (historyItem) => (
                                           <tr key={historyItem.id}>
-                                            <td>v{historyItem.version}</td>
+                                            <td>
+                                              {formatSemanticVersion(historyItem)}
+                                              <div className="text-xs opacity-70">
+                                                Serial {historyItem.version}
+                                              </div>
+                                            </td>
                                             <td>{historyItem.name}</td>
                                             <td>${historyItem.price}</td>
                                             <td>{historyItem.display_order}</td>

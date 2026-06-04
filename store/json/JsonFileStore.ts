@@ -176,6 +176,8 @@ function normalizeMenuItem(item: Partial<MenuItem>): MenuItem {
     is_available: item.is_available ?? true,
     display_order: item.display_order ?? 0,
     version: item.version ?? 1,
+    version_major: item.version_major ?? 1,
+    version_minor: item.version_minor ?? Math.max((item.version ?? 1) - 1, 0),
     menu_item_group_id: item.menu_item_group_id ?? String(id),
     is_current_version: item.is_current_version ?? true,
     change_reason: item.change_reason ?? "Initial version",
@@ -321,6 +323,14 @@ export class JsonFileStore implements Store {
             item: normalizeMenuItem(orderItem.item),
             menu_item_version:
               orderItem.menu_item_version ?? orderItem.item.version ?? null,
+            menu_item_version_major:
+              orderItem.menu_item_version_major ??
+              orderItem.item.version_major ??
+              null,
+            menu_item_version_minor:
+              orderItem.menu_item_version_minor ??
+              orderItem.item.version_minor ??
+              null,
             menu_item_group_id:
               orderItem.menu_item_group_id ??
               orderItem.item.menu_item_group_id ??
@@ -408,6 +418,8 @@ export class JsonFileStore implements Store {
       is_available: input.isAvailable ?? true,
       display_order: input.displayOrder ?? 0,
       version: 1,
+      version_major: 1,
+      version_minor: 0,
       menu_item_group_id: randomUUID(),
       is_current_version: true,
       change_reason: "Initial version",
@@ -449,23 +461,23 @@ export class JsonFileStore implements Store {
     }
 
     menuItem.is_current_version = false;
-    const nextMenuItem: MenuItem = {
-      ...menuItem,
-      id: ++this.menuIdCounter,
-      name: patch.name ?? menuItem.name,
-      price: patch.price ?? menuItem.price,
-      category: patch.category ?? menuItem.category,
-      description: patch.description ?? menuItem.description,
-      image_url: patch.image_url ?? menuItem.image_url,
-      is_available: patch.isAvailable ?? menuItem.is_available,
-      display_order: menuItem.display_order,
-      version: menuItem.version + 1,
-      is_current_version: true,
-      change_reason: patch.changeReason?.trim() || "Menu item updated",
-      changed_by: patch.changedBy ?? null,
-      previous_version_id: menuItem.id,
-      categories: (menuItem.categories ?? []).map((category) => ({ ...category })),
-    };
+    const nextMenuItem = menuRepository.buildNextMenuItemVersion({
+      currentItem: menuItem,
+      nextId: ++this.menuIdCounter,
+      changedBy: patch.changedBy ?? null,
+      changeReason: patch.changeReason,
+      changes: {
+        name: patch.name,
+        price: patch.price,
+        category: primaryCategory?.name ?? patch.category,
+        description: patch.description,
+        image_url: patch.image_url,
+        is_available: patch.isAvailable,
+      },
+    });
+    nextMenuItem.categories = (menuItem.categories ?? []).map((category) => ({
+      ...category,
+    }));
 
     if (primaryCategory) {
       nextMenuItem.category = primaryCategory.name;
@@ -774,6 +786,8 @@ export class JsonFileStore implements Store {
         item: { ...menuItem },
         qty: requestedItem.qty,
         menu_item_version: menuItem.version,
+        menu_item_version_major: menuItem.version_major,
+        menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
       });
     }
@@ -896,6 +910,8 @@ export class JsonFileStore implements Store {
         item: { ...menuItem },
         qty: input.qty,
         menu_item_version: menuItem.version,
+        menu_item_version_major: menuItem.version_major,
+        menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
       });
     }

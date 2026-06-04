@@ -37,6 +37,8 @@ export const menuItemSchema = z.object({
   is_available: z.boolean().default(true),
   display_order: z.number().int().default(0),
   version: z.number().int().min(1),
+  version_major: z.number().int().min(1).default(1),
+  version_minor: z.number().int().min(0).default(0),
   menu_item_group_id: z.string().min(1),
   is_current_version: z.boolean(),
   change_reason: z.string().nullable(),
@@ -138,6 +140,8 @@ export const orderItemSchema = z.object({
   item: menuItemSchema,
   qty: z.number().min(0),
   menu_item_version: z.number().int().min(1).nullable(),
+  menu_item_version_major: z.number().int().min(1).nullable().optional(),
+  menu_item_version_minor: z.number().int().min(0).nullable().optional(),
   menu_item_group_id: z.string().nullable(),
 });
 

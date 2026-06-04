@@ -16,6 +16,8 @@ function makeMenuItem(overrides: Partial<MenuItem> = {}): MenuItem {
     is_available: true,
     display_order: 10,
     version: 1,
+    version_major: 1,
+    version_minor: 0,
     menu_item_group_id: "toast-group",
     is_current_version: true,
     change_reason: "Initial version",
@@ -130,6 +132,8 @@ describe("MenuRepository menu versioning", () => {
     });
 
     expect(next.version).toBe(2);
+    expect(next.version_major).toBe(2);
+    expect(next.version_minor).toBe(0);
     expect(next.previous_version_id).toBe(7);
     expect(next.is_current_version).toBe(true);
     expect(next.menu_item_group_id).toBe("toast-group");
@@ -138,5 +142,78 @@ describe("MenuRepository menu versioning", () => {
     expect(next.price).toBe(75);
     expect(next.change_reason).toBe("Updated breakfast price");
     expect(next.changed_by).toBe("admin-1");
+  });
+
+  it("bumps the major version when price changes", () => {
+    const current = makeMenuItem({
+      version: 1,
+      version_major: 1,
+      version_minor: 0,
+    });
+
+    const next = menuRepository.buildNextMenuItemVersion({
+      currentItem: current,
+      nextId: 2,
+      changes: { price: 75 },
+    });
+
+    expect(next.version).toBe(2);
+    expect(next.version_major).toBe(2);
+    expect(next.version_minor).toBe(0);
+  });
+
+  it("bumps the minor version when description changes", () => {
+    const current = makeMenuItem({
+      version: 1,
+      version_major: 1,
+      version_minor: 0,
+    });
+
+    const next = menuRepository.buildNextMenuItemVersion({
+      currentItem: current,
+      nextId: 2,
+      changes: { description: "Toast with egg and salad" },
+    });
+
+    expect(next.version).toBe(2);
+    expect(next.version_major).toBe(1);
+    expect(next.version_minor).toBe(1);
+  });
+
+  it("resets minor version when a major update follows minor updates", () => {
+    const current = makeMenuItem({
+      version: 4,
+      version_major: 1,
+      version_minor: 3,
+    });
+
+    const next = menuRepository.buildNextMenuItemVersion({
+      currentItem: current,
+      nextId: 5,
+      changes: { price: 90 },
+    });
+
+    expect(next.version).toBe(5);
+    expect(next.version_major).toBe(2);
+    expect(next.version_minor).toBe(0);
+  });
+
+  it("treats sold out availability changes as minor updates", () => {
+    const current = makeMenuItem({
+      version: 2,
+      version_major: 2,
+      version_minor: 0,
+      is_available: true,
+    });
+
+    const next = menuRepository.buildNextMenuItemVersion({
+      currentItem: current,
+      nextId: 3,
+      changes: { is_available: false },
+    });
+
+    expect(next.version).toBe(3);
+    expect(next.version_major).toBe(2);
+    expect(next.version_minor).toBe(1);
   });
 });

@@ -218,6 +218,8 @@ export class PgStore implements Store {
         isAvailable: input.isAvailable ?? true,
         displayOrder: input.displayOrder ?? 0,
         version: 1,
+        versionMajor: 1,
+        versionMinor: 0,
         menuItemGroupId: randomUUID(),
         isCurrentVersion: true,
         changeReason: "Initial version",
@@ -297,6 +299,34 @@ export class PgStore implements Store {
           isAvailable: patch.isAvailable ?? current.isAvailable,
           displayOrder: current.displayOrder,
           version: current.version + 1,
+          versionMajor:
+            menuRepository.classifyMenuVersionChange({
+              currentItem: this.toMenuItemSnapshot(current),
+              changes: {
+                name: patch.name,
+                price: patch.price,
+                category: primaryCategory?.name ?? patch.category,
+                description: patch.description,
+                image_url: patch.image_url,
+                is_available: patch.isAvailable,
+              },
+            }) === "major"
+              ? (current.versionMajor ?? 1) + 1
+              : current.versionMajor ?? 1,
+          versionMinor:
+            menuRepository.classifyMenuVersionChange({
+              currentItem: this.toMenuItemSnapshot(current),
+              changes: {
+                name: patch.name,
+                price: patch.price,
+                category: primaryCategory?.name ?? patch.category,
+                description: patch.description,
+                image_url: patch.image_url,
+                is_available: patch.isAvailable,
+              },
+            }) === "major"
+              ? 0
+              : (current.versionMinor ?? Math.max(current.version - 1, 0)) + 1,
           menuItemGroupId: current.menuItemGroupId,
           isCurrentVersion: true,
           changeReason:
@@ -380,6 +410,8 @@ export class PgStore implements Store {
       is_available: removed.isAvailable ?? true,
       display_order: removed.displayOrder ?? 0,
       version: removed.version,
+      version_major: removed.versionMajor ?? 1,
+      version_minor: removed.versionMinor ?? Math.max(removed.version - 1, 0),
       menu_item_group_id: removed.menuItemGroupId,
       is_current_version: removed.isCurrentVersion,
       change_reason: removed.changeReason,
@@ -718,6 +750,8 @@ export class PgStore implements Store {
         item: { ...menuItem },
         qty: requestedItem.qty,
         menu_item_version: menuItem.version,
+        menu_item_version_major: menuItem.version_major,
+        menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
       });
     }
@@ -754,6 +788,8 @@ export class PgStore implements Store {
         orderId: inserted.id,
         itemId: orderItem.item.id,
         menuItemVersion: orderItem.menu_item_version,
+        menuItemVersionMajor: orderItem.menu_item_version_major,
+        menuItemVersionMinor: orderItem.menu_item_version_minor,
         menuItemGroupId: orderItem.menu_item_group_id,
         name: orderItem.item.name,
         price: orderItem.item.price,
@@ -884,6 +920,8 @@ export class PgStore implements Store {
         orderId,
         itemId: menuItem.id,
         menuItemVersion: menuItem.version,
+        menuItemVersionMajor: menuItem.version_major,
+        menuItemVersionMinor: menuItem.version_minor,
         menuItemGroupId: menuItem.menu_item_group_id,
         name: menuItem.name,
         price: menuItem.price,
@@ -896,6 +934,8 @@ export class PgStore implements Store {
         item: { ...menuItem },
         qty: input.qty,
         menu_item_version: menuItem.version,
+        menu_item_version_major: menuItem.version_major,
+        menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
       });
     }
@@ -1890,6 +1930,9 @@ export class PgStore implements Store {
           isAvailable: item.is_available ?? true,
           displayOrder: item.display_order ?? 0,
           version: item.version ?? 1,
+          versionMajor: item.version_major ?? 1,
+          versionMinor:
+            item.version_minor ?? Math.max((item.version ?? 1) - 1, 0),
           menuItemGroupId: item.menu_item_group_id ?? String(item.id),
           isCurrentVersion: item.is_current_version ?? true,
           changeReason: item.change_reason ?? "Initial version",
@@ -1985,6 +2028,8 @@ export class PgStore implements Store {
       is_available: row.isAvailable ?? true,
       display_order: row.displayOrder ?? 0,
       version: row.version,
+      version_major: row.versionMajor ?? 1,
+      version_minor: row.versionMinor ?? Math.max(row.version - 1, 0),
       menu_item_group_id: row.menuItemGroupId,
       is_current_version: row.isCurrentVersion,
       change_reason: row.changeReason,
@@ -2006,6 +2051,10 @@ export class PgStore implements Store {
           is_available: true,
           display_order: 0,
           version: row.menuItemVersion ?? 1,
+          version_major: row.menuItemVersionMajor ?? 1,
+          version_minor:
+            row.menuItemVersionMinor ??
+            Math.max((row.menuItemVersion ?? 1) - 1, 0),
           menu_item_group_id: row.menuItemGroupId ?? String(row.itemId),
           is_current_version: false,
           change_reason: null,
@@ -2014,6 +2063,8 @@ export class PgStore implements Store {
         },
         qty: row.qty,
         menu_item_version: row.menuItemVersion,
+        menu_item_version_major: row.menuItemVersionMajor,
+        menu_item_version_minor: row.menuItemVersionMinor,
         menu_item_group_id: row.menuItemGroupId,
       });
       itemsByOrderId.set(row.orderId, items);
@@ -2087,6 +2138,32 @@ export class PgStore implements Store {
         row.updatedAt instanceof Date
           ? row.updatedAt.toISOString()
           : new Date(row.updatedAt).toISOString(),
+    };
+  }
+
+  private toMenuItemSnapshot(
+    row: typeof menuItemsTable.$inferSelect,
+  ): MenuItem {
+    return {
+      id: row.id,
+      name: row.name,
+      price: row.price,
+      category: row.category,
+      primary_category_id: row.primaryCategoryId,
+      primary_category_name: row.primaryCategoryName,
+      categories: [],
+      description: row.description,
+      image_url: row.imageUrl,
+      is_available: row.isAvailable ?? true,
+      display_order: row.displayOrder ?? 0,
+      version: row.version,
+      version_major: row.versionMajor ?? 1,
+      version_minor: row.versionMinor ?? Math.max(row.version - 1, 0),
+      menu_item_group_id: row.menuItemGroupId,
+      is_current_version: row.isCurrentVersion,
+      change_reason: row.changeReason,
+      changed_by: row.changedBy,
+      previous_version_id: row.previousVersionId,
     };
   }
 }

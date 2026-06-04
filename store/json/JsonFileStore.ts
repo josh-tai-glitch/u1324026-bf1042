@@ -388,8 +388,14 @@ export class JsonFileStore implements Store {
           abTestGroup: toAbTestGroup(order.abTestGroup),
           total: order.total ?? 0,
           status: toOrderStatus(order.status),
-          orderSource: order.orderSource === "walk_in" ? "walk_in" : "customer",
+          orderSource:
+            order.orderSource === "phone"
+              ? "phone"
+              : order.orderSource === "walk_in"
+                ? "walk_in"
+                : "customer",
           guestName: order.guestName ?? null,
+          guestPhone: order.guestPhone ?? null,
           createdByStaffId: order.createdByStaffId ?? null,
           fulfillmentType: toFulfillmentType(order.fulfillmentType),
           customerNote: order.customerNote ?? null,
@@ -860,6 +866,7 @@ export class JsonFileStore implements Store {
       status: "pending",
       orderSource: "customer",
       guestName: null,
+      guestPhone: null,
       createdByStaffId: null,
       fulfillmentType: "takeout",
       customerNote: null,
@@ -884,7 +891,9 @@ export class JsonFileStore implements Store {
 
   async createWalkInOrder(input: {
     staffUserId: string;
+    orderSource?: "walk_in" | "phone";
     guestName?: string | null;
+    guestPhone?: string | null;
     items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;
@@ -952,6 +961,8 @@ export class JsonFileStore implements Store {
     if (!discount.ok) return { ok: false, code: discount.code };
     const { discountAmount, promoCode, total } = discount.preview;
     const submittedAt = new Date().toISOString();
+    const orderSource = input.orderSource ?? "walk_in";
+    const guestPhone = input.guestPhone?.trim() || null;
     const order: Order = {
       id: ++this.orderIdCounter,
       userId: input.staffUserId,
@@ -962,8 +973,9 @@ export class JsonFileStore implements Store {
       abTestGroup: input.abTestGroup ?? "control",
       total,
       status: "submitted",
-      orderSource: "walk_in",
+      orderSource,
       guestName: input.guestName?.trim() || null,
+      guestPhone,
       createdByStaffId: input.staffUserId,
       fulfillmentType: input.fulfillmentType,
       customerNote: input.customerNote?.trim() || null,
@@ -1638,7 +1650,7 @@ export class JsonFileStore implements Store {
         completed: 0,
         cancelled: 0,
       },
-      orderSources: { customer: 0, walk_in: 0 },
+      orderSources: { customer: 0, walk_in: 0, phone: 0 },
     };
 
     for (const order of formalOrders) {
@@ -1733,6 +1745,7 @@ export class JsonFileStore implements Store {
     const sourceComparison: AnalyticsInsights["sourceComparison"] = [
       { source: "customer", orderCount: 0, revenue: 0 },
       { source: "walk_in", orderCount: 0, revenue: 0 },
+      { source: "phone", orderCount: 0, revenue: 0 },
     ];
     const paymentMethodComparison: AnalyticsInsights["paymentMethodComparison"] = [
       { paymentMethod: "cash", orderCount: 0, revenue: 0 },

@@ -154,7 +154,9 @@ const emptyCheckoutForm = {
   promoCode: "",
 };
 const emptyWalkInOrderForm = {
+  orderSource: "walk_in" as "walk_in" | "phone",
   guestName: "",
+  guestPhone: "",
   fulfillmentType: "takeout" as FulfillmentType,
   customerNote: "",
   pickupTime: "",
@@ -256,6 +258,12 @@ function formatAbTestGroup(group?: AbTestGroup | null) {
   if (group === "variant_a") return "Variant A";
   if (group === "variant_b") return "Variant B";
   return "No A/B group";
+}
+
+function formatOrderSource(source: Order["orderSource"]) {
+  if (source === "walk_in") return "Walk-in";
+  if (source === "phone") return "Phone";
+  return "Customer";
 }
 
 export default function App() {
@@ -719,11 +727,14 @@ export default function App() {
       "======================",
       `Pickup number: ${formatPickupNumber(order.id)}`,
       `Order ID: ${order.id}`,
-      `Source: ${order.orderSource}`,
+      `Source: ${formatOrderSource(order.orderSource)}`,
     ];
 
     if (order.guestName) {
       lines.push(`Guest name: ${order.guestName}`);
+    }
+    if (order.guestPhone) {
+      lines.push(`Phone: ${order.guestPhone}`);
     }
 
     lines.push(
@@ -2150,7 +2161,9 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
+          orderSource: walkInOrderForm.orderSource,
           guestName: walkInOrderForm.guestName.trim() || null,
+          guestPhone: walkInOrderForm.guestPhone.trim() || null,
           items: walkInOrderItems,
           fulfillmentType: walkInOrderForm.fulfillmentType,
           customerNote: walkInOrderForm.customerNote.trim() || null,
@@ -2172,7 +2185,11 @@ export default function App() {
       setWalkInOrderItems([]);
       setWalkInSelectedItemId("");
       setWalkInQty("1");
-      setStatusMessage("Walk-in order created.");
+      setStatusMessage(
+        walkInOrderForm.orderSource === "phone"
+          ? "Phone order created."
+          : "Walk-in order created.",
+      );
     } catch (walkInError) {
       const message =
         walkInError instanceof Error
@@ -3238,13 +3255,28 @@ export default function App() {
                 {canCreateWalkInOrder ? (
                   <div className="mb-4 rounded-box border border-base-300 bg-base-200 p-4">
                     <div className="mb-3">
-                      <h4 className="font-semibold">Walk-in order</h4>
+                      <h4 className="font-semibold">Staff order</h4>
                       <p className="text-sm opacity-70">
-                        Create a counter order for a guest without customer
-                        login.
+                        Create a walk-in or phone order for a guest without
+                        customer login.
                       </p>
                     </div>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                      <select
+                        className="select select-bordered select-sm"
+                        value={walkInOrderForm.orderSource}
+                        onChange={(event) =>
+                          setWalkInOrderForm((current) => ({
+                            ...current,
+                            orderSource: event.target.value as
+                              | "walk_in"
+                              | "phone",
+                          }))
+                        }
+                      >
+                        <option value="walk_in">Walk-in</option>
+                        <option value="phone">Phone</option>
+                      </select>
                       <input
                         className="input input-bordered input-sm"
                         placeholder="Guest name"
@@ -3253,6 +3285,17 @@ export default function App() {
                           setWalkInOrderForm((current) => ({
                             ...current,
                             guestName: event.target.value,
+                          }))
+                        }
+                      />
+                      <input
+                        className="input input-bordered input-sm"
+                        placeholder="Phone number for phone orders"
+                        value={walkInOrderForm.guestPhone}
+                        onChange={(event) =>
+                          setWalkInOrderForm((current) => ({
+                            ...current,
+                            guestPhone: event.target.value,
                           }))
                         }
                       />
@@ -3380,7 +3423,7 @@ export default function App() {
                     ) : null}
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                       <span className="font-semibold">
-                        Walk-in total: ${walkInOrderTotal}
+                        Staff order total: ${walkInOrderTotal}
                       </span>
                       <button
                         className="btn btn-sm btn-primary"
@@ -3575,10 +3618,16 @@ export default function App() {
                             }
                           </p>
                           <div className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
-                            <span>Source: {order.orderSource}</span>
-                            {order.orderSource === "walk_in" &&
+                            <span>
+                              Source: {formatOrderSource(order.orderSource)}
+                            </span>
+                            {(order.orderSource === "walk_in" ||
+                              order.orderSource === "phone") &&
                             order.guestName ? (
                               <span>Guest: {order.guestName}</span>
+                            ) : null}
+                            {order.guestPhone ? (
+                              <span>Phone: {order.guestPhone}</span>
                             ) : null}
                             <span>Fulfillment: {order.fulfillmentType}</span>
                             <div className="flex flex-wrap items-center gap-2">
@@ -4297,6 +4346,7 @@ export default function App() {
                       <h3 className="mb-2 font-semibold">Order sources</h3>
                       <p>Customer: {analyticsSummary.orderSources.customer}</p>
                       <p>Walk-in: {analyticsSummary.orderSources.walk_in}</p>
+                      <p>Phone: {analyticsSummary.orderSources.phone}</p>
                     </div>
                   </div>
                 </div>
@@ -4520,9 +4570,7 @@ export default function App() {
                               {analyticsInsights.sourceComparison.map((row) => (
                                 <tr key={row.source}>
                                   <td>
-                                    {row.source === "walk_in"
-                                      ? "Walk-in"
-                                      : "Customer"}
+                                    {formatOrderSource(row.source)}
                                   </td>
                                   <td>{row.orderCount}</td>
                                   <td>${row.revenue}</td>
@@ -4619,9 +4667,7 @@ export default function App() {
                                   <tr key={row.orderId}>
                                     <td>{row.pickupNumber}</td>
                                     <td>
-                                      {row.source === "walk_in"
-                                        ? "Walk-in"
-                                        : "Customer"}
+                                      {formatOrderSource(row.source)}
                                     </td>
                                     <td>${row.total}</td>
                                     <td>

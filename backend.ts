@@ -1466,7 +1466,9 @@ app.post(
     const user = await requireUser(request);
     requireAnyRole(user, walkInOrderRoles);
     const input = body as {
+      orderSource?: "walk_in" | "phone";
       guestName?: string | null;
+      guestPhone?: string | null;
       items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
       fulfillmentType: "dine_in" | "takeout";
       customerNote?: string | null;
@@ -1478,7 +1480,9 @@ app.post(
 
     const result = await store.createWalkInOrder({
       staffUserId: user.id,
+      orderSource: input.orderSource ?? "walk_in",
       guestName: input.guestName ?? null,
+      guestPhone: input.guestPhone ?? null,
       items: input.items,
       fulfillmentType: input.fulfillmentType,
       customerNote: input.customerNote ?? null,
@@ -1513,15 +1517,20 @@ app.post(
     }
 
     set.status = 201;
+    const sourceLabel =
+      result.order.orderSource === "phone" ? "phone" : "walk-in";
     await writeAuditLog(user, {
       action: "walk_in_order_create",
       targetType: "order",
       targetId: String(result.order.id),
-      message: `Created walk-in order #${result.order.id}`,
+      message: `Created ${sourceLabel} order #${result.order.id}`,
       metadata: {
+        orderSource: result.order.orderSource,
         guestName: result.order.guestName,
+        guestPhone: result.order.guestPhone,
         itemCount: result.order.items.length,
         total: result.order.total,
+        promoCode: result.order.promoCode,
         fulfillmentType: result.order.fulfillmentType,
         paymentMethod: result.order.paymentMethod,
         paymentStatus: result.order.paymentStatus,

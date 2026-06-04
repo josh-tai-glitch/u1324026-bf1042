@@ -206,7 +206,9 @@ export const submitOrderBodySchema = z.object({
 });
 
 export const createWalkInOrderBodySchema = z.object({
+  orderSource: z.enum(["walk_in", "phone"]).default("walk_in").optional(),
   guestName: z.string().optional().nullable(),
+  guestPhone: z.string().trim().max(30).optional().nullable(),
   items: z
     .array(
       z.object({

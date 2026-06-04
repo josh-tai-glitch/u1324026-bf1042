@@ -78,8 +78,9 @@ interface SeedData {
     issueNote?: string | null;
     issueReportedBy?: string | null;
     issueReportedAt?: string | null;
-    orderSource?: "customer" | "walk_in";
+    orderSource?: "customer" | "walk_in" | "phone";
     guestName?: string | null;
+    guestPhone?: string | null;
     createdByStaffId?: string | null;
     items: Array<{ item: MenuItem; qty: number }>;
   }>;
@@ -822,6 +823,7 @@ export class PgStore implements Store {
       status: "pending",
       orderSource: "customer",
       guestName: null,
+      guestPhone: null,
       createdByStaffId: null,
       fulfillmentType: "takeout",
       customerNote: null,
@@ -847,7 +849,9 @@ export class PgStore implements Store {
 
   async createWalkInOrder(input: {
     staffUserId: string;
+    orderSource?: "walk_in" | "phone";
     guestName?: string | null;
+    guestPhone?: string | null;
     items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;
@@ -918,6 +922,8 @@ export class PgStore implements Store {
     );
     if (!discount.ok) return { ok: false, code: discount.code };
     const { discountAmount, promoCode, total } = discount.preview;
+    const orderSource = input.orderSource ?? "walk_in";
+    const guestPhone = input.guestPhone?.trim() || null;
 
     const [inserted] = await db
       .insert(ordersTable)
@@ -929,8 +935,9 @@ export class PgStore implements Store {
         total,
         abTestGroup: input.abTestGroup ?? "control",
         status: "submitted",
-        orderSource: "walk_in",
+        orderSource,
         guestName: input.guestName?.trim() || null,
+        guestPhone,
         createdByStaffId: input.staffUserId,
         fulfillmentType: input.fulfillmentType,
         customerNote: input.customerNote?.trim() || null,
@@ -972,8 +979,9 @@ export class PgStore implements Store {
       total,
       abTestGroup: input.abTestGroup ?? "control",
       status: "submitted",
-      orderSource: "walk_in",
+      orderSource,
       guestName: input.guestName?.trim() || null,
+      guestPhone,
       createdByStaffId: input.staffUserId,
       fulfillmentType: input.fulfillmentType,
       customerNote: input.customerNote?.trim() || null,
@@ -1732,7 +1740,7 @@ export class PgStore implements Store {
         completed: 0,
         cancelled: 0,
       },
-      orderSources: { customer: 0, walk_in: 0 },
+      orderSources: { customer: 0, walk_in: 0, phone: 0 },
     };
 
     for (const order of formalOrders) {
@@ -1827,6 +1835,7 @@ export class PgStore implements Store {
     const sourceComparison: AnalyticsInsights["sourceComparison"] = [
       { source: "customer", orderCount: 0, revenue: 0 },
       { source: "walk_in", orderCount: 0, revenue: 0 },
+      { source: "phone", orderCount: 0, revenue: 0 },
     ];
     const paymentMethodComparison: AnalyticsInsights["paymentMethodComparison"] = [
       { paymentMethod: "cash", orderCount: 0, revenue: 0 },
@@ -2327,8 +2336,14 @@ export class PgStore implements Store {
       total: row.total,
       abTestGroup: row.abTestGroup === null ? null : toAbTestGroup(row.abTestGroup),
       status: toOrderStatus(row.status),
-      orderSource: row.orderSource === "walk_in" ? "walk_in" : "customer",
+      orderSource:
+        row.orderSource === "phone"
+          ? "phone"
+          : row.orderSource === "walk_in"
+            ? "walk_in"
+            : "customer",
       guestName: row.guestName ?? null,
+      guestPhone: row.guestPhone ?? null,
       createdByStaffId: row.createdByStaffId ?? null,
       fulfillmentType:
         row.fulfillmentType === "dine_in" ? "dine_in" : "takeout",

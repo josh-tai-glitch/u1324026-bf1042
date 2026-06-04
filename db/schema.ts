@@ -111,6 +111,7 @@ export const ordersTable = appSchema.table("orders", {
   status: text("status").notNull().default("pending"),
   orderSource: text("order_source").notNull().default("customer"),
   guestName: text("guest_name"),
+  guestPhone: text("guest_phone"),
   createdByStaffId: text("created_by_staff_id").references(() => user.id),
   fulfillmentType: text("fulfillment_type").notNull().default("takeout"),
   customerNote: text("customer_note"),

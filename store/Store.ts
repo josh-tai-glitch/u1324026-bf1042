@@ -221,7 +221,9 @@ export interface Store {
   createOrder(input: { userId: string }): Promise<Order>;
   createWalkInOrder(input: {
     staffUserId: string;
+    orderSource?: "walk_in" | "phone";
     guestName?: string | null;
+    guestPhone?: string | null;
     items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;

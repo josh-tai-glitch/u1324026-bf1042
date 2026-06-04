@@ -185,7 +185,7 @@ export const orderStatusSchema = z.enum([
 export const fulfillmentTypeSchema = z.enum(["dine_in", "takeout"]);
 export const paymentMethodSchema = z.enum(["cash", "card", "online"]);
 export const paymentStatusSchema = z.enum(["unpaid", "paid"]);
-export const orderSourceSchema = z.enum(["customer", "walk_in"]);
+export const orderSourceSchema = z.enum(["customer", "walk_in", "phone"]);
 export const orderIssueTypeSchema = z.enum([
   "out_of_stock",
   "need_customer_confirmation",
@@ -205,6 +205,7 @@ export const orderSchema = z.object({
   status: orderStatusSchema,
   orderSource: orderSourceSchema.default("customer"),
   guestName: z.string().nullable().default(null),
+  guestPhone: z.string().nullable().default(null),
   createdByStaffId: z.string().nullable().default(null),
   fulfillmentType: fulfillmentTypeSchema.default("takeout"),
   customerNote: z.string().nullable().default(null),
@@ -319,6 +320,7 @@ export const analyticsSummarySchema = z.object({
   orderSources: z.object({
     customer: z.number().int().min(0),
     walk_in: z.number().int().min(0),
+    phone: z.number().int().min(0),
   }),
 });
 

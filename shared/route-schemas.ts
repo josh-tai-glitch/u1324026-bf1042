@@ -39,6 +39,24 @@ export const apiErrorResponseSchema = z.object({
 
 export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;
 
+export const demoUserResponseSchema = sessionUserSchema;
+
+export const demoUserListResponseSchema = z.object({
+  data: z.array(demoUserResponseSchema),
+});
+
+export const demoLoginBodySchema = z.object({
+  userId: z.string().min(1),
+});
+
+export const demoLoginResponseSchema = z.object({
+  data: demoUserResponseSchema,
+});
+
+export const demoLogoutResponseSchema = z.object({
+  data: z.boolean(),
+});
+
 // ─── API Layer Order Response（Order 的 API 層呈現）──────────────────────
 
 // Order response mapper

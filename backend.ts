@@ -27,6 +27,10 @@ import {
   currentUserResponseSchema,
   clearOrderIssueParamsSchema,
   deleteMenuItemParamsSchema,
+  demoLoginBodySchema,
+  demoLoginResponseSchema,
+  demoLogoutResponseSchema,
+  demoUserListResponseSchema,
   getCategoriesQuerySchema,
   getAdminRoleRequestsQuerySchema,
   getAuditLogsQuerySchema,
@@ -91,6 +95,12 @@ import {
 } from "./store/Store.ts";
 import { createStore } from "./store/index.ts";
 import { auth, getCurrentUser } from "./auth/better-auth.ts";
+import {
+  DEMO_AUTH_COOKIE_NAME,
+  DEMO_AUTH_ENABLED,
+  getDemoUserById,
+  listDemoUsers,
+} from "./auth/demo-users.ts";
 import { db } from "./db/client.ts";
 import { roleRequests } from "./db/schema.ts";
 import { user as authUser } from "./db/auth-schema.ts";
@@ -285,6 +295,62 @@ function respondPromotionStoreError(
   }
 }
 
+function ensureDemoEnabled(set: { status: number }) {
+  if (!DEMO_AUTH_ENABLED) {
+    set.status = 404;
+    return false;
+  }
+
+  return true;
+}
+
+function serializeDemoAuthCookie(userId: string, maxAge: number) {
+  const cookieParts = [
+    `${DEMO_AUTH_COOKIE_NAME}=${encodeURIComponent(userId)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${maxAge}`,
+  ];
+
+  if (process.env.NODE_ENV === "production") {
+    cookieParts.push("Secure");
+  }
+
+  return cookieParts.join("; ");
+}
+
+async function upsertDemoUser(user: {
+  id: string;
+  email: string;
+  name: string;
+  roles: readonly Role[];
+}) {
+  const now = new Date();
+  await db
+    .insert(authUser)
+    .values({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      roles: [...user.roles],
+      emailVerified: true,
+      image: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: authUser.id,
+      set: {
+        email: user.email,
+        name: user.name,
+        roles: [...user.roles],
+        emailVerified: true,
+        updatedAt: now,
+      },
+    });
+}
+
 function toVisibleOrderResponse(
   order: Parameters<typeof toOrderResponse>[0],
   user: { roles: readonly Role[] },
@@ -380,6 +446,83 @@ app.get(
     response: {
       200: currentUserResponseSchema,
       401: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.get(
+  "/api/dev/demo-users",
+  ({ set }) => {
+    if (!ensureDemoEnabled(set)) {
+      return { error: "Not found" };
+    }
+
+    return { data: listDemoUsers() };
+  },
+  {
+    detail: {
+      tags: ["auth"],
+      summary: "List demo login users",
+      description: "Return classroom/demo users when demo auth is enabled.",
+    },
+    response: {
+      200: demoUserListResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.post(
+  "/api/dev/demo-login",
+  async ({ body, set }) => {
+    if (!ensureDemoEnabled(set)) {
+      return { error: "Not found" };
+    }
+
+    const input = body as { userId: string };
+    const demoUser = getDemoUserById(input.userId);
+    if (!demoUser) {
+      set.status = 404;
+      return { error: "Demo user not found" };
+    }
+
+    await upsertDemoUser(demoUser);
+    set.headers["Set-Cookie"] = serializeDemoAuthCookie(demoUser.id, 86400);
+    return { data: demoUser };
+  },
+  {
+    body: demoLoginBodySchema,
+    detail: {
+      tags: ["auth"],
+      summary: "Demo login",
+      description: "Set an HttpOnly demo auth cookie for classroom/demo use.",
+    },
+    response: {
+      200: demoLoginResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.post(
+  "/api/dev/demo-logout",
+  ({ set }) => {
+    if (!ensureDemoEnabled(set)) {
+      return { error: "Not found" };
+    }
+
+    set.headers["Set-Cookie"] = serializeDemoAuthCookie("", 0);
+    return { data: true };
+  },
+  {
+    detail: {
+      tags: ["auth"],
+      summary: "Demo logout",
+      description: "Clear the classroom/demo auth cookie.",
+    },
+    response: {
+      200: demoLogoutResponseSchema,
+      404: apiErrorResponseSchema,
     },
   },
 );

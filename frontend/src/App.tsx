@@ -247,6 +247,10 @@ export default function App() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [authError, setAuthError] = useState("");
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  const [demoUsers, setDemoUsers] = useState<SessionUser[]>([]);
+  const [demoAuthAvailable, setDemoAuthAvailable] = useState(false);
+  const [demoAuthError, setDemoAuthError] = useState("");
+  const [demoLoginLoading, setDemoLoginLoading] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -1156,6 +1160,39 @@ export default function App() {
       }
     }
 
+    async function loadDemoUsers() {
+      try {
+        const res = await fetch(buildApiUrl("/api/dev/demo-users"), {
+          credentials: "include",
+        });
+        if (res.status === 404) {
+          if (mounted) {
+            setDemoAuthAvailable(false);
+            setDemoUsers([]);
+          }
+          return;
+        }
+        if (!res.ok) {
+          throw new Error(await readApiError(res));
+        }
+
+        const payload = (await res.json()) as ApiDataResponse<SessionUser[]>;
+        if (mounted) {
+          setDemoUsers(Array.isArray(payload?.data) ? payload.data : []);
+          setDemoAuthAvailable(true);
+        }
+      } catch (demoError) {
+        if (mounted) {
+          setDemoAuthAvailable(false);
+          setDemoAuthError(
+            demoError instanceof Error
+              ? demoError.message
+              : "Unable to load demo users.",
+          );
+        }
+      }
+    }
+
     async function loadInitialMenu() {
       try {
         await Promise.all([loadMenu(), loadCategories()]);
@@ -1172,6 +1209,7 @@ export default function App() {
     }
 
     void restoreSession();
+    void loadDemoUsers();
     void loadInitialMenu();
 
     return () => {
@@ -1463,8 +1501,70 @@ export default function App() {
     }
   }
 
-  async function handleLogout(): Promise<void> {
+  async function handleDemoLogin(userId: string): Promise<void> {
+    setAuthError("");
+    setDemoAuthError("");
+    setDemoLoginLoading(userId);
+
     try {
+      const response = await fetch(buildApiUrl("/api/dev/demo-login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userId }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<SessionUser>;
+      if (!payload?.data) {
+        throw new Error("Demo login failed: invalid payload");
+      }
+
+      setUser(normalizeUser(payload.data));
+      setActionError("");
+      await Promise.all([
+        loadMenu(),
+        loadCategories(),
+        loadCurrentOrder(),
+        loadOrderHistory(),
+      ]);
+    } catch (demoError) {
+      setDemoAuthError(
+        demoError instanceof Error ? demoError.message : "Demo login failed.",
+      );
+    } finally {
+      setDemoLoginLoading(null);
+    }
+  }
+
+  async function handleLogout(): Promise<void> {
+    if (user?.id.startsWith("demo-")) {
+      try {
+        await fetch(buildApiUrl("/api/dev/demo-logout"), {
+          method: "POST",
+          credentials: "include",
+        });
+      } catch {
+        // Local cleanup below is still safe if the demo logout endpoint is unavailable.
+      }
+      setUser(null);
+      setAuthError("");
+      setActionError("");
+      setRoleRequestMessage("");
+      setAdminRequests([]);
+      resetCartState();
+      return;
+    }
+
+    try {
+      await fetch(buildApiUrl("/api/dev/demo-logout"), {
+        method: "POST",
+        credentials: "include",
+      }).catch(() => undefined);
+
       const res = await fetch(buildApiUrl("/api/sign-out"), {
         method: "POST",
         credentials: "include",
@@ -2903,6 +3003,40 @@ export default function App() {
               >
                 {isGoogleSigningIn ? "Opening Google..." : "Sign in"}
               </button>
+              {demoAuthAvailable ? (
+                <div className="mt-4 rounded-box border border-base-300 bg-base-200 p-3">
+                  <div className="mb-2">
+                    <h3 className="font-semibold">Demo mode only</h3>
+                    <p className="text-xs opacity-70">
+                      Quickly switch classroom test roles without Google OAuth.
+                    </p>
+                  </div>
+                  {demoAuthError ? (
+                    <div className="alert alert-warning mb-2 py-2 text-sm">
+                      <span>{demoAuthError}</span>
+                    </div>
+                  ) : null}
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {demoUsers.map((demoUser) => (
+                      <button
+                        key={demoUser.id}
+                        className="btn btn-sm btn-outline"
+                        disabled={demoLoginLoading !== null}
+                        onClick={() => {
+                          void handleDemoLogin(demoUser.id);
+                        }}
+                      >
+                        {demoLoginLoading === demoUser.id
+                          ? "Logging in..."
+                          : `Login as ${demoUser.name.replace("Demo ", "")}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {!demoAuthAvailable && demoAuthError ? (
+                <p className="text-xs opacity-60">{demoAuthError}</p>
+              ) : null}
             </div>
           </section>
         ) : null}

@@ -42,6 +42,16 @@ export const categoriesTable = appSchema.table("categories", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const promotionsTable = appSchema.table("promotions", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  discountType: text("discount_type").notNull(),
+  discountValue: integer("discount_value").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const menuItemsTable = appSchema.table("menu_items", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   name: text("name").notNull(),
@@ -92,6 +102,9 @@ export const ordersTable = appSchema.table("orders", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id),
+  subtotal: integer("subtotal").notNull().default(0),
+  discountAmount: integer("discount_amount").notNull().default(0),
+  promoCode: text("promo_code"),
   total: integer("total").notNull().default(0),
   status: text("status").notNull().default("pending"),
   orderSource: text("order_source").notNull().default("customer"),

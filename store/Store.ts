@@ -7,6 +7,7 @@ import type {
   AnalyticsInsights,
   AnalyticsSummary,
   AnalyticsTrends,
+  DiscountType,
   FulfillmentType,
   MenuItem,
   Order,
@@ -15,6 +16,8 @@ import type {
   PaymentMethod,
   PaymentStatus,
   PriceSensitivityAnalytics,
+  Promotion,
+  PromotionDiscountPreview,
   Role,
   TopItemSales,
 } from "../shared/contracts.ts";
@@ -46,6 +49,9 @@ export type SubmitOrderErrorCode =
   | "ORDER_NOT_OWNED"
   | "ORDER_NOT_EDITABLE"
   | "MENU_VERSION_CHANGED"
+  | "PROMOTION_NOT_FOUND"
+  | "PROMOTION_INACTIVE"
+  | "INVALID_PROMOTION"
   | "EMPTY_ORDER";
 
 export type UpdateOrderStatusErrorCode =
@@ -76,9 +82,13 @@ export type CreateWalkInOrderErrorCode =
   | "EMPTY_ORDER"
   | "MENU_ITEM_NOT_FOUND"
   | "MENU_VERSION_CHANGED"
-  | "MENU_ITEM_UNAVAILABLE";
+  | "MENU_ITEM_UNAVAILABLE"
+  | "PROMOTION_NOT_FOUND"
+  | "PROMOTION_INACTIVE"
+  | "INVALID_PROMOTION";
 
 export type CategoryStatusFilter = "active" | "inactive" | "all";
+export type PromotionStatusFilter = "active" | "inactive" | "all";
 export type AnalyticsDateRangeInput = {
   startDate?: string;
   endDate?: string;
@@ -172,6 +182,29 @@ export interface Store {
     categoryId: number,
   ): Promise<MenuItem | null>;
 
+  getPromotions(input?: {
+    status?: PromotionStatusFilter;
+  }): ReadonlyArray<Promotion>;
+  createPromotion(input: {
+    code: string;
+    discountType: DiscountType;
+    discountValue: number;
+  }): Promise<Promotion>;
+  updatePromotion(
+    promotionId: number,
+    patch: {
+      code?: string;
+      discountType?: DiscountType;
+      discountValue?: number;
+      isActive?: boolean;
+    },
+  ): Promise<Promotion | null>;
+  deletePromotion(promotionId: number): Promise<Promotion | null>;
+  previewPromotionDiscount(input: {
+    subtotal: number;
+    promoCode?: string | null;
+  }): PromotionDiscountPreview | null;
+
   // Orders
   getOrders(): ReadonlyArray<Order>;
   getCurrentOrderByUserId(userId: string): Order | undefined;
@@ -187,6 +220,7 @@ export interface Store {
     pickupTime?: string | null;
     paymentMethod: PaymentMethod;
     paymentStatus?: PaymentStatus;
+    promoCode?: string | null;
   }): Promise<
     | { ok: true; order: Order }
     | { ok: false; code: CreateWalkInOrderErrorCode; itemName?: string }
@@ -216,6 +250,7 @@ export interface Store {
       pickupTime?: string | null;
       paymentMethod: PaymentMethod;
       paymentStatus?: PaymentStatus;
+      promoCode?: string | null;
     },
   ): Promise<
     | { ok: true; order: Order }

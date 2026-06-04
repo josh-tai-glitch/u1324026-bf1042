@@ -9,6 +9,7 @@ import {
   analyticsTrendsSchema,
   categorySchema,
   categorySalesSchema,
+  discountTypeSchema,
   fulfillmentTypeSchema,
   menuItemSchema,
   orderSchema,
@@ -17,6 +18,8 @@ import {
   paymentMethodSchema,
   paymentStatusSchema,
   priceSensitivityAnalyticsSchema,
+  promotionDiscountPreviewSchema,
+  promotionSchema,
   roleRequestSchema,
   roleSchema,
   sessionUserSchema,
@@ -177,6 +180,7 @@ export const submitOrderBodySchema = z.object({
   pickupTime: z.string().optional().nullable(),
   paymentMethod: paymentMethodSchema.default("cash"),
   paymentStatus: paymentStatusSchema.optional(),
+  promoCode: z.string().trim().optional().nullable(),
 });
 
 export const createWalkInOrderBodySchema = z.object({
@@ -195,6 +199,28 @@ export const createWalkInOrderBodySchema = z.object({
   pickupTime: z.string().optional().nullable(),
   paymentMethod: paymentMethodSchema.default("cash"),
   paymentStatus: paymentStatusSchema.optional(),
+  promoCode: z.string().trim().optional().nullable(),
+});
+
+export const createPromotionBodySchema = z.object({
+  code: z.string().trim().min(1),
+  discountType: discountTypeSchema,
+  discountValue: z.number().int().positive(),
+});
+
+export const updatePromotionBodySchema = z.object({
+  code: z.string().trim().min(1).optional(),
+  discountType: discountTypeSchema.optional(),
+  discountValue: z.number().int().positive().optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const promotionParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
+export const getPromotionsQuerySchema = z.object({
+  status: z.enum(["active", "inactive", "all"]).default("active").optional(),
 });
 
 /** POST /api/users/me/role-request */
@@ -331,6 +357,18 @@ export const categoryResponseSchema = z.object({
 
 export const categoryListResponseSchema = z.object({
   data: z.array(categorySchema),
+});
+
+export const promotionResponseSchema = z.object({
+  data: promotionSchema,
+});
+
+export const promotionListResponseSchema = z.object({
+  data: z.array(promotionSchema),
+});
+
+export const promotionDiscountPreviewResponseSchema = z.object({
+  data: promotionDiscountPreviewSchema,
 });
 
 export const categorySalesListResponseSchema = z.object({

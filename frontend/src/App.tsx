@@ -10,6 +10,7 @@ import type {
   AnalyticsTrends,
   Category,
   CategorySales,
+  DiscountType,
   FulfillmentType,
   MenuItem,
   Order,
@@ -17,6 +18,7 @@ import type {
   OrderStatus,
   PaymentMethod,
   PriceSensitivityItem,
+  Promotion,
   Role,
   RoleRequest,
   SessionUser,
@@ -63,6 +65,9 @@ const auditLogActionOptions: AuditLogAction[] = [
   "category_create",
   "category_update",
   "category_delete",
+  "promotion_create",
+  "promotion_update",
+  "promotion_delete",
   "menu_category_assign",
   "menu_category_remove",
   "order_status_update",
@@ -77,6 +82,7 @@ const auditLogTargetTypeOptions: AuditLogTargetType[] = [
   "role_request",
   "menu_item",
   "category",
+  "promotion",
   "menu_item_category",
   "order",
 ];
@@ -89,6 +95,9 @@ const auditLogActionLabels: Record<AuditLogAction, string> = {
   category_create: "Category created",
   category_update: "Category updated",
   category_delete: "Category deactivated",
+  promotion_create: "Promotion created",
+  promotion_update: "Promotion updated",
+  promotion_delete: "Promotion deactivated",
   menu_category_assign: "Category assigned",
   menu_category_remove: "Category removed",
   order_status_update: "Order status updated",
@@ -103,6 +112,7 @@ const auditLogTargetTypeLabels: Record<AuditLogTargetType, string> = {
   role_request: "Role request",
   menu_item: "Menu item",
   category: "Category",
+  promotion: "Promotion",
   menu_item_category: "Menu item category",
   order: "Order",
 };
@@ -122,11 +132,17 @@ const emptyCategoryForm = {
   displayOrder: "0",
   isActive: true,
 };
+const emptyPromotionForm = {
+  code: "",
+  discountType: "percent" as DiscountType,
+  discountValue: "10",
+};
 const emptyCheckoutForm = {
   fulfillmentType: "takeout" as FulfillmentType,
   customerNote: "",
   pickupTime: "",
   paymentMethod: "cash" as PaymentMethod,
+  promoCode: "",
 };
 const emptyWalkInOrderForm = {
   guestName: "",
@@ -134,6 +150,7 @@ const emptyWalkInOrderForm = {
   customerNote: "",
   pickupTime: "",
   paymentMethod: "cash" as PaymentMethod,
+  promoCode: "",
 };
 
 type MenuForm = typeof emptyMenuForm;
@@ -161,10 +178,13 @@ type ManagerTab =
   | "analytics"
   | "menu"
   | "categories"
+  | "promotions"
   | "roleRequests"
   | "auditLogs";
 type OrderBoardFilter = (typeof orderBoardFilters)[number]["id"];
 type CategoryStatusFilter = "active" | "inactive" | "all";
+type PromotionStatusFilter = "active" | "inactive" | "all";
+type PromotionForm = typeof emptyPromotionForm;
 
 function buildApiUrl(path: string) {
   return `${apiBaseUrl}${path}`;
@@ -249,6 +269,16 @@ export default function App() {
   >([]);
   const [categoryManagementStatusFilter, setCategoryManagementStatusFilter] =
     useState<CategoryStatusFilter>("active");
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [promotionForm, setPromotionForm] =
+    useState<PromotionForm>(emptyPromotionForm);
+  const [editingPromotionId, setEditingPromotionId] = useState<number | null>(
+    null,
+  );
+  const [promotionStatusFilter, setPromotionStatusFilter] =
+    useState<PromotionStatusFilter>("active");
+  const [promotionMessage, setPromotionMessage] = useState("");
+  const [promotionBusy, setPromotionBusy] = useState(false);
   const [selectedCategoryByItemId, setSelectedCategoryByItemId] = useState<
     Record<number, string>
   >({});
@@ -412,6 +442,11 @@ export default function App() {
         {
           id: "categories" as const,
           label: "Categories",
+          visible: canManageMenu,
+        },
+        {
+          id: "promotions" as const,
+          label: "Promotions",
           visible: canManageMenu,
         },
         {
@@ -694,6 +729,15 @@ export default function App() {
       );
     }
 
+    if (order.discountAmount > 0 || order.promoCode) {
+      lines.push(
+        "",
+        `Subtotal: $${order.subtotal}`,
+        `Promo code: ${order.promoCode ?? "-"}`,
+        `Discount: -$${order.discountAmount}`,
+      );
+    }
+
     lines.push("", `Total: $${order.total}`);
     return lines.join("\n");
   }
@@ -778,6 +822,19 @@ export default function App() {
     },
     [],
   );
+
+  const loadPromotions = useCallback(async (status: PromotionStatusFilter) => {
+    const response = await fetch(
+      buildApiUrl(`/api/admin/promotions?status=${status}`),
+      { credentials: "include" },
+    );
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+
+    const payload = (await response.json()) as ApiDataResponse<Promotion[]>;
+    setPromotions(Array.isArray(payload?.data) ? payload.data : []);
+  }, []);
 
   function syncCartFromOrder(order: Order) {
     const nextQtyByItemId = order.items.reduce(
@@ -1189,6 +1246,20 @@ export default function App() {
   }, [canManageMenu, categoryManagementStatusFilter, loadCategoryManagementItems]);
 
   useEffect(() => {
+    if (canManageMenu && managerTab === "promotions") {
+      void loadPromotions(promotionStatusFilter).catch((promotionError) => {
+        setPromotionMessage(
+          promotionError instanceof Error
+            ? promotionError.message
+            : "Unable to load promotions.",
+        );
+      });
+    } else if (!canManageMenu) {
+      setPromotions([]);
+    }
+  }, [canManageMenu, managerTab, promotionStatusFilter, loadPromotions]);
+
+  useEffect(() => {
     if (!hasManagerTools) return;
     if (!managerTabs.some((tab) => tab.id === managerTab)) {
       setManagerTab(managerTabs[0].id);
@@ -1577,6 +1648,7 @@ export default function App() {
               : null,
             paymentMethod: checkoutForm.paymentMethod,
             paymentStatus: "unpaid",
+            promoCode: checkoutForm.promoCode.trim() || null,
           }),
         },
       );
@@ -1956,6 +2028,7 @@ export default function App() {
             : null,
           paymentMethod: walkInOrderForm.paymentMethod,
           paymentStatus: "unpaid",
+          promoCode: walkInOrderForm.promoCode.trim() || null,
         }),
       });
 
@@ -2368,6 +2441,117 @@ export default function App() {
       );
     } finally {
       setCategoryBusy(false);
+    }
+  }
+
+  function resetPromotionForm() {
+    setPromotionForm(emptyPromotionForm);
+    setEditingPromotionId(null);
+  }
+
+  function startEditPromotion(promotion: Promotion) {
+    setPromotionForm({
+      code: promotion.code,
+      discountType: promotion.discountType,
+      discountValue: String(promotion.discountValue),
+    });
+    setEditingPromotionId(promotion.id);
+    setPromotionMessage("");
+  }
+
+  async function submitPromotionForm(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageMenu) return;
+
+    const discountValue = Number.parseInt(promotionForm.discountValue, 10);
+    if (!Number.isFinite(discountValue) || discountValue <= 0) {
+      setPromotionMessage("Discount value must be a positive number.");
+      return;
+    }
+    if (
+      promotionForm.discountType === "percent" &&
+      (discountValue < 1 || discountValue > 100)
+    ) {
+      setPromotionMessage("Percent discount must be between 1 and 100.");
+      return;
+    }
+
+    setPromotionBusy(true);
+    setPromotionMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl(
+          editingPromotionId
+            ? `/api/admin/promotions/${editingPromotionId}`
+            : "/api/admin/promotions",
+        ),
+        {
+          method: editingPromotionId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            code: promotionForm.code,
+            discountType: promotionForm.discountType,
+            discountValue,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await loadPromotions(promotionStatusFilter);
+      resetPromotionForm();
+      setPromotionMessage(
+        editingPromotionId ? "Promotion updated." : "Promotion created.",
+      );
+    } catch (promotionError) {
+      setPromotionMessage(
+        promotionError instanceof Error
+          ? promotionError.message
+          : "Promotion save failed.",
+      );
+    } finally {
+      setPromotionBusy(false);
+    }
+  }
+
+  async function setPromotionActive(promotion: Promotion, isActive: boolean) {
+    if (!canManageMenu) return;
+
+    setPromotionBusy(true);
+    setPromotionMessage("");
+    try {
+      const response = isActive
+        ? await fetch(buildApiUrl(`/api/admin/promotions/${promotion.id}`), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ isActive: true }),
+          })
+        : await fetch(buildApiUrl(`/api/admin/promotions/${promotion.id}`), {
+            method: "DELETE",
+            credentials: "include",
+          });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await loadPromotions(promotionStatusFilter);
+      setPromotionMessage(
+        isActive ? "Promotion reactivated." : "Promotion deactivated.",
+      );
+      if (editingPromotionId === promotion.id && !isActive) resetPromotionForm();
+    } catch (promotionError) {
+      setPromotionMessage(
+        promotionError instanceof Error
+          ? promotionError.message
+          : "Promotion update failed.",
+      );
+    } finally {
+      setPromotionBusy(false);
     }
   }
 
@@ -2942,6 +3126,17 @@ export default function App() {
                         <option value="card">Card</option>
                         <option value="online">Online</option>
                       </select>
+                      <input
+                        className="input input-bordered input-sm"
+                        placeholder="Promo code"
+                        value={walkInOrderForm.promoCode}
+                        onChange={(event) =>
+                          setWalkInOrderForm((current) => ({
+                            ...current,
+                            promoCode: event.target.value,
+                          }))
+                        }
+                      />
                     </div>
                     <textarea
                       className="textarea textarea-bordered mt-3 min-h-20 w-full"
@@ -3263,6 +3458,13 @@ export default function App() {
                                 Note: {order.customerNote}
                               </span>
                             ) : null}
+                            {order.discountAmount > 0 || order.promoCode ? (
+                              <span className="md:col-span-2">
+                                Promo {order.promoCode ?? "-"}: subtotal $
+                                {order.subtotal}, discount -$
+                                {order.discountAmount}
+                              </span>
+                            ) : null}
                           </div>
                           {order.issueType ? (
                             <div className="alert alert-warning mt-3 items-start">
@@ -3366,7 +3568,7 @@ export default function App() {
                             ))}
                           </ul>
                           <p className="mt-2 text-right font-bold">
-                            ${order.total}
+                            Total ${order.total}
                           </p>
                         </article>
                       );
@@ -4731,6 +4933,192 @@ export default function App() {
           </section>
         ) : null}
 
+        {hasManagerTools && managerTab === "promotions" && canManageMenu ? (
+          <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
+            <div className="card-body">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="card-title">Promotion management</h2>
+                  <p className="text-sm opacity-70">
+                    Create, update, deactivate, and reactivate checkout promo
+                    codes.
+                  </p>
+                </div>
+                <select
+                  className="select select-bordered select-sm"
+                  value={promotionStatusFilter}
+                  onChange={(event) => {
+                    setPromotionStatusFilter(
+                      event.target.value as PromotionStatusFilter,
+                    );
+                  }}
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="all">All</option>
+                </select>
+              </div>
+
+              {promotionMessage ? (
+                <div className="alert">
+                  <span>{promotionMessage}</span>
+                </div>
+              ) : null}
+
+              <form
+                className="rounded-box border border-base-300 bg-base-200 p-4"
+                onSubmit={(event) => {
+                  void submitPromotionForm(event);
+                }}
+              >
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="font-semibold">
+                    {editingPromotionId ? "Edit promo code" : "Create promo code"}
+                  </h3>
+                  {editingPromotionId ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={resetPromotionForm}
+                    >
+                      Cancel edit
+                    </button>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <input
+                    className="input input-bordered input-sm"
+                    placeholder="Code"
+                    value={promotionForm.code}
+                    onChange={(event) =>
+                      setPromotionForm((current) => ({
+                        ...current,
+                        code: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                  <select
+                    className="select select-bordered select-sm"
+                    value={promotionForm.discountType}
+                    onChange={(event) =>
+                      setPromotionForm((current) => ({
+                        ...current,
+                        discountType: event.target.value as DiscountType,
+                      }))
+                    }
+                  >
+                    <option value="percent">Percent</option>
+                    <option value="fixed">Fixed amount</option>
+                  </select>
+                  <input
+                    className="input input-bordered input-sm"
+                    min={1}
+                    max={
+                      promotionForm.discountType === "percent" ? 100 : undefined
+                    }
+                    type="number"
+                    value={promotionForm.discountValue}
+                    onChange={(event) =>
+                      setPromotionForm((current) => ({
+                        ...current,
+                        discountValue: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+                <button
+                  className="btn btn-sm btn-primary mt-3"
+                  disabled={promotionBusy}
+                >
+                  {promotionBusy
+                    ? "Saving..."
+                    : editingPromotionId
+                      ? "Save promotion"
+                      : "Create promotion"}
+                </button>
+              </form>
+
+              {promotions.length === 0 ? (
+                <div className="alert alert-info">
+                  <span>No promotions found.</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Code</th>
+                        <th>Discount</th>
+                        <th>Status</th>
+                        <th>Updated</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {promotions.map((promotion) => (
+                        <tr key={promotion.id}>
+                          <td className="font-semibold">{promotion.code}</td>
+                          <td>
+                            {promotion.discountType === "percent"
+                              ? `${promotion.discountValue}%`
+                              : `$${promotion.discountValue}`}
+                          </td>
+                          <td>
+                            <span
+                              className={`badge ${
+                                promotion.isActive
+                                  ? "badge-success"
+                                  : "badge-neutral"
+                              }`}
+                            >
+                              {promotion.isActive ? "active" : "inactive"}
+                            </span>
+                          </td>
+                          <td>{formatCheckoutDateTime(promotion.updatedAt)}</td>
+                          <td>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                className="btn btn-sm btn-outline"
+                                disabled={promotionBusy}
+                                onClick={() => startEditPromotion(promotion)}
+                              >
+                                Edit
+                              </button>
+                              {promotion.isActive ? (
+                                <button
+                                  className="btn btn-sm btn-error btn-outline"
+                                  disabled={promotionBusy}
+                                  onClick={() => {
+                                    void setPromotionActive(promotion, false);
+                                  }}
+                                >
+                                  Deactivate
+                                </button>
+                              ) : (
+                                <button
+                                  className="btn btn-sm btn-success btn-outline"
+                                  disabled={promotionBusy}
+                                  onClick={() => {
+                                    void setPromotionActive(promotion, true);
+                                  }}
+                                >
+                                  Reactivate
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+        ) : null}
+
         <section ref={menuSectionRef} className="scroll-mt-24">
           {items.length === 0 ? (
             <div className="alert alert-info">
@@ -5159,6 +5547,12 @@ export default function App() {
                               Note: {order.customerNote}
                             </span>
                           ) : null}
+                          {order.discountAmount > 0 || order.promoCode ? (
+                            <span className="md:col-span-2">
+                              Promo {order.promoCode ?? "-"}: subtotal $
+                              {order.subtotal}, discount -${order.discountAmount}
+                            </span>
+                          ) : null}
                         </div>
                         <ul className="text-sm list-disc pl-5 space-y-1">
                           {order.items.map((detail) => (
@@ -5234,7 +5628,9 @@ export default function App() {
                             </div>
                           </div>
                         ) : null}
-                        <p className="font-bold text-right">${order.total}</p>
+                        <p className="font-bold text-right">
+                          Total ${order.total}
+                        </p>
                       </div>
                     </article>
                   );
@@ -5380,6 +5776,20 @@ export default function App() {
                         pickupTime: event.target.value,
                       }))
                     }
+                    />
+                  </label>
+                <label className="form-control">
+                  <span className="label-text mb-1">Promo code</span>
+                  <input
+                    className="input input-bordered input-sm"
+                    value={checkoutForm.promoCode}
+                    onChange={(event) =>
+                      setCheckoutForm((current) => ({
+                        ...current,
+                        promoCode: event.target.value,
+                      }))
+                    }
+                    placeholder="Optional"
                   />
                 </label>
                 <label className="form-control">

@@ -48,6 +48,25 @@ export const menuItemSchema = z.object({
 
 export const menuItemHistorySchema = z.array(menuItemSchema);
 
+export const discountTypeSchema = z.enum(["percent", "fixed"]);
+
+export const promotionSchema = z.object({
+  id: z.number().int().min(1),
+  code: z.string().min(1),
+  discountType: discountTypeSchema,
+  discountValue: z.number().int().min(1),
+  isActive: z.boolean(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
+export const promotionDiscountPreviewSchema = z.object({
+  promoCode: z.string().nullable(),
+  subtotal: z.number().min(0),
+  discountAmount: z.number().min(0),
+  total: z.number().min(0),
+});
+
 // Auth / RBAC schemas
 export const roleSchema = z.enum([
   "admin",
@@ -103,6 +122,9 @@ export const auditLogActionSchema = z.enum([
   "category_create",
   "category_update",
   "category_delete",
+  "promotion_create",
+  "promotion_update",
+  "promotion_delete",
   "menu_category_assign",
   "menu_category_remove",
   "order_status_update",
@@ -118,6 +140,7 @@ export const auditLogTargetTypeSchema = z.enum([
   "role_request",
   "menu_item",
   "category",
+  "promotion",
   "menu_item_category",
   "order",
 ]);
@@ -169,6 +192,9 @@ export const orderSchema = z.object({
   id: z.number().int().min(1),
   userId: z.string().min(1),
   items: z.array(orderItemSchema),
+  subtotal: z.number().min(0).default(0),
+  discountAmount: z.number().min(0).default(0),
+  promoCode: z.string().nullable().default(null),
   total: z.number().min(0),
   status: orderStatusSchema,
   orderSource: orderSourceSchema.default("customer"),
@@ -334,6 +360,11 @@ export const analyticsInsightsSchema = z.object({
 // Derived TypeScript Types
 export type MenuItem = z.infer<typeof menuItemSchema>;
 export type MenuItemHistory = z.infer<typeof menuItemHistorySchema>;
+export type DiscountType = z.infer<typeof discountTypeSchema>;
+export type Promotion = z.infer<typeof promotionSchema>;
+export type PromotionDiscountPreview = z.infer<
+  typeof promotionDiscountPreviewSchema
+>;
 export type Category = z.infer<typeof categorySchema>;
 export type MenuCategoryLink = z.infer<typeof menuCategoryLinkSchema>;
 export type Role = z.infer<typeof roleSchema>;

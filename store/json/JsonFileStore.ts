@@ -7,6 +7,7 @@ import type {
   AnalyticsTrends,
   Category,
   CategorySales,
+  DiscountType,
   FulfillmentType,
   MenuItem,
   Order,
@@ -16,10 +17,17 @@ import type {
   PaymentMethod,
   PaymentStatus,
   PriceSensitivityAnalytics,
+  Promotion,
+  PromotionDiscountPreview,
   Role,
   TopItemSales,
 } from "../../shared/contracts.ts";
 import { menuRepository } from "../menu/MenuRepository.ts";
+import {
+  calculatePromotionDiscount,
+  isPromotionValueValid,
+  normalizePromotionCode,
+} from "../promotions/PromotionCalculator.ts";
 import {
   CategoryNotFoundError,
   CategorySlugConflictError,
@@ -27,6 +35,7 @@ import {
   type AppendAuditLogInput,
   type CategoryStatusFilter,
   type GetAuditLogsInput,
+  type PromotionStatusFilter,
   type Store,
 } from "../Store.ts";
 
@@ -41,6 +50,7 @@ interface DataStore {
   users: StoredUser[];
   menu: MenuItem[];
   categories?: Category[];
+  promotions?: Promotion[];
   orders: Order[];
   auditLogs?: AuditLog[];
   userIdCounter: number;
@@ -200,6 +210,19 @@ function normalizeCategory(category: Partial<Category>): Category {
   };
 }
 
+function normalizePromotion(promotion: Partial<Promotion>): Promotion {
+  const now = new Date().toISOString();
+  return {
+    id: promotion.id ?? 0,
+    code: normalizePromotionCode(promotion.code) ?? "",
+    discountType: promotion.discountType === "percent" ? "percent" : "fixed",
+    discountValue: promotion.discountValue ?? 1,
+    isActive: promotion.isActive ?? true,
+    createdAt: promotion.createdAt ?? now,
+    updatedAt: promotion.updatedAt ?? now,
+  };
+}
+
 function normalizeAuditLog(log: Partial<AuditLog>): AuditLog {
   const now = new Date().toISOString();
   return {
@@ -273,6 +296,7 @@ export class JsonFileStore implements Store {
   private users: StoredUser[] = [];
   private menu: MenuItem[] = [];
   private categories: Category[] = [];
+  private promotions: Promotion[] = [];
   private orders: Order[] = [];
   private auditLogs: AuditLog[] = [];
   private userIdCounter = 0;
@@ -314,6 +338,9 @@ export class JsonFileStore implements Store {
         categories: Array.isArray(parsed.categories)
           ? parsed.categories.map((category) => normalizeCategory(category))
           : [],
+        promotions: Array.isArray(parsed.promotions)
+          ? parsed.promotions.map((promotion) => normalizePromotion(promotion))
+          : [],
         menu: parsed.menu.map((item) => normalizeMenuItem(item)),
         orders: parsed.orders.map((order) => ({
           ...order,
@@ -336,6 +363,16 @@ export class JsonFileStore implements Store {
               orderItem.item.menu_item_group_id ??
               null,
           })),
+          subtotal:
+            typeof order.subtotal === "number" && order.subtotal > 0
+              ? order.subtotal
+              : order.total ?? 0,
+          discountAmount:
+            typeof order.discountAmount === "number"
+              ? order.discountAmount
+              : 0,
+          promoCode: order.promoCode ?? null,
+          total: order.total ?? 0,
           status: toOrderStatus(order.status),
           orderSource: order.orderSource === "walk_in" ? "walk_in" : "customer",
           guestName: order.guestName ?? null,
@@ -385,6 +422,93 @@ export class JsonFileStore implements Store {
 
   getMenuItemVersionHistoryById(menuId: number): ReadonlyArray<MenuItem> {
     return menuRepository.getMenuItemVersionHistoryById(this.menu, menuId);
+  }
+
+  getPromotions(
+    input: { status?: PromotionStatusFilter } = {},
+  ): ReadonlyArray<Promotion> {
+    const status = input.status ?? "active";
+    if (status === "all") return this.promotions;
+    return this.promotions.filter((promotion) =>
+      status === "active" ? promotion.isActive : !promotion.isActive,
+    );
+  }
+
+  async createPromotion(input: {
+    code: string;
+    discountType: DiscountType;
+    discountValue: number;
+  }): Promise<Promotion> {
+    const code = normalizePromotionCode(input.code);
+    if (!code || !this.isDiscountValueValid(input.discountType, input.discountValue)) {
+      throw new Error("Invalid promotion");
+    }
+
+    const now = new Date().toISOString();
+    const promotion: Promotion = {
+      id: this.getNextPromotionId(),
+      code,
+      discountType: input.discountType,
+      discountValue: input.discountValue,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.promotions.push(promotion);
+    await this.persist();
+    return promotion;
+  }
+
+  async updatePromotion(
+    promotionId: number,
+    patch: {
+      code?: string;
+      discountType?: DiscountType;
+      discountValue?: number;
+      isActive?: boolean;
+    },
+  ): Promise<Promotion | null> {
+    const promotion = this.promotions.find((item) => item.id === promotionId);
+    if (!promotion) return null;
+
+    const nextDiscountType = patch.discountType ?? promotion.discountType;
+    const nextDiscountValue = patch.discountValue ?? promotion.discountValue;
+    if (!this.isDiscountValueValid(nextDiscountType, nextDiscountValue)) {
+      throw new Error("Invalid promotion");
+    }
+
+    if (patch.code !== undefined) {
+      const code = normalizePromotionCode(patch.code);
+      if (!code) throw new Error("Invalid promotion");
+      promotion.code = code;
+    }
+    promotion.discountType = nextDiscountType;
+    promotion.discountValue = nextDiscountValue;
+    if (patch.isActive !== undefined) promotion.isActive = patch.isActive;
+    promotion.updatedAt = new Date().toISOString();
+    await this.persist();
+    return promotion;
+  }
+
+  async deletePromotion(promotionId: number): Promise<Promotion | null> {
+    const promotion = this.promotions.find((item) => item.id === promotionId);
+    if (!promotion) return null;
+    promotion.isActive = false;
+    promotion.updatedAt = new Date().toISOString();
+    await this.persist();
+    return promotion;
+  }
+
+  previewPromotionDiscount(input: {
+    subtotal: number;
+    promoCode?: string | null;
+  }): PromotionDiscountPreview | null {
+    const promotion = this.findActivePromotion(input.promoCode);
+    if (input.promoCode && !promotion) return null;
+    return calculatePromotionDiscount({
+      subtotal: input.subtotal,
+      promotion,
+    });
   }
 
   async createMenuItem(input: {
@@ -710,6 +834,9 @@ export class JsonFileStore implements Store {
       id: ++this.orderIdCounter,
       userId: input.userId,
       items: [],
+      subtotal: 0,
+      discountAmount: 0,
+      promoCode: null,
       total: 0,
       status: "pending",
       orderSource: "customer",
@@ -745,6 +872,7 @@ export class JsonFileStore implements Store {
     pickupTime?: string | null;
     paymentMethod: PaymentMethod;
     paymentStatus?: PaymentStatus;
+    promoCode?: string | null;
   }): Promise<
     | { ok: true; order: Order }
     | {
@@ -753,7 +881,10 @@ export class JsonFileStore implements Store {
           | "EMPTY_ORDER"
           | "MENU_ITEM_NOT_FOUND"
           | "MENU_VERSION_CHANGED"
-          | "MENU_ITEM_UNAVAILABLE";
+          | "MENU_ITEM_UNAVAILABLE"
+          | "PROMOTION_NOT_FOUND"
+          | "PROMOTION_INACTIVE"
+          | "INVALID_PROMOTION";
         itemName?: string;
       }
   > {
@@ -792,12 +923,22 @@ export class JsonFileStore implements Store {
       });
     }
 
+    const subtotal = calculateOrderTotal(orderItems);
+    const discount = this.calculateDiscountForPromoCode(
+      subtotal,
+      input.promoCode,
+    );
+    if (!discount.ok) return { ok: false, code: discount.code };
+    const { discountAmount, promoCode, total } = discount.preview;
     const submittedAt = new Date().toISOString();
     const order: Order = {
       id: ++this.orderIdCounter,
       userId: input.staffUserId,
       items: orderItems,
-      total: calculateOrderTotal(orderItems),
+      subtotal,
+      discountAmount,
+      promoCode,
+      total,
       status: "submitted",
       orderSource: "walk_in",
       guestName: input.guestName?.trim() || null,
@@ -916,7 +1057,10 @@ export class JsonFileStore implements Store {
       });
     }
 
-    order.total = calculateOrderTotal(order.items);
+    order.subtotal = calculateOrderTotal(order.items);
+    order.discountAmount = 0;
+    order.promoCode = null;
+    order.total = order.subtotal;
     await this.persist();
 
     return { ok: true, order };
@@ -952,6 +1096,7 @@ export class JsonFileStore implements Store {
       pickupTime?: string | null;
       paymentMethod: PaymentMethod;
       paymentStatus?: PaymentStatus;
+      promoCode?: string | null;
     },
   ): Promise<
     | { ok: true; order: Order }
@@ -962,6 +1107,9 @@ export class JsonFileStore implements Store {
           | "ORDER_NOT_OWNED"
           | "ORDER_NOT_EDITABLE"
           | "MENU_VERSION_CHANGED"
+          | "PROMOTION_NOT_FOUND"
+          | "PROMOTION_INACTIVE"
+          | "INVALID_PROMOTION"
           | "EMPTY_ORDER";
       }
   > {
@@ -990,7 +1138,19 @@ export class JsonFileStore implements Store {
       };
     }
 
+    const subtotal = calculateOrderTotal(order.items);
+    const discount = this.calculateDiscountForPromoCode(
+      subtotal,
+      input.promoCode,
+    );
+    if (!discount.ok) return { ok: false, code: discount.code };
+    const { discountAmount, promoCode, total } = discount.preview;
+
     order.status = "submitted";
+    order.subtotal = subtotal;
+    order.discountAmount = discountAmount;
+    order.promoCode = promoCode;
+    order.total = total;
     order.submittedAt = new Date().toISOString();
     order.fulfillmentType = input.fulfillmentType;
     order.customerNote = input.customerNote?.trim() || null;
@@ -1750,10 +1910,76 @@ export class JsonFileStore implements Store {
     );
   }
 
+  private getNextPromotionId(): number {
+    const nextId =
+      this.promotions.reduce(
+        (max, promotion) => Math.max(max, promotion.id),
+        0,
+      ) + 1;
+    return nextId;
+  }
+
+  private isDiscountValueValid(
+    discountType: DiscountType,
+    discountValue: number,
+  ): boolean {
+    if (!Number.isInteger(discountValue) || discountValue <= 0) return false;
+    if (discountType === "percent") return discountValue <= 100;
+    return true;
+  }
+
+  private findPromotionByCode(code?: string | null): Promotion | null {
+    const normalizedCode = normalizePromotionCode(code);
+    if (!normalizedCode) return null;
+    return (
+      this.promotions.find((promotion) => promotion.code === normalizedCode) ??
+      null
+    );
+  }
+
+  private findActivePromotion(code?: string | null): Promotion | null {
+    const promotion = this.findPromotionByCode(code);
+    return promotion?.isActive ? promotion : null;
+  }
+
+  private calculateDiscountForPromoCode(
+    subtotal: number,
+    promoCode?: string | null,
+  ):
+    | { ok: true; preview: PromotionDiscountPreview }
+    | {
+        ok: false;
+        code:
+          | "PROMOTION_NOT_FOUND"
+          | "PROMOTION_INACTIVE"
+          | "INVALID_PROMOTION";
+      } {
+    const normalizedCode = normalizePromotionCode(promoCode);
+    if (!normalizedCode) {
+      return {
+        ok: true,
+        preview: calculatePromotionDiscount({ subtotal }),
+      };
+    }
+
+    const promotion = this.findPromotionByCode(normalizedCode);
+    if (!promotion) return { ok: false, code: "PROMOTION_NOT_FOUND" };
+    if (!promotion.isActive) return { ok: false, code: "PROMOTION_INACTIVE" };
+    if (!isPromotionValueValid(promotion)) {
+      return { ok: false, code: "INVALID_PROMOTION" };
+    }
+
+    return {
+      ok: true,
+      preview: calculatePromotionDiscount({ subtotal, promotion }),
+    };
+  }
+
   private createInitialStore(): DataStore {
     return {
       users: cloneDefaultUsers(),
       categories: [],
+      promotions: [],
       menu: cloneDefaultMenu(),
       orders: [],
       auditLogs: [],
@@ -1767,6 +1993,7 @@ export class JsonFileStore implements Store {
   private applyStore(store: DataStore): void {
     this.users = store.users;
     this.categories = Array.isArray(store.categories) ? store.categories : [];
+    this.promotions = Array.isArray(store.promotions) ? store.promotions : [];
     this.menu = store.menu;
     this.orders = store.orders;
     this.auditLogs = Array.isArray(store.auditLogs) ? store.auditLogs : [];
@@ -1802,6 +2029,7 @@ export class JsonFileStore implements Store {
     return {
       users: this.users,
       categories: this.categories,
+      promotions: this.promotions,
       menu: this.menu,
       orders: this.orders,
       auditLogs: this.auditLogs,

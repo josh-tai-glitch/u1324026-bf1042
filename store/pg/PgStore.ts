@@ -9,6 +9,7 @@ import type {
   AnalyticsTrends,
   Category,
   CategorySales,
+  DiscountType,
   FulfillmentType,
   MenuItem,
   Order,
@@ -18,6 +19,8 @@ import type {
   PaymentMethod,
   PaymentStatus,
   PriceSensitivityAnalytics,
+  Promotion,
+  PromotionDiscountPreview,
   Role,
   TopItemSales,
 } from "../../shared/contracts.ts";
@@ -29,8 +32,14 @@ import {
   menuItemsTable,
   orderItemsTable,
   ordersTable,
+  promotionsTable,
 } from "../../db/schema.ts";
 import { menuRepository } from "../menu/MenuRepository.ts";
+import {
+  calculatePromotionDiscount,
+  isPromotionValueValid,
+  normalizePromotionCode,
+} from "../promotions/PromotionCalculator.ts";
 import {
   CategoryNotFoundError,
   CategorySlugConflictError,
@@ -38,6 +47,7 @@ import {
   type AppendAuditLogInput,
   type CategoryStatusFilter,
   type GetAuditLogsInput,
+  type PromotionStatusFilter,
   type Store,
 } from "../Store.ts";
 
@@ -154,6 +164,7 @@ export class PgStore implements Store {
   private menu: MenuItem[] = [];
   private categories: Category[] = [];
   private allCategories: Category[] = [];
+  private promotions: Promotion[] = [];
   private orders: Order[] = [];
   private auditLogs: AuditLog[] = [];
 
@@ -187,6 +198,108 @@ export class PgStore implements Store {
     return this.allCategories.filter((category) =>
       status === "active" ? category.isActive : !category.isActive,
     );
+  }
+
+  getPromotions(
+    input: { status?: PromotionStatusFilter } = {},
+  ): ReadonlyArray<Promotion> {
+    const status = input.status ?? "active";
+    if (status === "all") return this.promotions;
+    return this.promotions.filter((promotion) =>
+      status === "active" ? promotion.isActive : !promotion.isActive,
+    );
+  }
+
+  async createPromotion(input: {
+    code: string;
+    discountType: DiscountType;
+    discountValue: number;
+  }): Promise<Promotion> {
+    const code = normalizePromotionCode(input.code);
+    if (!code) throw new Error("Invalid promotion code");
+    if (!this.isDiscountValueValid(input.discountType, input.discountValue)) {
+      throw new Error("Invalid promotion");
+    }
+
+    const [inserted] = await db
+      .insert(promotionsTable)
+      .values({
+        code,
+        discountType: input.discountType,
+        discountValue: input.discountValue,
+      })
+      .returning();
+
+    if (!inserted) throw new Error("Failed to insert promotion");
+    await this.reloadFromDatabase();
+    return this.toPromotion(inserted);
+  }
+
+  async updatePromotion(
+    promotionId: number,
+    patch: {
+      code?: string;
+      discountType?: DiscountType;
+      discountValue?: number;
+      isActive?: boolean;
+    },
+  ): Promise<Promotion | null> {
+    const values: Partial<typeof promotionsTable.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+    if (patch.code !== undefined) {
+      const code = normalizePromotionCode(patch.code);
+      if (!code) throw new Error("Invalid promotion code");
+      values.code = code;
+    }
+    if (patch.discountType !== undefined) values.discountType = patch.discountType;
+    if (patch.discountValue !== undefined) values.discountValue = patch.discountValue;
+    if (patch.isActive !== undefined) values.isActive = patch.isActive;
+
+    const currentPromotion = this.promotions.find(
+      (promotion) => promotion.id === promotionId,
+    );
+    if (!currentPromotion) return null;
+    const nextDiscountType = patch.discountType ?? currentPromotion.discountType;
+    const nextDiscountValue =
+      patch.discountValue ?? currentPromotion.discountValue;
+    if (!this.isDiscountValueValid(nextDiscountType, nextDiscountValue)) {
+      throw new Error("Invalid promotion");
+    }
+
+    const [updated] = await db
+      .update(promotionsTable)
+      .set(values)
+      .where(eq(promotionsTable.id, promotionId))
+      .returning();
+
+    if (!updated) return null;
+    await this.reloadFromDatabase();
+    return this.toPromotion(updated);
+  }
+
+  async deletePromotion(promotionId: number): Promise<Promotion | null> {
+    const [updated] = await db
+      .update(promotionsTable)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(promotionsTable.id, promotionId))
+      .returning();
+
+    if (!updated) return null;
+    await this.reloadFromDatabase();
+    return this.toPromotion(updated);
+  }
+
+  previewPromotionDiscount(input: {
+    subtotal: number;
+    promoCode?: string | null;
+  }): PromotionDiscountPreview | null {
+    const promotion = this.findActivePromotion(input.promoCode);
+    if (input.promoCode && !promotion) return null;
+    return calculatePromotionDiscount({
+      subtotal: input.subtotal,
+      promotion,
+    });
   }
 
   async createMenuItem(input: {
@@ -664,7 +777,15 @@ export class PgStore implements Store {
 
     const [inserted] = await db
       .insert(ordersTable)
-      .values({ userId: input.userId, status: "pending", total: 0, createdAt })
+      .values({
+        userId: input.userId,
+        status: "pending",
+        subtotal: 0,
+        discountAmount: 0,
+        promoCode: null,
+        total: 0,
+        createdAt,
+      })
       .returning();
 
     if (!inserted) throw new Error("Failed to create order");
@@ -673,6 +794,9 @@ export class PgStore implements Store {
       id: inserted.id,
       userId: input.userId,
       items: [],
+      subtotal: inserted.subtotal ?? 0,
+      discountAmount: inserted.discountAmount ?? 0,
+      promoCode: inserted.promoCode ?? null,
       total: inserted.total,
       status: "pending",
       orderSource: "customer",
@@ -709,6 +833,7 @@ export class PgStore implements Store {
     pickupTime?: string | null;
     paymentMethod: PaymentMethod;
     paymentStatus?: PaymentStatus;
+    promoCode?: string | null;
   }): Promise<
     | { ok: true; order: Order }
     | {
@@ -717,7 +842,10 @@ export class PgStore implements Store {
           | "EMPTY_ORDER"
           | "MENU_ITEM_NOT_FOUND"
           | "MENU_VERSION_CHANGED"
-          | "MENU_ITEM_UNAVAILABLE";
+          | "MENU_ITEM_UNAVAILABLE"
+          | "PROMOTION_NOT_FOUND"
+          | "PROMOTION_INACTIVE"
+          | "INVALID_PROMOTION";
         itemName?: string;
       }
   > {
@@ -760,12 +888,21 @@ export class PgStore implements Store {
     const submittedAt = now.toISOString();
     const pickupTime = input.pickupTime ? new Date(input.pickupTime) : null;
     const paymentStatus = input.paymentStatus ?? "unpaid";
-    const total = calculateTotal(orderItems);
+    const subtotal = calculateTotal(orderItems);
+    const discount = this.calculateDiscountForPromoCode(
+      subtotal,
+      input.promoCode,
+    );
+    if (!discount.ok) return { ok: false, code: discount.code };
+    const { discountAmount, promoCode, total } = discount.preview;
 
     const [inserted] = await db
       .insert(ordersTable)
       .values({
         userId: input.staffUserId,
+        subtotal,
+        discountAmount,
+        promoCode,
         total,
         status: "submitted",
         orderSource: "walk_in",
@@ -804,6 +941,9 @@ export class PgStore implements Store {
       id: inserted.id,
       userId: input.staffUserId,
       items: orderItems,
+      subtotal,
+      discountAmount,
+      promoCode,
       total,
       status: "submitted",
       orderSource: "walk_in",
@@ -940,10 +1080,18 @@ export class PgStore implements Store {
       });
     }
 
-    order.total = calculateTotal(order.items);
+    order.subtotal = calculateTotal(order.items);
+    order.discountAmount = 0;
+    order.promoCode = null;
+    order.total = order.subtotal;
     await db
       .update(ordersTable)
-      .set({ total: order.total })
+      .set({
+        subtotal: order.subtotal,
+        discountAmount: order.discountAmount,
+        promoCode: order.promoCode,
+        total: order.total,
+      })
       .where(eq(ordersTable.id, orderId));
 
     return { ok: true, order };
@@ -979,6 +1127,7 @@ export class PgStore implements Store {
       pickupTime?: string | null;
       paymentMethod: PaymentMethod;
       paymentStatus?: PaymentStatus;
+      promoCode?: string | null;
     },
   ): Promise<
     | { ok: true; order: Order }
@@ -989,6 +1138,9 @@ export class PgStore implements Store {
           | "ORDER_NOT_OWNED"
           | "ORDER_NOT_EDITABLE"
           | "MENU_VERSION_CHANGED"
+          | "PROMOTION_NOT_FOUND"
+          | "PROMOTION_INACTIVE"
+          | "INVALID_PROMOTION"
           | "EMPTY_ORDER";
       }
   > {
@@ -1011,11 +1163,22 @@ export class PgStore implements Store {
     const submittedAt = new Date().toISOString();
     const pickupTime = input.pickupTime ? new Date(input.pickupTime) : null;
     const paymentStatus = input.paymentStatus ?? "unpaid";
+    const subtotal = calculateTotal(order.items);
+    const discount = this.calculateDiscountForPromoCode(
+      subtotal,
+      input.promoCode,
+    );
+    if (!discount.ok) return { ok: false, code: discount.code };
+    const { discountAmount, promoCode, total } = discount.preview;
 
     await db
       .update(ordersTable)
       .set({
         status: "submitted",
+        subtotal,
+        discountAmount,
+        promoCode,
+        total,
         submittedAt: new Date(submittedAt),
         fulfillmentType: input.fulfillmentType,
         customerNote: input.customerNote?.trim() || null,
@@ -1026,6 +1189,10 @@ export class PgStore implements Store {
       .where(eq(ordersTable.id, orderId));
 
     order.status = "submitted";
+    order.subtotal = subtotal;
+    order.discountAmount = discountAmount;
+    order.promoCode = promoCode;
+    order.total = total;
     order.submittedAt = submittedAt;
     order.fulfillmentType = input.fulfillmentType;
     order.customerNote = input.customerNote?.trim() || null;
@@ -1964,6 +2131,11 @@ export class PgStore implements Store {
       .from(menuItemsTable)
       .orderBy(asc(menuItemsTable.displayOrder), asc(menuItemsTable.id));
 
+    const promotionRows = await db
+      .select()
+      .from(promotionsTable)
+      .orderBy(asc(promotionsTable.code), asc(promotionsTable.id));
+
     const menuCategoryRows = await db
       .select({
         menuItemId: menuItemCategoriesTable.menuItemId,
@@ -2004,6 +2176,7 @@ export class PgStore implements Store {
 
     this.allCategories = categoryRows.map((row) => this.toCategory(row));
     this.categories = this.allCategories.filter((category) => category.isActive);
+    this.promotions = promotionRows.map((row) => this.toPromotion(row));
     this.auditLogs = auditLogRows
       .map((row) => this.toAuditLog(row))
       .filter((log): log is AuditLog => Boolean(log));
@@ -2074,6 +2247,9 @@ export class PgStore implements Store {
       id: row.id,
       userId: row.userId,
       items: itemsByOrderId.get(row.id) ?? [],
+      subtotal: row.subtotal > 0 ? row.subtotal : row.total,
+      discountAmount: row.discountAmount ?? 0,
+      promoCode: row.promoCode ?? null,
       total: row.total,
       status: toOrderStatus(row.status),
       orderSource: row.orderSource === "walk_in" ? "walk_in" : "customer",
@@ -2138,6 +2314,80 @@ export class PgStore implements Store {
         row.updatedAt instanceof Date
           ? row.updatedAt.toISOString()
           : new Date(row.updatedAt).toISOString(),
+    };
+  }
+
+  private toPromotion(row: typeof promotionsTable.$inferSelect): Promotion {
+    return {
+      id: row.id,
+      code: row.code,
+      discountType: row.discountType === "percent" ? "percent" : "fixed",
+      discountValue: row.discountValue,
+      isActive: row.isActive,
+      createdAt:
+        row.createdAt instanceof Date
+          ? row.createdAt.toISOString()
+          : new Date(row.createdAt).toISOString(),
+      updatedAt:
+        row.updatedAt instanceof Date
+          ? row.updatedAt.toISOString()
+          : new Date(row.updatedAt).toISOString(),
+    };
+  }
+
+  private isDiscountValueValid(
+    discountType: DiscountType,
+    discountValue: number,
+  ): boolean {
+    if (!Number.isInteger(discountValue) || discountValue <= 0) return false;
+    if (discountType === "percent") return discountValue <= 100;
+    return true;
+  }
+
+  private findPromotionByCode(code?: string | null): Promotion | null {
+    const normalizedCode = normalizePromotionCode(code);
+    if (!normalizedCode) return null;
+    return (
+      this.promotions.find((promotion) => promotion.code === normalizedCode) ??
+      null
+    );
+  }
+
+  private findActivePromotion(code?: string | null): Promotion | null {
+    const promotion = this.findPromotionByCode(code);
+    return promotion?.isActive ? promotion : null;
+  }
+
+  private calculateDiscountForPromoCode(
+    subtotal: number,
+    promoCode?: string | null,
+  ):
+    | { ok: true; preview: PromotionDiscountPreview }
+    | {
+        ok: false;
+        code:
+          | "PROMOTION_NOT_FOUND"
+          | "PROMOTION_INACTIVE"
+          | "INVALID_PROMOTION";
+      } {
+    const normalizedCode = normalizePromotionCode(promoCode);
+    if (!normalizedCode) {
+      return {
+        ok: true,
+        preview: calculatePromotionDiscount({ subtotal }),
+      };
+    }
+
+    const promotion = this.findPromotionByCode(normalizedCode);
+    if (!promotion) return { ok: false, code: "PROMOTION_NOT_FOUND" };
+    if (!promotion.isActive) return { ok: false, code: "PROMOTION_INACTIVE" };
+    if (!isPromotionValueValid(promotion)) {
+      return { ok: false, code: "INVALID_PROMOTION" };
+    }
+
+    return {
+      ok: true,
+      preview: calculatePromotionDiscount({ subtotal, promotion }),
     };
   }
 

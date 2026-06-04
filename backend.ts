@@ -21,6 +21,7 @@ import {
   categorySalesListResponseSchema,
   createCategoryBodySchema,
   createMenuItemBodySchema,
+  createPromotionBodySchema,
   createRoleRequestBodySchema,
   createWalkInOrderBodySchema,
   currentUserResponseSchema,
@@ -29,6 +30,7 @@ import {
   getCategoriesQuerySchema,
   getAdminRoleRequestsQuerySchema,
   getAuditLogsQuerySchema,
+  getPromotionsQuerySchema,
   getOrderByIdParamsSchema,
   healthResponseSchema,
   menuItemHistoryParamsSchema,
@@ -39,6 +41,9 @@ import {
   orderListResponseSchema,
   orderResponseEnvelopeSchema,
   priceSensitivityAnalyticsResponseSchema,
+  promotionListResponseSchema,
+  promotionParamsSchema,
+  promotionResponseSchema,
   removeMenuItemCategoryParamsSchema,
   reviewRoleRequestBodySchema,
   reviewRoleRequestParamsSchema,
@@ -64,6 +69,7 @@ import {
   updateOrderParamsSchema,
   updateOrderStatusBodySchema,
   updateOrderStatusParamsSchema,
+  updatePromotionBodySchema,
   updateUserRolesBodySchema,
   updateUserRolesParamsSchema,
   userRolesResponseSchema,
@@ -71,6 +77,7 @@ import {
 import type {
   AuditLogAction,
   AuditLogTargetType,
+  DiscountType,
   OrderIssueType,
   OrderStatus,
   Role,
@@ -245,6 +252,37 @@ function respondMenuVersionChanged(
     code: "MENU_VERSION_CHANGED" as const,
     ...(itemName ? { itemName } : {}),
   };
+}
+
+function normalizePromotionCodeForApi(code: string) {
+  return code.trim().toUpperCase();
+}
+
+function isPromotionDiscountValueValid(
+  discountType: DiscountType,
+  discountValue: number,
+) {
+  if (discountType === "percent") {
+    return discountValue >= 1 && discountValue <= 100;
+  }
+  return discountValue > 0;
+}
+
+function respondPromotionStoreError(
+  set: { status: number },
+  code: "PROMOTION_NOT_FOUND" | "PROMOTION_INACTIVE" | "INVALID_PROMOTION",
+) {
+  switch (code) {
+    case "PROMOTION_NOT_FOUND":
+      set.status = 404;
+      return { error: "Promotion code not found" };
+    case "PROMOTION_INACTIVE":
+      set.status = 409;
+      return { error: "Promotion code is inactive" };
+    case "INVALID_PROMOTION":
+      set.status = 400;
+      return { error: "Invalid promotion" };
+  }
 }
 
 function toVisibleOrderResponse(
@@ -582,6 +620,217 @@ app.delete(
     },
     response: {
       200: categoryResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
+// Promotions
+app.get(
+  "/api/admin/promotions",
+  async ({ query, request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const status =
+      (query as { status?: "active" | "inactive" | "all" }).status ?? "active";
+    return { data: [...store.getPromotions({ status })] };
+  },
+  {
+    query: getPromotionsQuerySchema,
+    detail: {
+      tags: ["admin"],
+      summary: "List promotions",
+      description: "Return promotion codes filtered by active state.",
+    },
+    response: {
+      200: promotionListResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.post(
+  "/api/admin/promotions",
+  async ({ body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const input = body as {
+      code: string;
+      discountType: DiscountType;
+      discountValue: number;
+    };
+    const code = normalizePromotionCodeForApi(input.code);
+    const duplicate = store
+      .getPromotions({ status: "all" })
+      .some((promotion) => promotion.code === code);
+    if (duplicate) {
+      set.status = 409;
+      return { error: "Promotion code already exists" };
+    }
+    if (!isPromotionDiscountValueValid(input.discountType, input.discountValue)) {
+      set.status = 400;
+      return { error: "Invalid promotion discount value" };
+    }
+
+    const promotion = await store.createPromotion({
+      code,
+      discountType: input.discountType,
+      discountValue: input.discountValue,
+    });
+
+    set.status = 201;
+    await writeAuditLog(user, {
+      action: "promotion_create",
+      targetType: "promotion",
+      targetId: String(promotion.id),
+      message: `Created promotion ${promotion.code}`,
+      metadata: {
+        code: promotion.code,
+        discountType: promotion.discountType,
+        discountValue: promotion.discountValue,
+      },
+    });
+    return { data: promotion };
+  },
+  {
+    body: createPromotionBodySchema,
+    detail: {
+      tags: ["admin"],
+      summary: "Create promotion",
+      description: "Create a promotion code for order checkout.",
+    },
+    response: {
+      201: promotionResponseSchema,
+      400: apiErrorResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      409: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.patch(
+  "/api/admin/promotions/:id",
+  async ({ params, body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const promotionId = Number.parseInt(params.id, 10);
+    const currentPromotion = store
+      .getPromotions({ status: "all" })
+      .find((promotion) => promotion.id === promotionId);
+    if (!currentPromotion) {
+      set.status = 404;
+      return { error: "Promotion not found" };
+    }
+
+    const patch = body as {
+      code?: string;
+      discountType?: DiscountType;
+      discountValue?: number;
+      isActive?: boolean;
+    };
+    if (patch.code !== undefined) {
+      const code = normalizePromotionCodeForApi(patch.code);
+      const duplicate = store
+        .getPromotions({ status: "all" })
+        .some(
+          (promotion) =>
+            promotion.id !== promotionId && promotion.code === code,
+        );
+      if (duplicate) {
+        set.status = 409;
+        return { error: "Promotion code already exists" };
+      }
+      patch.code = code;
+    }
+
+    const nextDiscountType = patch.discountType ?? currentPromotion.discountType;
+    const nextDiscountValue =
+      patch.discountValue ?? currentPromotion.discountValue;
+    if (!isPromotionDiscountValueValid(nextDiscountType, nextDiscountValue)) {
+      set.status = 400;
+      return { error: "Invalid promotion discount value" };
+    }
+
+    const promotion = await store.updatePromotion(promotionId, patch);
+    if (!promotion) {
+      set.status = 404;
+      return { error: "Promotion not found" };
+    }
+
+    await writeAuditLog(user, {
+      action: "promotion_update",
+      targetType: "promotion",
+      targetId: String(promotion.id),
+      message: `Updated promotion ${promotion.code}`,
+      metadata: {
+        patchKeys: Object.keys(patch),
+        code: promotion.code,
+        discountType: promotion.discountType,
+        discountValue: promotion.discountValue,
+        isActive: promotion.isActive,
+      },
+    });
+    return { data: promotion };
+  },
+  {
+    params: promotionParamsSchema,
+    body: updatePromotionBodySchema,
+    detail: {
+      tags: ["admin"],
+      summary: "Update promotion",
+      description: "Update a promotion code.",
+    },
+    response: {
+      200: promotionResponseSchema,
+      400: apiErrorResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+      409: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.delete(
+  "/api/admin/promotions/:id",
+  async ({ params, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+
+    const promotion = await store.deletePromotion(Number.parseInt(params.id, 10));
+    if (!promotion) {
+      set.status = 404;
+      return { error: "Promotion not found" };
+    }
+
+    await writeAuditLog(user, {
+      action: "promotion_delete",
+      targetType: "promotion",
+      targetId: String(promotion.id),
+      message: `Deactivated promotion ${promotion.code}`,
+      metadata: {
+        code: promotion.code,
+        isActive: promotion.isActive,
+      },
+    });
+    return { data: promotion };
+  },
+  {
+    params: promotionParamsSchema,
+    detail: {
+      tags: ["admin"],
+      summary: "Deactivate promotion",
+      description: "Soft deactivate a promotion code.",
+    },
+    response: {
+      200: promotionResponseSchema,
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
@@ -1064,6 +1313,7 @@ app.post(
       pickupTime?: string | null;
       paymentMethod: "cash" | "card" | "online";
       paymentStatus?: "unpaid" | "paid";
+      promoCode?: string | null;
     };
 
     const result = await store.createWalkInOrder({
@@ -1075,6 +1325,7 @@ app.post(
       pickupTime: input.pickupTime ?? null,
       paymentMethod: input.paymentMethod,
       paymentStatus: input.paymentStatus ?? "unpaid",
+      promoCode: input.promoCode ?? null,
     });
 
     if (result.ok === false) {
@@ -1090,6 +1341,10 @@ app.post(
         case "MENU_ITEM_UNAVAILABLE":
           set.status = 409;
           return { error: "Menu item is unavailable" };
+        case "PROMOTION_NOT_FOUND":
+        case "PROMOTION_INACTIVE":
+        case "INVALID_PROMOTION":
+          return respondPromotionStoreError(set, result.code);
         default:
           set.status = 500;
           return { error: "Unexpected store state" };
@@ -1643,6 +1898,7 @@ app.post(
       pickupTime?: string | null;
       paymentMethod: "cash" | "card" | "online";
       paymentStatus?: "unpaid" | "paid";
+      promoCode?: string | null;
     };
     const result = await store.submitOrder(orderId, {
       userId: user.id,
@@ -1651,6 +1907,7 @@ app.post(
       pickupTime: input.pickupTime ?? null,
       paymentMethod: input.paymentMethod,
       paymentStatus: input.paymentStatus ?? "unpaid",
+      promoCode: input.promoCode ?? null,
     });
 
     if (result.ok === false) {
@@ -1669,6 +1926,10 @@ app.post(
         case "EMPTY_ORDER":
           set.status = 400;
           return { error: "Empty order cannot be submitted" };
+        case "PROMOTION_NOT_FOUND":
+        case "PROMOTION_INACTIVE":
+        case "INVALID_PROMOTION":
+          return respondPromotionStoreError(set, result.code);
         default:
           set.status = 500;
           return { error: "Unexpected store state" };

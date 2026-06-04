@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import * as schema from "../db/auth-schema.ts";
 import type { Role, SessionUser } from "../shared/contracts.ts";
+import { getDemoUserFromCookie } from "./demo-users.ts";
 import { toSessionUser } from "./user-mapper.ts";
 
 // ─── Startup guard ────────────────────────────────────────────────────────────
@@ -67,7 +68,9 @@ export async function getCurrentUser(
   request: Request,
 ): Promise<SessionUser | null> {
   const session = await auth.api.getSession({ headers: request.headers });
-  if (!session?.user) return null;
+  if (!session?.user) {
+    return getDemoUserFromCookie(request);
+  }
 
   const [dbUser] = await db
     .select({ roles: schema.user.roles })

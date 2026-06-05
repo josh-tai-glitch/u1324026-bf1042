@@ -31,6 +31,42 @@ import toTaipeiDateTime from "../util.ts";
 
 export type { Order };
 
+const optionalIsoDateTimeSchema = z
+  .string()
+  .trim()
+  .optional()
+  .nullable()
+  .refine((value) => {
+    if (!value) return true;
+    const time = Date.parse(value);
+    return Number.isFinite(time);
+  }, "Invalid date time");
+
+const optionalGuestPhoneSchema = z
+  .string()
+  .trim()
+  .max(30)
+  .optional()
+  .nullable()
+  .refine((value) => {
+    if (!value) return true;
+    return /^[0-9+\-() ]{6,30}$/.test(value);
+  }, "Invalid phone number");
+
+const optionalImageUrlSchema = z
+  .string()
+  .trim()
+  .optional()
+  .nullable()
+  .refine((value) => {
+    if (!value) return true;
+    return (
+      value.startsWith("/") ||
+      value.startsWith("http://") ||
+      value.startsWith("https://")
+    );
+  }, "Image URL must start with /, http://, or https://");
+
 // ─── API Layer Error Response（API 層錯誤格式定義）────────────────────────
 
 // API error / response helpers
@@ -85,11 +121,11 @@ export function toOrderResponse(order: Order): OrderResponse {
 /** POST /api/menu */
 export const createMenuItemBodySchema = z.object({
   name: z.string().min(1),
-  price: z.number().int().min(0),
+  price: z.number().int().min(0).max(99999),
   category: z.string().min(1),
   primaryCategoryId: z.number().int().min(1).optional(),
   description: z.string().min(1),
-  image_url: z.string().min(1),
+  image_url: optionalImageUrlSchema.pipe(z.string().min(1)),
   isAvailable: z.boolean().optional(),
   abTestGroup: abTestGroupSchema.nullable().optional(),
 });
@@ -108,19 +144,19 @@ export const updateMenuItemDisplayOrderParamsSchema = z.object({
 });
 
 export const updateMenuItemDisplayOrderBodySchema = z.object({
-  displayOrder: z.number().int().min(0),
+  displayOrder: z.number().int().min(0).max(9999),
 });
 
 export const updateMenuItemBodySchema = z.object({
   name: z.string().min(1).optional(),
-  price: z.number().int().min(0).optional(),
+  price: z.number().int().min(0).max(99999).optional(),
   category: z.string().min(1).optional(),
   primaryCategoryId: z.number().int().min(1).nullable().optional(),
   description: z.string().min(1).optional(),
-  image_url: z.string().min(1).optional(),
+  image_url: optionalImageUrlSchema.optional(),
   isAvailable: z.boolean().optional(),
   abTestGroup: abTestGroupSchema.nullable().optional(),
-  changeReason: z.string().min(1).optional(),
+  changeReason: z.string().trim().min(1).max(500).optional(),
 });
 
 /** DELETE /api/menu/:id */
@@ -140,7 +176,7 @@ export const updateOrderParamsSchema = z.object({
 
 export const updateOrderBodySchema = z.object({
   itemId: z.number().int().min(1),
-  qty: z.number().min(0),
+  qty: z.number().int().min(0).max(99),
 });
 
 /** PATCH /api/orders/:id/status */
@@ -199,41 +235,41 @@ export const submitOrderParamsSchema = z.object({
 export const submitOrderBodySchema = z.object({
   fulfillmentType: fulfillmentTypeSchema.default("takeout"),
   customerNote: z.string().max(500).optional().nullable(),
-  pickupTime: z.string().optional().nullable(),
+  pickupTime: optionalIsoDateTimeSchema,
   paymentMethod: paymentMethodSchema.default("cash"),
   paymentStatus: paymentStatusSchema.optional(),
-  promoCode: z.string().trim().optional().nullable(),
+  promoCode: z.string().trim().max(32).optional().nullable(),
 });
 
 export const createWalkInOrderBodySchema = z.object({
   orderSource: z.enum(["walk_in", "phone"]).default("walk_in").optional(),
-  guestName: z.string().optional().nullable(),
-  guestPhone: z.string().trim().max(30).optional().nullable(),
+  guestName: z.string().trim().max(80).optional().nullable(),
+  guestPhone: optionalGuestPhoneSchema,
   items: z
     .array(
       z.object({
         itemId: z.number().int().min(1),
-        qty: z.number().int().min(1),
+        qty: z.number().int().min(1).max(99),
         menuItemVersion: z.number().int().min(1).optional(),
       }),
     )
     .min(1),
   fulfillmentType: fulfillmentTypeSchema.default("takeout"),
   customerNote: z.string().max(500).optional().nullable(),
-  pickupTime: z.string().optional().nullable(),
+  pickupTime: optionalIsoDateTimeSchema,
   paymentMethod: paymentMethodSchema.default("cash"),
   paymentStatus: paymentStatusSchema.optional(),
-  promoCode: z.string().trim().optional().nullable(),
+  promoCode: z.string().trim().max(32).optional().nullable(),
 });
 
 export const createPromotionBodySchema = z.object({
-  code: z.string().trim().min(1),
+  code: z.string().trim().min(1).max(32),
   discountType: discountTypeSchema,
   discountValue: z.number().int().positive(),
 });
 
 export const updatePromotionBodySchema = z.object({
-  code: z.string().trim().min(1).optional(),
+  code: z.string().trim().min(1).max(32).optional(),
   discountType: discountTypeSchema.optional(),
   discountValue: z.number().int().positive().optional(),
   isActive: z.boolean().optional(),
@@ -321,7 +357,7 @@ export const createCategoryBodySchema = z.object({
   name: z.string().min(1),
   slug: z.string().min(1),
   description: z.string().optional(),
-  displayOrder: z.number().int().optional(),
+  displayOrder: z.number().int().min(0).max(9999).optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -330,7 +366,7 @@ export const updateCategoryBodySchema = z.object({
   name: z.string().min(1).optional(),
   slug: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
-  displayOrder: z.number().int().optional(),
+  displayOrder: z.number().int().min(0).max(9999).optional(),
   isActive: z.boolean().optional(),
 });
 

@@ -3430,7 +3430,7 @@ export default function App() {
                         disabled={walkInBusy || walkInOrderItems.length === 0}
                         onClick={() => void submitWalkInOrder()}
                       >
-                        {walkInBusy ? "Creating..." : "Submit walk-in order"}
+                        {walkInBusy ? "Creating..." : "Submit staff order"}
                       </button>
                     </div>
                   </div>

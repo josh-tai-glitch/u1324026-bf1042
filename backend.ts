@@ -297,6 +297,13 @@ function respondPromotionStoreError(
   }
 }
 
+function maskPhoneNumber(phone?: string | null): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length <= 4) return "***";
+  return `***${digits.slice(-4)}`;
+}
+
 function ensureDemoEnabled(set: { status: number }) {
   if (!DEMO_AUTH_ENABLED) {
     set.status = 404;
@@ -1527,7 +1534,8 @@ app.post(
       metadata: {
         orderSource: result.order.orderSource,
         guestName: result.order.guestName,
-        guestPhone: result.order.guestPhone,
+        guestPhone: maskPhoneNumber(result.order.guestPhone),
+        hasGuestPhone: Boolean(result.order.guestPhone),
         itemCount: result.order.items.length,
         total: result.order.total,
         promoCode: result.order.promoCode,
@@ -1679,6 +1687,11 @@ app.patch(
 
     const input = body as { status: OrderStatus };
     const allowAnyTransition = hasAnyRole(user, menuManagerRoles);
+
+    if (input.status === "pending") {
+      set.status = 409;
+      return { error: "Order status cannot be changed back to pending" };
+    }
 
     if (input.status === "cancelled") {
       set.status = 409;

@@ -120,8 +120,12 @@ export const roleRequestSchema = z.object({
 export const auditLogActionSchema = z.enum([
   "role_update",
   "role_request_review",
+  "role_request_create",
   "menu_create",
   "menu_update",
+  "menu_availability_update",
+  "menu_display_order_update",
+  "menu_ab_test_update",
   "menu_delete",
   "category_create",
   "category_update",
@@ -134,9 +138,12 @@ export const auditLogActionSchema = z.enum([
   "order_status_update",
   "order_payment_update",
   "order_cancel",
+  "order_submit",
+  "order_rating_update",
   "order_issue_set",
   "order_issue_clear",
   "walk_in_order_create",
+  "phone_order_create",
 ]);
 
 export const auditLogTargetTypeSchema = z.enum([

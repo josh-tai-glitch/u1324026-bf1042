@@ -67,8 +67,12 @@ const analyticsRangeOptions = [
 const auditLogActionOptions: AuditLogAction[] = [
   "role_update",
   "role_request_review",
+  "role_request_create",
   "menu_create",
   "menu_update",
+  "menu_availability_update",
+  "menu_display_order_update",
+  "menu_ab_test_update",
   "menu_delete",
   "category_create",
   "category_update",
@@ -81,9 +85,12 @@ const auditLogActionOptions: AuditLogAction[] = [
   "order_status_update",
   "order_payment_update",
   "order_cancel",
+  "order_submit",
+  "order_rating_update",
   "order_issue_set",
   "order_issue_clear",
   "walk_in_order_create",
+  "phone_order_create",
 ];
 const auditLogTargetTypeOptions: AuditLogTargetType[] = [
   "user",
@@ -97,8 +104,12 @@ const auditLogTargetTypeOptions: AuditLogTargetType[] = [
 const auditLogActionLabels: Record<AuditLogAction, string> = {
   role_update: "Role updated",
   role_request_review: "Role request reviewed",
+  role_request_create: "Role request created",
   menu_create: "Menu created",
   menu_update: "Menu updated",
+  menu_availability_update: "Availability updated",
+  menu_display_order_update: "Display order updated",
+  menu_ab_test_update: "A/B test updated",
   menu_delete: "Menu deleted",
   category_create: "Category created",
   category_update: "Category updated",
@@ -111,9 +122,12 @@ const auditLogActionLabels: Record<AuditLogAction, string> = {
   order_status_update: "Order status updated",
   order_payment_update: "Payment updated",
   order_cancel: "Order cancelled",
+  order_submit: "Order submitted",
+  order_rating_update: "Rating updated",
   order_issue_set: "Issue set",
   order_issue_clear: "Issue cleared",
   walk_in_order_create: "Walk-in order created",
+  phone_order_create: "Phone order created",
 };
 const auditLogTargetTypeLabels: Record<AuditLogTargetType, string> = {
   user: "User",

@@ -1095,6 +1095,9 @@ app.patch(
       changedBy?: string;
     };
     patch.changedBy = user.id;
+    const previousMenuItem = store
+      .getMenu()
+      .find((item) => item.id === menuId);
     let menuItem;
     try {
       menuItem = await store.updateMenuItem(menuId, patch);
@@ -1111,20 +1114,30 @@ app.patch(
       return { error: "Menu item not found" };
     }
 
-    const availabilityMessage =
-      patch.isAvailable === undefined
-        ? `Updated menu item ${menuItem.name}`
-        : `Marked menu item ${menuItem.name} as ${
-            menuItem.is_available ? "available" : "sold out"
-          }`;
+    const auditAction: AuditLogAction =
+      patch.isAvailable !== undefined
+        ? "menu_availability_update"
+        : patch.abTestGroup !== undefined
+          ? "menu_ab_test_update"
+          : "menu_update";
+    const auditMessage =
+      auditAction === "menu_availability_update"
+        ? `Availability updated for ${menuItem.name}`
+        : auditAction === "menu_ab_test_update"
+          ? `A/B group updated for ${menuItem.name}`
+          : `Menu item updated: ${menuItem.name}`;
     await writeAuditLog(user, {
-      action: "menu_update",
+      action: auditAction,
       targetType: "menu_item",
       targetId: String(menuItem.id),
-      message: availabilityMessage,
+      message: auditMessage,
       metadata: {
         patchKeys: Object.keys(patch),
+        name: menuItem.name,
+        price: menuItem.price,
+        category: menuItem.category,
         isAvailable: menuItem.is_available,
+        previousAbTestGroup: previousMenuItem?.ab_test_group ?? null,
         abTestGroup: menuItem.ab_test_group,
         version: menuItem.version,
         versionMajor: menuItem.version_major,
@@ -1173,11 +1186,12 @@ app.patch(
     }
 
     await writeAuditLog(user, {
-      action: "menu_update",
+      action: "menu_display_order_update",
       targetType: "menu_item",
       targetId: String(menuItem.id),
-      message: `Updated display order for ${menuItem.name}`,
+      message: `Display order updated for ${menuItem.name}`,
       metadata: {
+        menuItemId: menuItem.id,
         displayOrder: menuItem.display_order,
         version: menuItem.version,
         menuItemGroupId: menuItem.menu_item_group_id,
@@ -1526,8 +1540,12 @@ app.post(
     set.status = 201;
     const sourceLabel =
       result.order.orderSource === "phone" ? "phone" : "walk-in";
+    const orderCreateAction: AuditLogAction =
+      result.order.orderSource === "phone"
+        ? "phone_order_create"
+        : "walk_in_order_create";
     await writeAuditLog(user, {
-      action: "walk_in_order_create",
+      action: orderCreateAction,
       targetType: "order",
       targetId: String(result.order.id),
       message: `Created ${sourceLabel} order #${result.order.id}`,
@@ -1537,6 +1555,8 @@ app.post(
         guestPhone: maskPhoneNumber(result.order.guestPhone),
         hasGuestPhone: Boolean(result.order.guestPhone),
         itemCount: result.order.items.length,
+        subtotal: result.order.subtotal,
+        discountAmount: result.order.discountAmount,
         total: result.order.total,
         promoCode: result.order.promoCode,
         fulfillmentType: result.order.fulfillmentType,
@@ -1995,6 +2015,16 @@ app.patch(
       }
     }
 
+    await writeAuditLog(user, {
+      action: "order_rating_update",
+      targetType: "order",
+      targetId: String(result.order.id),
+      message: `Rating updated for order #${result.order.id}`,
+      metadata: {
+        rating: input.rating,
+        hasRatingComment: Boolean(input.ratingComment),
+      },
+    });
     return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
@@ -2121,6 +2151,25 @@ app.post(
       }
     }
 
+    await writeAuditLog(user, {
+      action: "order_submit",
+      targetType: "order",
+      targetId: String(result.order.id),
+      message: `Order #${result.order.id} submitted by customer`,
+      metadata: {
+        itemCount: result.order.items.length,
+        subtotal: result.order.subtotal,
+        discountAmount: result.order.discountAmount,
+        total: result.order.total,
+        promoCode: result.order.promoCode,
+        fulfillmentType: result.order.fulfillmentType,
+        paymentMethod: result.order.paymentMethod,
+        paymentStatus: result.order.paymentStatus,
+        abTestGroup: result.order.abTestGroup,
+        orderSource: result.order.orderSource,
+        hasCustomerNote: Boolean(result.order.customerNote),
+      },
+    });
     return { data: toVisibleOrderResponse(result.order, user) };
   },
   {
@@ -2180,6 +2229,16 @@ app.post(
     }
 
     set.status = 201;
+    await writeAuditLog(user, {
+      action: "role_request_create",
+      targetType: "role_request",
+      targetId: String(created.id),
+      message: `${user.email} requested ${input.requestedRole} role`,
+      metadata: {
+        requestedRole: input.requestedRole,
+        hasReason: Boolean(input.reason),
+      },
+    });
     return { data: toRoleRequestResponse(created) };
   },
   {
@@ -2554,6 +2613,7 @@ app.patch(
         status: input.status,
         requestedRole: roleRequest.requestedRole,
         targetUserId: roleRequest.userId,
+        hasReviewNote: Boolean(input.reviewNote),
       },
     });
     return { data: toRoleRequestResponse(updated) };
@@ -2584,6 +2644,17 @@ app.patch(
     requireRole(admin, "admin");
     const input = body as { roles: Role[] };
 
+    const [existingUser] = await db
+      .select({ userId: authUser.id, roles: authUser.roles })
+      .from(authUser)
+      .where(eq(authUser.id, params.userId))
+      .limit(1);
+
+    if (!existingUser) {
+      set.status = 404;
+      return { error: "User not found" };
+    }
+
     const [updated] = await db
       .update(authUser)
       .set({ roles: input.roles, updatedAt: new Date() })
@@ -2600,7 +2671,10 @@ app.patch(
       targetType: "user",
       targetId: updated.userId,
       message: `Updated roles for user ${updated.userId}`,
-      metadata: { roles: input.roles },
+      metadata: {
+        previousRoles: existingUser.roles as Role[],
+        roles: input.roles,
+      },
     });
     return { data: { userId: updated.userId, roles: updated.roles as Role[] } };
   },

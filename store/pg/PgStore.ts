@@ -125,20 +125,30 @@ const nextOrderStatusByStatus: Partial<Record<OrderStatus, OrderStatus>> = {
 const validAuditLogActions = [
   "role_update",
   "role_request_review",
+  "role_request_create",
   "menu_create",
   "menu_update",
+  "menu_availability_update",
+  "menu_display_order_update",
+  "menu_ab_test_update",
   "menu_delete",
   "category_create",
   "category_update",
   "category_delete",
+  "promotion_create",
+  "promotion_update",
+  "promotion_delete",
   "menu_category_assign",
   "menu_category_remove",
   "order_status_update",
   "order_payment_update",
   "order_cancel",
+  "order_submit",
+  "order_rating_update",
   "order_issue_set",
   "order_issue_clear",
   "walk_in_order_create",
+  "phone_order_create",
 ] satisfies AuditLogAction[];
 
 const validAuditLogTargetTypes = [
@@ -146,6 +156,7 @@ const validAuditLogTargetTypes = [
   "role_request",
   "menu_item",
   "category",
+  "promotion",
   "menu_item_category",
   "order",
 ] satisfies AuditLogTargetType[];

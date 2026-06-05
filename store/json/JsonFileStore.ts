@@ -2,6 +2,8 @@ import { mkdir, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type {
   AuditLog,
+  AuditLogAction,
+  AuditLogTargetType,
   AbTestAnalyticsItem,
   AbTestGroup,
   AnalyticsInsights,
@@ -61,6 +63,45 @@ interface DataStore {
   orderIdCounter: number;
   auditLogIdCounter?: number;
 }
+
+const validAuditLogActions = [
+  "role_update",
+  "role_request_review",
+  "role_request_create",
+  "menu_create",
+  "menu_update",
+  "menu_availability_update",
+  "menu_display_order_update",
+  "menu_ab_test_update",
+  "menu_delete",
+  "category_create",
+  "category_update",
+  "category_delete",
+  "promotion_create",
+  "promotion_update",
+  "promotion_delete",
+  "menu_category_assign",
+  "menu_category_remove",
+  "order_status_update",
+  "order_payment_update",
+  "order_cancel",
+  "order_submit",
+  "order_rating_update",
+  "order_issue_set",
+  "order_issue_clear",
+  "walk_in_order_create",
+  "phone_order_create",
+] satisfies AuditLogAction[];
+
+const validAuditLogTargetTypes = [
+  "user",
+  "role_request",
+  "menu_item",
+  "category",
+  "promotion",
+  "menu_item_category",
+  "order",
+] satisfies AuditLogTargetType[];
 
 interface JsonFileStoreOptions {
   dataFilePath: string;
@@ -244,8 +285,14 @@ function normalizeAuditLog(log: Partial<AuditLog>): AuditLog {
           ["admin", "owner", "chef", "staff", "customer"].includes(role),
         ) as Role[])
       : [],
-    action: log.action ?? "menu_update",
-    targetType: log.targetType ?? "menu_item",
+    action: validAuditLogActions.includes(log.action as AuditLogAction)
+      ? (log.action as AuditLogAction)
+      : "menu_update",
+    targetType: validAuditLogTargetTypes.includes(
+      log.targetType as AuditLogTargetType,
+    )
+      ? (log.targetType as AuditLogTargetType)
+      : "menu_item",
     targetId: log.targetId ?? null,
     message: log.message ?? "",
     metadata:

@@ -293,6 +293,9 @@ export default function App() {
   const [editingMenuId, setEditingMenuId] = useState<number | null>(null);
   const [menuMessage, setMenuMessage] = useState("");
   const [menuBusy, setMenuBusy] = useState(false);
+  const [recentlyUpdatedMenuItemId, setRecentlyUpdatedMenuItemId] = useState<
+    number | null
+  >(null);
   const [categoryForm, setCategoryForm] =
     useState<CategoryForm>(emptyCategoryForm);
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(
@@ -300,6 +303,9 @@ export default function App() {
   );
   const [categoryMessage, setCategoryMessage] = useState("");
   const [categoryBusy, setCategoryBusy] = useState(false);
+  const [recentlyUpdatedCategoryId, setRecentlyUpdatedCategoryId] = useState<
+    number | null
+  >(null);
   const [categoryManagementItems, setCategoryManagementItems] = useState<
     Category[]
   >([]);
@@ -315,6 +321,9 @@ export default function App() {
     useState<PromotionStatusFilter>("active");
   const [promotionMessage, setPromotionMessage] = useState("");
   const [promotionBusy, setPromotionBusy] = useState(false);
+  const [recentlyUpdatedPromotionId, setRecentlyUpdatedPromotionId] = useState<
+    number | null
+  >(null);
   const [selectedCategoryByItemId, setSelectedCategoryByItemId] = useState<
     Record<number, string>
   >({});
@@ -558,6 +567,35 @@ export default function App() {
       return "Pickup time is invalid. Please choose a valid date and time.";
     }
 
+    return message;
+  }
+
+  function getMenuErrorToastMessage(message: string): string {
+    const normalizedMessage = message.toLowerCase();
+    if (normalizedMessage.includes("image") || normalizedMessage.includes("url")) {
+      return "Image URL must start with /, http://, or https://.";
+    }
+    if (normalizedMessage.includes("price")) {
+      return "Price must be a valid whole number.";
+    }
+    if (
+      normalizedMessage.includes("change reason") ||
+      normalizedMessage.includes("reason")
+    ) {
+      return "Change reason is too long or invalid.";
+    }
+    return message;
+  }
+
+  function getPromotionErrorToastMessage(message: string): string {
+    const normalizedMessage = message.toLowerCase();
+    if (
+      normalizedMessage.includes("duplicate") ||
+      normalizedMessage.includes("unique") ||
+      normalizedMessage.includes("already exists")
+    ) {
+      return "Promo code already exists. Please use a different code.";
+    }
     return message;
   }
 
@@ -944,6 +982,33 @@ export default function App() {
     window.setTimeout(() => {
       setRecentlyUpdatedOrderId((currentId) =>
         currentId === orderId ? null : currentId,
+      );
+    }, 3500);
+  }
+
+  function highlightMenuItem(itemId: number): void {
+    setRecentlyUpdatedMenuItemId(itemId);
+    window.setTimeout(() => {
+      setRecentlyUpdatedMenuItemId((currentId) =>
+        currentId === itemId ? null : currentId,
+      );
+    }, 3500);
+  }
+
+  function highlightCategory(categoryId: number): void {
+    setRecentlyUpdatedCategoryId(categoryId);
+    window.setTimeout(() => {
+      setRecentlyUpdatedCategoryId((currentId) =>
+        currentId === categoryId ? null : currentId,
+      );
+    }, 3500);
+  }
+
+  function highlightPromotion(promotionId: number): void {
+    setRecentlyUpdatedPromotionId(promotionId);
+    window.setTimeout(() => {
+      setRecentlyUpdatedPromotionId((currentId) =>
+        currentId === promotionId ? null : currentId,
       );
     }, 3500);
   }
@@ -2460,16 +2525,21 @@ export default function App() {
       }
 
       const payload = (await response.json()) as ApiDataResponse<MenuItem[]>;
+      const history = Array.isArray(payload?.data) ? payload.data : [];
       setMenuHistoryByItemId((currentHistory) => ({
         ...currentHistory,
-        [item.id]: Array.isArray(payload?.data) ? payload.data : [],
+        [item.id]: history,
       }));
+      if (history.length > 0) {
+        notifyInfo(`Loaded version history for ${item.name}.`);
+      }
     } catch (historyError) {
-      setMenuMessage(
+      const message =
         historyError instanceof Error
           ? historyError.message
-          : "Unable to load menu history.",
-      );
+          : "Unable to load menu history.";
+      setMenuMessage(message);
+      notifyError(message);
     } finally {
       setMenuHistoryLoadingId(null);
     }
@@ -2484,6 +2554,7 @@ export default function App() {
     );
     if (!Number.isFinite(value) || value < 0) {
       setMenuMessage("Display order must be a non-negative number.");
+      notifyWarning("Display order must be a non-negative number.");
       return;
     }
 
@@ -2521,12 +2592,15 @@ export default function App() {
         return nextDrafts;
       });
       setMenuMessage(`Display order updated for ${updated.name}.`);
+      highlightMenuItem(updated.id);
+      notifySuccess("Display order updated.");
     } catch (displayOrderError) {
-      setMenuMessage(
+      const message =
         displayOrderError instanceof Error
           ? displayOrderError.message
-          : "Unable to update display order.",
-      );
+          : "Unable to update display order.";
+      setMenuMessage(message);
+      notifyError(message);
     } finally {
       setDisplayOrderUpdatingId(null);
     }
@@ -2612,15 +2686,24 @@ export default function App() {
         throw new Error(await readApiError(response));
       }
 
+      const payload = (await response.json()) as ApiDataResponse<MenuItem>;
+      const savedItem = payload?.data;
       await Promise.all([loadMenu(), loadCategories()]);
       resetMenuForm();
       setMenuMessage(editingMenuId ? "Menu item updated." : "Menu item added.");
-      notifySuccess("Menu item saved.");
+      if (savedItem) {
+        highlightMenuItem(savedItem.id);
+      }
+      notifySuccess(
+        editingMenuId
+          ? `Menu item ${savedItem?.name ?? body.name} updated.`
+          : `Menu item ${savedItem?.name ?? body.name} created.`,
+      );
     } catch (menuError) {
       const message =
         menuError instanceof Error ? menuError.message : "Menu update failed.";
       setMenuMessage(message);
-      notifyError(message);
+      notifyError(getMenuErrorToastMessage(message));
     } finally {
       setMenuBusy(false);
     }
@@ -2628,7 +2711,13 @@ export default function App() {
 
   async function deleteMenuItem(item: MenuItem) {
     if (!canManageMenu) return;
-    if (!window.confirm(`Delete ${item.name}?`)) return;
+    if (
+      !window.confirm(
+        `Delete menu item "${item.name}"? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
 
     setMenuBusy(true);
     setMenuMessage("");
@@ -2644,11 +2733,13 @@ export default function App() {
 
       await Promise.all([loadMenu(), loadCategories()]);
       setMenuMessage("Menu item deleted.");
+      notifySuccess(`Menu item ${item.name} deleted.`);
       if (editingMenuId === item.id) resetMenuForm();
     } catch (menuError) {
-      setMenuMessage(
-        menuError instanceof Error ? menuError.message : "Delete failed.",
-      );
+      const message =
+        menuError instanceof Error ? menuError.message : "Delete failed.";
+      setMenuMessage(message);
+      notifyError(message);
     } finally {
       setMenuBusy(false);
     }
@@ -2676,16 +2767,27 @@ export default function App() {
         throw new Error(await readApiError(response));
       }
 
+      const payload = (await response.json()) as ApiDataResponse<MenuItem>;
+      const updatedItem = payload?.data;
       await loadMenu();
       setMenuMessage(
         item.is_available ? "Menu item marked sold out." : "Menu item available.",
       );
+      if (updatedItem) {
+        highlightMenuItem(updatedItem.id);
+      }
+      notifySuccess(
+        item.is_available
+          ? "Menu item marked sold out."
+          : "Menu item marked available.",
+      );
     } catch (menuError) {
-      setMenuMessage(
+      const message =
         menuError instanceof Error
           ? menuError.message
-          : "Availability update failed.",
-      );
+          : "Availability update failed.";
+      setMenuMessage(message);
+      notifyError(message);
     } finally {
       setMenuBusy(false);
     }
@@ -2745,6 +2847,8 @@ export default function App() {
         throw new Error(await readApiError(response));
       }
 
+      const payload = (await response.json()) as ApiDataResponse<Category>;
+      const savedCategory = payload?.data;
       await Promise.all([
         loadCategories(),
         loadCategoryManagementItems(categoryManagementStatusFilter),
@@ -2754,12 +2858,21 @@ export default function App() {
       setCategoryMessage(
         editingCategoryId ? "Category updated." : "Category created.",
       );
+      if (savedCategory) {
+        highlightCategory(savedCategory.id);
+      }
+      notifySuccess(
+        editingCategoryId
+          ? `Category ${savedCategory?.name ?? body.name} updated.`
+          : `Category ${savedCategory?.name ?? body.name} created.`,
+      );
     } catch (categoryError) {
-      setCategoryMessage(
+      const message =
         categoryError instanceof Error
           ? categoryError.message
-          : "Category update failed.",
-      );
+          : "Category update failed.";
+      setCategoryMessage(message);
+      notifyError(message);
     } finally {
       setCategoryBusy(false);
     }
@@ -2767,7 +2880,13 @@ export default function App() {
 
   async function deactivateCategory(category: Category) {
     if (!canManageMenu) return;
-    if (!window.confirm(`Deactivate ${category.name}?`)) return;
+    if (
+      !window.confirm(
+        `Deactivate category "${category.name}"? Items may still keep historical category data.`,
+      )
+    ) {
+      return;
+    }
 
     setCategoryBusy(true);
     setCategoryMessage("");
@@ -2787,13 +2906,16 @@ export default function App() {
         loadMenu(),
       ]);
       setCategoryMessage("Category deactivated.");
+      highlightCategory(category.id);
+      notifySuccess(`Category ${category.name} deactivated.`);
       if (editingCategoryId === category.id) resetCategoryForm();
     } catch (categoryError) {
-      setCategoryMessage(
+      const message =
         categoryError instanceof Error
           ? categoryError.message
-          : "Category deactivate failed.",
-      );
+          : "Category deactivate failed.";
+      setCategoryMessage(message);
+      notifyError(message);
     } finally {
       setCategoryBusy(false);
     }
@@ -2822,13 +2944,16 @@ export default function App() {
         loadMenu(),
       ]);
       setCategoryMessage("Category reactivated.");
+      highlightCategory(category.id);
+      notifySuccess(`Category ${category.name} reactivated.`);
       if (editingCategoryId === category.id) resetCategoryForm();
     } catch (categoryError) {
-      setCategoryMessage(
+      const message =
         categoryError instanceof Error
           ? categoryError.message
-          : "Category reactivate failed.",
-      );
+          : "Category reactivate failed.";
+      setCategoryMessage(message);
+      notifyError(message);
     } finally {
       setCategoryBusy(false);
     }
@@ -2893,19 +3018,28 @@ export default function App() {
         throw new Error(await readApiError(response));
       }
 
+      const payload = (await response.json()) as ApiDataResponse<Promotion>;
+      const savedPromotion = payload?.data;
       await loadPromotions(promotionStatusFilter);
       resetPromotionForm();
       setPromotionMessage(
         editingPromotionId ? "Promotion updated." : "Promotion created.",
       );
-      notifySuccess("Promo code saved.");
+      if (savedPromotion) {
+        highlightPromotion(savedPromotion.id);
+      }
+      notifySuccess(
+        editingPromotionId
+          ? `Promo code ${savedPromotion?.code ?? promotionForm.code} updated.`
+          : `Promo code ${savedPromotion?.code ?? promotionForm.code} created.`,
+      );
     } catch (promotionError) {
       const message =
         promotionError instanceof Error
           ? promotionError.message
           : "Promotion save failed.";
       setPromotionMessage(message);
-      notifyError(message);
+      notifyError(getPromotionErrorToastMessage(message));
     } finally {
       setPromotionBusy(false);
     }
@@ -2913,6 +3047,14 @@ export default function App() {
 
   async function setPromotionActive(promotion: Promotion, isActive: boolean) {
     if (!canManageMenu) return;
+    if (
+      !isActive &&
+      !window.confirm(
+        `Deactivate promo code ${promotion.code}? Customers will no longer be able to use it.`,
+      )
+    ) {
+      return;
+    }
 
     setPromotionBusy(true);
     setPromotionMessage("");
@@ -2933,17 +3075,26 @@ export default function App() {
         throw new Error(await readApiError(response));
       }
 
+      const payload = (await response.json()) as ApiDataResponse<Promotion>;
+      const updatedPromotion = payload?.data;
       await loadPromotions(promotionStatusFilter);
       setPromotionMessage(
         isActive ? "Promotion reactivated." : "Promotion deactivated.",
       );
+      highlightPromotion(updatedPromotion?.id ?? promotion.id);
+      notifySuccess(
+        isActive
+          ? `Promo code ${promotion.code} reactivated.`
+          : `Promo code ${promotion.code} deactivated.`,
+      );
       if (editingPromotionId === promotion.id && !isActive) resetPromotionForm();
     } catch (promotionError) {
-      setPromotionMessage(
+      const message =
         promotionError instanceof Error
           ? promotionError.message
-          : "Promotion update failed.",
-      );
+          : "Promotion update failed.";
+      setPromotionMessage(message);
+      notifyError(getPromotionErrorToastMessage(message));
     } finally {
       setPromotionBusy(false);
     }
@@ -2954,6 +3105,7 @@ export default function App() {
     const categoryId = Number(selectedCategoryByItemId[item.id]);
     if (!categoryId) {
       setMenuMessage("Select a category first.");
+      notifyWarning("Select a category first.");
       return;
     }
 
@@ -2973,12 +3125,15 @@ export default function App() {
 
       await loadMenu();
       setMenuMessage("Category assigned to item.");
+      highlightMenuItem(item.id);
+      notifySuccess("Category assigned to menu item.");
     } catch (assignError) {
-      setMenuMessage(
+      const message =
         assignError instanceof Error
           ? assignError.message
-          : "Category assignment failed.",
-      );
+          : "Category assignment failed.";
+      setMenuMessage(message);
+      notifyError(message);
     } finally {
       setMenuBusy(false);
     }
@@ -2986,6 +3141,7 @@ export default function App() {
 
   async function removeCategoryFromItem(item: MenuItem, category: Category) {
     if (!canManageMenu) return;
+    if (!window.confirm("Remove this category from the menu item?")) return;
 
     setMenuBusy(true);
     setMenuMessage("");
@@ -3004,12 +3160,15 @@ export default function App() {
 
       await loadMenu();
       setMenuMessage("Category removed from item.");
+      highlightMenuItem(item.id);
+      notifySuccess("Category removed from menu item.");
     } catch (removeError) {
-      setMenuMessage(
+      const message =
         removeError instanceof Error
           ? removeError.message
-          : "Category removal failed.",
-      );
+          : "Category removal failed.";
+      setMenuMessage(message);
+      notifyError(message);
     } finally {
       setMenuBusy(false);
     }
@@ -5498,7 +5657,14 @@ export default function App() {
                     </thead>
                     <tbody>
                       {categoryManagementItems.map((category) => (
-                        <tr key={category.id}>
+                        <tr
+                          key={category.id}
+                          className={
+                            category.id === recentlyUpdatedCategoryId
+                              ? "bg-primary/10"
+                              : ""
+                          }
+                        >
                           <td>{category.name}</td>
                           <td>{category.slug}</td>
                           <td>{category.description || ""}</td>
@@ -5678,7 +5844,14 @@ export default function App() {
                     </thead>
                     <tbody>
                       {promotions.map((promotion) => (
-                        <tr key={promotion.id}>
+                        <tr
+                          key={promotion.id}
+                          className={
+                            promotion.id === recentlyUpdatedPromotionId
+                              ? "bg-primary/10"
+                              : ""
+                          }
+                        >
                           <td className="font-semibold">{promotion.code}</td>
                           <td>
                             {promotion.discountType === "percent"
@@ -5759,7 +5932,11 @@ export default function App() {
                 {(grouped.groupedItems[category] || []).map((item) => (
                   <div
                     key={item.id}
-                    className="card bg-base-100 shadow-md hover:shadow-lg transition-shadow"
+                    className={`card bg-base-100 shadow-md hover:shadow-lg transition ${
+                      item.id === recentlyUpdatedMenuItemId
+                        ? "border border-primary ring-2 ring-primary bg-primary/5"
+                        : ""
+                    }`}
                   >
                     <figure className="h-44 overflow-hidden bg-base-300">
                       <img

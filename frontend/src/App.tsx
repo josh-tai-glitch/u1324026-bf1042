@@ -536,6 +536,28 @@ export default function App() {
     showToast("info", message);
   }
 
+  function getCheckoutErrorToastMessage(message: string): string {
+    const normalizedMessage = message.toLowerCase();
+    if (
+      normalizedMessage.includes("promotion") ||
+      normalizedMessage.includes("promo") ||
+      normalizedMessage.includes("code") ||
+      normalizedMessage.includes("inactive")
+    ) {
+      return "Promo code could not be applied. Please check the code and try again.";
+    }
+
+    if (
+      normalizedMessage.includes("pickup") ||
+      normalizedMessage.includes("date") ||
+      normalizedMessage.includes("time")
+    ) {
+      return "Pickup time is invalid. Please choose a valid date and time.";
+    }
+
+    return message;
+  }
+
   function getToastAlertClass(type: ToastType): string {
     switch (type) {
       case "success":
@@ -875,6 +897,7 @@ export default function App() {
 
     if (!printWindow) {
       setStatusMessage("Unable to open print window.");
+      notifyError("Unable to open print window.");
       return;
     }
 
@@ -897,6 +920,7 @@ export default function App() {
     printWindow.document.close();
     printWindow.focus();
     printWindow.print();
+    notifyInfo("Receipt opened for printing.");
   }
 
   function getOrderAgeMinutes(order: Order): number {
@@ -1747,7 +1771,7 @@ export default function App() {
           nextQty,
         );
         syncCartFromOrder(updatedOrder);
-        notifySuccess("Added to cart.");
+        notifySuccess(`Added ${item.name} to cart. Cart quantity: ${nextQty}.`);
       } catch (firstTryError) {
         const firstTryMessage =
           firstTryError instanceof Error ? firstTryError.message : "";
@@ -1772,7 +1796,9 @@ export default function App() {
             retryQty,
           );
           syncCartFromOrder(retriedOrder);
-          notifySuccess("Added to cart.");
+          notifySuccess(
+            `Added ${item.name} to cart. Cart quantity: ${retryQty}.`,
+          );
           return;
         }
 
@@ -1783,6 +1809,7 @@ export default function App() {
         cartError instanceof Error &&
         cartError.message.startsWith("Auth expired:")
       ) {
+        notifyError("Your session expired. Please sign in again.");
         return;
       }
 
@@ -1792,7 +1819,7 @@ export default function App() {
         await refreshMenuAndCurrentOrderAfterVersionConflict(message);
         notifyWarning("Menu changed. Please refresh your cart.");
       } else {
-        setActionError("Unable to update cart.");
+        setActionError(message);
         notifyError(message);
       }
       console.error(cartError);
@@ -1814,22 +1841,27 @@ export default function App() {
         Math.max(0, qty),
       );
       syncCartFromOrder(updatedOrder);
+      notifySuccess(qty > 0 ? "Cart quantity updated." : "Item removed from cart.");
     } catch (cartError) {
       if (
         cartError instanceof Error &&
         cartError.message.startsWith("Auth expired:")
       ) {
+        notifyError("Your session expired. Please sign in again.");
         return;
       }
 
-      setActionError(
-        cartError instanceof Error ? cartError.message : "Unable to update cart.",
-      );
+      const message =
+        cartError instanceof Error ? cartError.message : "Unable to update cart.";
+      setActionError(message);
       if (
         cartError instanceof Error &&
         isMenuVersionChangedMessage(cartError.message)
       ) {
         await refreshMenuAndCurrentOrderAfterVersionConflict(cartError.message);
+        notifyWarning("Menu changed. Please refresh your cart.");
+      } else {
+        notifyError(message);
       }
       console.error(cartError);
     } finally {
@@ -1839,6 +1871,7 @@ export default function App() {
 
   async function clearCart(): Promise<void> {
     if (!user || orderId === null || cartDetails.length === 0) return;
+    if (!window.confirm("Clear all items from cart?")) return;
 
     setActionError("");
     setIsClearingCart(true);
@@ -1862,8 +1895,12 @@ export default function App() {
 
       setCartQtyByItemId({});
       setCartTotal(0);
+      notifySuccess("Cart cleared.");
     } catch (clearError) {
-      setActionError("Unable to clear cart.");
+      const message =
+        clearError instanceof Error ? clearError.message : "Unable to clear cart.";
+      setActionError(message);
+      notifyError(message);
       console.error(clearError);
     } finally {
       setIsClearingCart(false);
@@ -1901,6 +1938,8 @@ export default function App() {
         throw new Error(`Submit order failed: ${formatApiErrorDetails(details)}`);
       }
 
+      const payload = (await response.json()) as ApiDataResponse<Order>;
+      const submittedOrder = payload?.data;
       resetCartState();
       setCheckoutForm(emptyCheckoutForm);
       setIsCartOpen(false);
@@ -1909,7 +1948,11 @@ export default function App() {
         "Order submitted. Check your pickup number, payment status, and receipt in Order history.",
       );
       notifySuccess(
-        "Order submitted. Check Order history for pickup number and receipt.",
+        submittedOrder
+          ? `Order submitted. Pickup number: ${formatPickupNumber(
+              submittedOrder.id,
+            )}.`
+          : "Order submitted. Check Order history for pickup number and receipt.",
       );
       ordersSectionRef.current?.scrollIntoView({
         behavior: "smooth",
@@ -1924,8 +1967,8 @@ export default function App() {
         await refreshMenuAndCurrentOrderAfterVersionConflict(message);
         notifyWarning("Menu changed. Please refresh your cart.");
       } else {
-        setActionError("Unable to submit order.");
-        notifyError(message);
+        setActionError(message);
+        notifyError(getCheckoutErrorToastMessage(message));
       }
       console.error(submitError);
     } finally {
@@ -2062,16 +2105,18 @@ export default function App() {
         ),
       );
       setStatusMessage(`Order #${updatedOrder.id} cancelled.`);
+      notifySuccess(`Order #${updatedOrder.id} cancelled.`);
 
       if (canManageMenu) {
         await loadAnalytics();
       }
     } catch (cancelError) {
-      setStatusMessage(
+      const message =
         cancelError instanceof Error
           ? cancelError.message
-          : "Unable to cancel order.",
-      );
+          : "Unable to cancel order.";
+      setStatusMessage(message);
+      notifyError(message);
     } finally {
       setCancelUpdatingOrderId(null);
     }
@@ -2181,6 +2226,7 @@ export default function App() {
     const rating = Number(draft.rating);
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
       setStatusMessage("Choose a rating from 1 to 5.");
+      notifyWarning("Choose a rating from 1 to 5.");
       return;
     }
 
@@ -2224,12 +2270,14 @@ export default function App() {
         },
       }));
       setStatusMessage(`Order #${updatedOrder.id} rating saved.`);
+      notifySuccess("Rating saved.");
     } catch (ratingError) {
-      setStatusMessage(
+      const message =
         ratingError instanceof Error
           ? ratingError.message
-          : "Unable to update rating.",
-      );
+          : "Unable to update rating.";
+      setStatusMessage(message);
+      notifyError(message);
     } finally {
       setRatingUpdatingOrderId(null);
     }

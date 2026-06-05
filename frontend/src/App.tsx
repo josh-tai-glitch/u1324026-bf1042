@@ -413,6 +413,8 @@ export default function App() {
   const [adminReviewBusyId, setAdminReviewBusyId] = useState<number | null>(
     null,
   );
+  const [recentlyUpdatedRoleRequestId, setRecentlyUpdatedRoleRequestId] =
+    useState<number | null>(null);
   const [adminReviewNotes, setAdminReviewNotes] = useState<
     Record<number, string>
   >({});
@@ -597,6 +599,15 @@ export default function App() {
       return "Promo code already exists. Please use a different code.";
     }
     return message;
+  }
+
+  function isInvalidCustomDateRange(
+    range: AnalyticsRange | AuditLogRange,
+    startDate: string,
+    endDate: string,
+  ): boolean {
+    if (range !== "custom" || !startDate || !endDate) return false;
+    return new Date(startDate).getTime() > new Date(endDate).getTime();
   }
 
   function getToastAlertClass(type: ToastType): string {
@@ -1013,6 +1024,15 @@ export default function App() {
     }, 3500);
   }
 
+  function highlightRoleRequest(requestId: number): void {
+    setRecentlyUpdatedRoleRequestId(requestId);
+    window.setTimeout(() => {
+      setRecentlyUpdatedRoleRequestId((currentId) =>
+        currentId === requestId ? null : currentId,
+      );
+    }, 3500);
+  }
+
   // Data loading helpers
   const loadMenu = useCallback(async () => {
     const response = await fetch(buildApiUrl("/api/menu"));
@@ -1284,12 +1304,15 @@ export default function App() {
       setAbTestAnalytics(
         Array.isArray(abTestPayload?.data) ? abTestPayload.data : [],
       );
+      return true;
     } catch (analyticsError) {
-      setAnalyticsMessage(
+      const message =
         analyticsError instanceof Error
           ? analyticsError.message
-          : "Unable to load analytics.",
-      );
+          : "Unable to load analytics.";
+      setAnalyticsMessage(message);
+      notifyError(message);
+      return false;
     } finally {
       setAnalyticsLoading(false);
     }
@@ -1301,23 +1324,42 @@ export default function App() {
   ]);
 
   function applyAnalyticsDateRange() {
+    if (
+      isInvalidCustomDateRange(
+        analyticsRange,
+        analyticsStartDate,
+        analyticsEndDate,
+      )
+    ) {
+      setAnalyticsMessage("Choose a valid analytics date range.");
+      notifyWarning("Choose a valid analytics date range.");
+      return;
+    }
+
     const nextFilters = {
       range: analyticsRange,
       startDate: analyticsStartDate,
       endDate: analyticsEndDate,
     };
-    const isUnchanged =
-      appliedAnalyticsRange === nextFilters.range &&
-      appliedAnalyticsStartDate === nextFilters.startDate &&
-      appliedAnalyticsEndDate === nextFilters.endDate;
 
     setAppliedAnalyticsRange(nextFilters.range);
     setAppliedAnalyticsStartDate(nextFilters.startDate);
     setAppliedAnalyticsEndDate(nextFilters.endDate);
 
-    if (isUnchanged) {
-      void loadAnalytics(nextFilters);
-    }
+    void loadAnalytics(nextFilters).then((updated) => {
+      if (!updated) return;
+      notifyInfo(
+        nextFilters.range === "custom"
+          ? "Analytics updated for selected date range."
+          : `Analytics updated for ${formatAnalyticsRangeLabel(nextFilters)}.`,
+      );
+    });
+  }
+
+  function refreshAnalyticsWithToast(): void {
+    void loadAnalytics().then((updated) => {
+      if (updated) notifyInfo("Analytics updated.");
+    });
   }
 
   // Audit log loading helpers
@@ -1355,12 +1397,15 @@ export default function App() {
 
       const payload = (await response.json()) as ApiDataResponse<AuditLog[]>;
       setAuditLogs(Array.isArray(payload?.data) ? payload.data : []);
+      return true;
     } catch (auditError) {
-      setAuditLogsMessage(
+      const message =
         auditError instanceof Error
           ? auditError.message
-          : "Unable to load audit logs.",
-      );
+          : "Unable to load audit logs.";
+      setAuditLogsMessage(message);
+      notifyError(message);
+      return false;
     } finally {
       setAuditLogsLoading(false);
     }
@@ -1375,6 +1420,36 @@ export default function App() {
     auditLogTargetTypeFilter,
     canManageMenu,
   ]);
+
+  function refreshAuditLogsWithToast(): void {
+    if (
+      isInvalidCustomDateRange(
+        auditLogRange,
+        auditLogStartDate,
+        auditLogEndDate,
+      )
+    ) {
+      setAuditLogsMessage("Choose a valid audit log date range.");
+      notifyWarning("Choose a valid audit log date range.");
+      return;
+    }
+
+    void loadAuditLogs().then((updated) => {
+      if (updated) notifyInfo("Audit logs updated.");
+    });
+  }
+
+  function resetAuditLogFilters(): void {
+    setAuditLogActionFilter("");
+    setAuditLogTargetTypeFilter("");
+    setAuditLogLimit("50");
+    setAuditLogRange("all");
+    setAuditLogStartDate("");
+    setAuditLogEndDate("");
+    setAuditLogActorFilter("");
+    setAuditLogTargetIdFilter("");
+    notifyInfo("Audit log filters reset.");
+  }
 
   // Effects
   useEffect(() => {
@@ -1731,8 +1806,13 @@ export default function App() {
       }
 
       window.location.href = payload.url;
-    } catch {
+    } catch (signInError) {
+      const message =
+        signInError instanceof Error
+          ? signInError.message
+          : "Google sign-in failed. Please try again.";
       setAuthError("Google sign-in failed. Please try again.");
+      notifyError(message);
       setIsGoogleSigningIn(false);
     }
   }
@@ -1809,11 +1889,14 @@ export default function App() {
         credentials: "include",
       });
       if (!res.ok) {
-        setActionError(`Sign out failed: ${await readApiError(res)}`);
+        const message = `Sign out failed: ${await readApiError(res)}`;
+        setActionError(message);
+        notifyError("Sign out failed. Please try again.");
         return;
       }
     } catch {
       setActionError("Sign out failed. Please try again.");
+      notifyError("Sign out failed. Please try again.");
       return;
     }
     setUser(null);
@@ -3177,6 +3260,11 @@ export default function App() {
   async function submitRoleRequest(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!user) return;
+    if (roleRequestReason.trim().length === 0) {
+      setRoleRequestMessage("Please explain why you need this role.");
+      notifyWarning("Please explain why you need this role.");
+      return;
+    }
 
     setRoleRequestBusy(true);
     setRoleRequestMessage("");
@@ -3197,12 +3285,21 @@ export default function App() {
 
       setRoleRequestReason("");
       setRoleRequestMessage("Role request submitted.");
+      notifySuccess("Role request submitted.");
     } catch (requestError) {
-      setRoleRequestMessage(
+      const message =
         requestError instanceof Error
           ? requestError.message
-          : "Role request failed.",
-      );
+          : "Role request failed.";
+      const isPendingRequestError =
+        message.toLowerCase().includes("pending") ||
+        message.toLowerCase().includes("duplicate");
+      setRoleRequestMessage(message);
+      if (isPendingRequestError) {
+        notifyWarning("You already have a pending role request.");
+      } else {
+        notifyError(message);
+      }
     } finally {
       setRoleRequestBusy(false);
     }
@@ -3236,10 +3333,17 @@ export default function App() {
 
       await loadAdminRoleRequests();
       setAdminMessage(`Request ${status}.`);
-    } catch (reviewError) {
-      setAdminMessage(
-        reviewError instanceof Error ? reviewError.message : "Review failed.",
+      highlightRoleRequest(requestId);
+      notifySuccess(
+        status === "approved"
+          ? "Role request approved."
+          : "Role request rejected.",
       );
+    } catch (reviewError) {
+      const message =
+        reviewError instanceof Error ? reviewError.message : "Review failed.";
+      setAdminMessage(message);
+      notifyError(message);
     } finally {
       setAdminReviewBusyId(null);
     }
@@ -3248,7 +3352,11 @@ export default function App() {
   async function submitAdminRoleUpdate() {
     if (!isAdmin) return;
     const userId = adminRoleUserId.trim();
-    if (!userId || adminRoleDraft.length === 0) return;
+    if (!userId || adminRoleDraft.length === 0) {
+      setAdminMessage("Select a user before updating roles.");
+      notifyWarning("Select a user before updating roles.");
+      return;
+    }
 
     setAdminRoleBusy(true);
     setAdminMessage("");
@@ -3268,10 +3376,12 @@ export default function App() {
       }
 
       setAdminMessage("Roles updated.");
+      notifySuccess("User roles updated.");
     } catch (roleError) {
-      setAdminMessage(
-        roleError instanceof Error ? roleError.message : "Role update failed.",
-      );
+      const message =
+        roleError instanceof Error ? roleError.message : "Role update failed.";
+      setAdminMessage(message);
+      notifyError(message);
     } finally {
       setAdminRoleBusy(false);
     }
@@ -4385,7 +4495,14 @@ export default function App() {
                     </thead>
                     <tbody>
                       {adminRequests.map((request) => (
-                        <tr key={request.id}>
+                        <tr
+                          className={
+                            request.id === recentlyUpdatedRoleRequestId
+                              ? "bg-primary/10"
+                              : ""
+                          }
+                          key={request.id}
+                        >
                           <td>{request.id}</td>
                           <td className="max-w-48 truncate">{request.userId}</td>
                           <td>{request.requestedRole}</td>
@@ -4468,7 +4585,7 @@ export default function App() {
                 <button
                   className="btn btn-sm btn-outline"
                   disabled={auditLogsLoading}
-                  onClick={() => void loadAuditLogs()}
+                  onClick={refreshAuditLogsWithToast}
                 >
                   {auditLogsLoading ? "Loading..." : "Refresh"}
                 </button>
@@ -4567,9 +4684,16 @@ export default function App() {
                   <button
                     className="btn btn-sm btn-primary self-end"
                     disabled={auditLogsLoading}
-                    onClick={() => void loadAuditLogs()}
+                    onClick={refreshAuditLogsWithToast}
                   >
                     Apply
+                  </button>
+                  <button
+                    className="btn btn-sm btn-ghost self-end"
+                    disabled={auditLogsLoading}
+                    onClick={resetAuditLogFilters}
+                  >
+                    Reset filters
                   </button>
                 </div>
                 {auditLogRange === "custom" ? (
@@ -4610,7 +4734,7 @@ export default function App() {
                 </div>
               ) : auditLogs.length === 0 ? (
                 <div className="alert alert-info">
-                  <span>No audit logs found.</span>
+                  <span>No audit logs match the current filters.</span>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -4659,8 +4783,11 @@ export default function App() {
                             {log.metadata ? (
                               <details>
                                 <summary className="cursor-pointer">
-                                  {formatAuditMetadata(log.metadata)}
+                                  View metadata
                                 </summary>
+                                <p className="mt-2 text-xs opacity-70">
+                                  {formatAuditMetadata(log.metadata)}
+                                </p>
                                 <pre className="mt-2 max-w-xs overflow-x-auto rounded bg-base-200 p-2 text-xs">
                                   {formatAuditMetadataDetail(log.metadata)}
                                 </pre>
@@ -4695,9 +4822,7 @@ export default function App() {
                 <button
                   className="btn btn-sm btn-outline"
                   disabled={analyticsLoading}
-                  onClick={() => {
-                    void loadAnalytics();
-                  }}
+                  onClick={refreshAnalyticsWithToast}
                 >
                   {analyticsLoading ? "Loading..." : "Refresh analytics"}
                 </button>
@@ -5207,7 +5332,7 @@ export default function App() {
                 </div>
                 {priceSensitivity.length === 0 ? (
                   <div className="alert">
-                    <span>No price sensitivity data yet.</span>
+                    <span>No price sensitivity data for this range.</span>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -5264,7 +5389,7 @@ export default function App() {
                 </div>
                 {abTestAnalytics.length === 0 ? (
                   <div className="alert">
-                    <span>No A/B test data yet.</span>
+                    <span>No A/B testing data for this range.</span>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -5297,7 +5422,7 @@ export default function App() {
               categorySales.length === 0 &&
               topItemSales.length === 0 ? (
                 <div className="alert alert-info">
-                  <span>No analytics data yet</span>
+                  <span>No category or top item data for this range.</span>
                 </div>
               ) : null}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -5305,7 +5430,7 @@ export default function App() {
                   <h3 className="font-semibold mb-2">Category sales</h3>
                   {categorySales.length === 0 ? (
                     <div className="alert">
-                      <span>No analytics data yet</span>
+                      <span>No category sales data for this range.</span>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -5336,7 +5461,7 @@ export default function App() {
                   <h3 className="font-semibold mb-2">Top items</h3>
                   {topItemSales.length === 0 ? (
                     <div className="alert">
-                      <span>No analytics data yet</span>
+                      <span>No top item data yet.</span>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">

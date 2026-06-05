@@ -183,6 +183,12 @@ type ApiErrorDetails = ApiErrorPayload & {
   code?: string;
   itemName?: string;
 };
+type ToastType = "success" | "error" | "warning" | "info";
+type ToastNotification = {
+  id: number;
+  type: ToastType;
+  message: string;
+};
 type RoleRequestStatus = "pending" | "approved" | "rejected" | "all";
 type ManagerTab =
   | "orders"
@@ -269,6 +275,8 @@ function formatOrderSource(source: Order["orderSource"]) {
 export default function App() {
   // Auth / session state
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [toasts, setToasts] = useState<ToastNotification[]>([]);
+  const toastIdRef = useRef(0);
   const [authError, setAuthError] = useState("");
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const [demoUsers, setDemoUsers] = useState<SessionUser[]>([]);
@@ -490,6 +498,59 @@ export default function App() {
     [canManageMenu, canViewAllOrders, isAdmin],
   );
   const hasManagerTools = managerTabs.length > 0;
+
+  function showToast(type: ToastType, message: string): void {
+    const id = toastIdRef.current + 1;
+    toastIdRef.current = id;
+
+    setToasts((currentToasts) =>
+      [...currentToasts, { id, type, message }].slice(-4),
+    );
+
+    window.setTimeout(() => {
+      setToasts((currentToasts) =>
+        currentToasts.filter((toast) => toast.id !== id),
+      );
+    }, 4500);
+  }
+
+  function dismissToast(id: number): void {
+    setToasts((currentToasts) =>
+      currentToasts.filter((toast) => toast.id !== id),
+    );
+  }
+
+  function notifySuccess(message: string): void {
+    showToast("success", message);
+  }
+
+  function notifyError(message: string): void {
+    showToast("error", message);
+  }
+
+  function notifyWarning(message: string): void {
+    showToast("warning", message);
+  }
+
+  function notifyInfo(message: string): void {
+    showToast("info", message);
+  }
+
+  function getToastAlertClass(type: ToastType): string {
+    switch (type) {
+      case "success":
+        return "alert-success";
+      case "error":
+        return "alert-error";
+      case "warning":
+        return "alert-warning";
+      case "info":
+        return "alert-info";
+      default:
+        return "";
+    }
+  }
+
   const activeOrders = historyOrders.filter((order) =>
     ["submitted", "preparing", "ready"].includes(order.status),
   ).length;
@@ -1605,10 +1666,12 @@ export default function App() {
         loadCurrentOrder(),
         loadOrderHistory(),
       ]);
+      notifySuccess("Demo login successful.");
     } catch (demoError) {
-      setDemoAuthError(
-        demoError instanceof Error ? demoError.message : "Demo login failed.",
-      );
+      const message =
+        demoError instanceof Error ? demoError.message : "Demo login failed.";
+      setDemoAuthError(message);
+      notifyError(message);
     } finally {
       setDemoLoginLoading(null);
     }
@@ -1630,6 +1693,7 @@ export default function App() {
       setRoleRequestMessage("");
       setAdminRequests([]);
       resetCartState();
+      notifyInfo("Signed out.");
       return;
     }
 
@@ -1657,6 +1721,7 @@ export default function App() {
     setRoleRequestMessage("");
     setAdminRequests([]);
     resetCartState();
+    notifyInfo("Signed out.");
   }
 
   async function addToCart(item: MenuItem): Promise<void> {
@@ -1682,6 +1747,7 @@ export default function App() {
           nextQty,
         );
         syncCartFromOrder(updatedOrder);
+        notifySuccess("Added to cart.");
       } catch (firstTryError) {
         const firstTryMessage =
           firstTryError instanceof Error ? firstTryError.message : "";
@@ -1706,6 +1772,7 @@ export default function App() {
             retryQty,
           );
           syncCartFromOrder(retriedOrder);
+          notifySuccess("Added to cart.");
           return;
         }
 
@@ -1723,8 +1790,10 @@ export default function App() {
         cartError instanceof Error ? cartError.message : "Unable to update cart.";
       if (isMenuVersionChangedMessage(message)) {
         await refreshMenuAndCurrentOrderAfterVersionConflict(message);
+        notifyWarning("Menu changed. Please refresh your cart.");
       } else {
         setActionError("Unable to update cart.");
+        notifyError(message);
       }
       console.error(cartError);
     } finally {
@@ -1839,6 +1908,9 @@ export default function App() {
       setStatusMessage(
         "Order submitted. Check your pickup number, payment status, and receipt in Order history.",
       );
+      notifySuccess(
+        "Order submitted. Check Order history for pickup number and receipt.",
+      );
       ordersSectionRef.current?.scrollIntoView({
         behavior: "smooth",
         block: "start",
@@ -1850,8 +1922,10 @@ export default function App() {
           : "Unable to submit order.";
       if (isMenuVersionChangedMessage(message)) {
         await refreshMenuAndCurrentOrderAfterVersionConflict(message);
+        notifyWarning("Menu changed. Please refresh your cart.");
       } else {
         setActionError("Unable to submit order.");
+        notifyError(message);
       }
       console.error(submitError);
     } finally {
@@ -1898,16 +1972,18 @@ export default function App() {
         return nextDrafts;
       });
       setStatusMessage(`Order #${updatedOrder.id} status updated.`);
+      notifySuccess("Order status updated.");
 
       if (canManageMenu) {
         await loadAnalytics();
       }
     } catch (statusError) {
-      setStatusMessage(
+      const message =
         statusError instanceof Error
           ? statusError.message
-          : "Unable to update order status.",
-      );
+          : "Unable to update order status.";
+      setStatusMessage(message);
+      notifyError(message);
     } finally {
       setStatusUpdatingOrderId(null);
     }
@@ -1944,12 +2020,14 @@ export default function App() {
         ),
       );
       setStatusMessage(`Order #${updatedOrder.id} marked paid.`);
+      notifySuccess("Payment marked as paid.");
     } catch (paymentError) {
-      setStatusMessage(
+      const message =
         paymentError instanceof Error
           ? paymentError.message
-          : "Unable to update payment status.",
-      );
+          : "Unable to update payment status.";
+      setStatusMessage(message);
+      notifyError(message);
     } finally {
       setPaymentUpdatingOrderId(null);
     }
@@ -2234,6 +2312,11 @@ export default function App() {
           ? `Phone order${createdPickupNumber} created. Track it in Orders board and call the guest if pickup time changes.`
           : `Walk-in order${createdPickupNumber} created. Track it in Orders board.`,
       );
+      notifySuccess(
+        walkInOrderForm.orderSource === "phone"
+          ? "Phone order created."
+          : "Walk-in order created.",
+      );
     } catch (walkInError) {
       const message =
         walkInError instanceof Error
@@ -2241,8 +2324,10 @@ export default function App() {
           : "Unable to create walk-in order.";
       if (isMenuVersionChangedMessage(message)) {
         await refreshMenuAfterWalkInVersionConflict(message);
+        notifyWarning("Menu changed. Please refresh menu.");
       } else {
         setStatusMessage(message);
+        notifyError(message);
       }
     } finally {
       setWalkInBusy(false);
@@ -2423,10 +2508,12 @@ export default function App() {
       await Promise.all([loadMenu(), loadCategories()]);
       resetMenuForm();
       setMenuMessage(editingMenuId ? "Menu item updated." : "Menu item added.");
+      notifySuccess("Menu item saved.");
     } catch (menuError) {
-      setMenuMessage(
-        menuError instanceof Error ? menuError.message : "Menu update failed.",
-      );
+      const message =
+        menuError instanceof Error ? menuError.message : "Menu update failed.";
+      setMenuMessage(message);
+      notifyError(message);
     } finally {
       setMenuBusy(false);
     }
@@ -2662,6 +2749,7 @@ export default function App() {
     const discountValue = Number.parseInt(promotionForm.discountValue, 10);
     if (!Number.isFinite(discountValue) || discountValue <= 0) {
       setPromotionMessage("Discount value must be a positive number.");
+      notifyError("Discount value must be a positive number.");
       return;
     }
     if (
@@ -2669,6 +2757,7 @@ export default function App() {
       (discountValue < 1 || discountValue > 100)
     ) {
       setPromotionMessage("Percent discount must be between 1 and 100.");
+      notifyError("Percent discount must be between 1 and 100.");
       return;
     }
 
@@ -2702,12 +2791,14 @@ export default function App() {
       setPromotionMessage(
         editingPromotionId ? "Promotion updated." : "Promotion created.",
       );
+      notifySuccess("Promo code saved.");
     } catch (promotionError) {
-      setPromotionMessage(
+      const message =
         promotionError instanceof Error
           ? promotionError.message
-          : "Promotion save failed.",
-      );
+          : "Promotion save failed.";
+      setPromotionMessage(message);
+      notifyError(message);
     } finally {
       setPromotionBusy(false);
     }
@@ -2939,6 +3030,30 @@ export default function App() {
   // Render sections
   return (
     <div className="min-h-screen bg-base-200">
+      {toasts.length > 0 ? (
+        <div className="toast toast-top toast-end z-50 max-w-[min(92vw,28rem)]">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`alert ${getToastAlertClass(toast.type)} shadow-lg`}
+              role={
+                toast.type === "error" || toast.type === "warning"
+                  ? "alert"
+                  : "status"
+              }
+            >
+              <span className="text-sm">{toast.message}</span>
+              <button
+                className="btn btn-ghost btn-xs"
+                aria-label="Dismiss notification"
+                onClick={() => dismissToast(toast.id)}
+              >
+                x
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="navbar sticky top-0 z-20 bg-base-100/95 shadow-lg backdrop-blur">
         <div className="navbar-start">
           <div className="dropdown lg:hidden">

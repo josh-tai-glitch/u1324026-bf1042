@@ -374,6 +374,9 @@ export default function App() {
   const [ratingUpdatingOrderId, setRatingUpdatingOrderId] = useState<
     number | null
   >(null);
+  const [recentlyUpdatedOrderId, setRecentlyUpdatedOrderId] = useState<
+    number | null
+  >(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [orderStatusDrafts, setOrderStatusDrafts] = useState<
     Record<number, OrderStatus>
@@ -934,6 +937,15 @@ export default function App() {
       (order.status === "submitted" || order.status === "preparing") &&
       getOrderAgeMinutes(order) > 10
     );
+  }
+
+  function highlightOrder(orderId: number): void {
+    setRecentlyUpdatedOrderId(orderId);
+    window.setTimeout(() => {
+      setRecentlyUpdatedOrderId((currentId) =>
+        currentId === orderId ? null : currentId,
+      );
+    }, 3500);
   }
 
   // Data loading helpers
@@ -2015,7 +2027,12 @@ export default function App() {
         return nextDrafts;
       });
       setStatusMessage(`Order #${updatedOrder.id} status updated.`);
-      notifySuccess("Order status updated.");
+      highlightOrder(updatedOrder.id);
+      notifySuccess(
+        `Order ${formatPickupNumber(updatedOrder.id)} moved to ${
+          updatedOrder.status
+        }.`,
+      );
 
       if (canManageMenu) {
         await loadAnalytics();
@@ -2063,7 +2080,8 @@ export default function App() {
         ),
       );
       setStatusMessage(`Order #${updatedOrder.id} marked paid.`);
-      notifySuccess("Payment marked as paid.");
+      highlightOrder(updatedOrder.id);
+      notifySuccess(`Order ${formatPickupNumber(updatedOrder.id)} marked as paid.`);
     } catch (paymentError) {
       const message =
         paymentError instanceof Error
@@ -2076,7 +2094,19 @@ export default function App() {
     }
   }
 
-  async function cancelOrder(targetOrderId: number): Promise<void> {
+  async function cancelOrder(
+    targetOrderId: number,
+    context: "customer" | "manager" = "customer",
+  ): Promise<void> {
+    if (
+      context === "manager" &&
+      !window.confirm(
+        `Void order ${formatPickupNumber(targetOrderId)}? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
     setCancelUpdatingOrderId(targetOrderId);
     setStatusMessage("");
 
@@ -2105,7 +2135,12 @@ export default function App() {
         ),
       );
       setStatusMessage(`Order #${updatedOrder.id} cancelled.`);
-      notifySuccess(`Order #${updatedOrder.id} cancelled.`);
+      highlightOrder(updatedOrder.id);
+      notifySuccess(
+        context === "manager"
+          ? `Order ${formatPickupNumber(updatedOrder.id)} voided.`
+          : `Order ${formatPickupNumber(updatedOrder.id)} cancelled.`,
+      );
 
       if (canManageMenu) {
         await loadAnalytics();
@@ -2167,12 +2202,15 @@ export default function App() {
         },
       }));
       setStatusMessage(`Order #${updatedOrder.id} issue updated.`);
+      highlightOrder(updatedOrder.id);
+      notifySuccess(`Issue added to order ${formatPickupNumber(updatedOrder.id)}.`);
     } catch (issueError) {
-      setStatusMessage(
+      const message =
         issueError instanceof Error
           ? issueError.message
-          : "Unable to update order issue.",
-      );
+          : "Unable to update order issue.";
+      setStatusMessage(message);
+      notifyError(message);
     } finally {
       setIssueUpdatingOrderId(null);
     }
@@ -2207,12 +2245,17 @@ export default function App() {
         ),
       );
       setStatusMessage(`Order #${updatedOrder.id} issue cleared.`);
+      highlightOrder(updatedOrder.id);
+      notifySuccess(
+        `Issue cleared for order ${formatPickupNumber(updatedOrder.id)}.`,
+      );
     } catch (issueError) {
-      setStatusMessage(
+      const message =
         issueError instanceof Error
           ? issueError.message
-          : "Unable to clear order issue.",
-      );
+          : "Unable to clear order issue.";
+      setStatusMessage(message);
+      notifyError(message);
     } finally {
       setIssueUpdatingOrderId(null);
     }
@@ -2288,14 +2331,17 @@ export default function App() {
     const qty = Number(walkInQty);
     if (!itemId || !Number.isInteger(qty) || qty <= 0) {
       setStatusMessage("Select a menu item and quantity first.");
+      notifyWarning("Select a menu item and quantity first.");
       return;
     }
     const selectedItem = items.find((item) => item.id === itemId);
     if (!selectedItem?.is_available) {
       setStatusMessage("This item is sold out.");
+      notifyWarning("This item is sold out.");
       return;
     }
 
+    const existingItem = walkInOrderItems.find((item) => item.itemId === itemId);
     setWalkInOrderItems((currentItems) => {
       const existing = currentItems.find((item) => item.itemId === itemId);
       if (existing) {
@@ -2305,6 +2351,11 @@ export default function App() {
       }
       return [...currentItems, { itemId, qty, menuItemVersion: selectedItem.version }];
     });
+    notifyInfo(
+      existingItem
+        ? `Updated ${selectedItem.name} quantity in staff order.`
+        : `Added ${selectedItem.name} to staff order.`,
+    );
     setWalkInSelectedItemId("");
     setWalkInQty("1");
   }
@@ -2313,6 +2364,7 @@ export default function App() {
     setWalkInOrderItems((currentItems) =>
       currentItems.filter((item) => item.itemId !== itemId),
     );
+    notifyInfo("Removed item from staff order.");
   }
 
   async function submitWalkInOrder(): Promise<void> {
@@ -2360,10 +2412,13 @@ export default function App() {
           ? `Phone order${createdPickupNumber} created. Track it in Orders board and call the guest if pickup time changes.`
           : `Walk-in order${createdPickupNumber} created. Track it in Orders board.`,
       );
+      if (createdOrder) {
+        highlightOrder(createdOrder.id);
+      }
       notifySuccess(
         walkInOrderForm.orderSource === "phone"
-          ? "Phone order created."
-          : "Walk-in order created.",
+          ? `Phone order${createdPickupNumber} created.`
+          : `Walk-in order${createdPickupNumber} created.`,
       );
     } catch (walkInError) {
       const message =
@@ -2375,7 +2430,11 @@ export default function App() {
         notifyWarning("Menu changed. Please refresh menu.");
       } else {
         setStatusMessage(message);
-        notifyError(message);
+        notifyError(
+          message.toLowerCase().includes("phone")
+            ? "Phone number is invalid. Use numbers, spaces, +, -, or parentheses."
+            : message,
+        );
       }
     } finally {
       setWalkInBusy(false);
@@ -3738,7 +3797,11 @@ export default function App() {
                       return (
                         <article
                           key={order.id}
-                          className="rounded-box border border-base-300 bg-base-100 p-4"
+                          className={`rounded-box border bg-base-100 p-4 transition ${
+                            order.id === recentlyUpdatedOrderId
+                              ? "border-primary ring-2 ring-primary bg-primary/5"
+                              : "border-base-300"
+                          }`}
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
@@ -3782,7 +3845,7 @@ export default function App() {
                                     cancelUpdatingOrderId === order.id
                                   }
                                   onClick={() => {
-                                    void cancelOrder(order.id);
+                                    void cancelOrder(order.id, "manager");
                                   }}
                                 >
                                   {cancelUpdatingOrderId === order.id

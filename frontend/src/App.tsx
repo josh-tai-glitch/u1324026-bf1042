@@ -493,12 +493,38 @@ export default function App() {
   const activeOrders = historyOrders.filter((order) =>
     ["submitted", "preparing", "ready"].includes(order.status),
   ).length;
-  const readyOrders = historyOrders.filter(
-    (order) => order.status === "ready",
+  const unpaidOrders = historyOrders.filter(
+    (order) =>
+      order.paymentStatus === "unpaid" &&
+      order.status !== "pending" &&
+      order.status !== "cancelled",
   ).length;
-  const completedOrders = historyOrders.filter(
-    (order) => order.status === "completed",
+  const phoneOrdersToday = historyOrders.filter(
+    (order) => order.orderSource === "phone" && isOrderCreatedToday(order),
   ).length;
+  const walkInOrdersToday = historyOrders.filter(
+    (order) => order.orderSource === "walk_in" && isOrderCreatedToday(order),
+  ).length;
+  const promoOrdersToday = historyOrders.filter(
+    (order) =>
+      (Boolean(order.promoCode) || order.discountAmount > 0) &&
+      isOrderCreatedToday(order),
+  ).length;
+  const ordersWithIssue = historyOrders.filter(
+    (order) =>
+      order.issueType !== null &&
+      order.status !== "completed" &&
+      order.status !== "cancelled",
+  ).length;
+  const promotionUsageCounts = useMemo(() => {
+    const usageCounts: Record<string, number> = {};
+    for (const order of historyOrders) {
+      if (!order.promoCode) continue;
+      const normalizedCode = order.promoCode.trim().toUpperCase();
+      usageCounts[normalizedCode] = (usageCounts[normalizedCode] ?? 0) + 1;
+    }
+    return usageCounts;
+  }, [historyOrders]);
   const ratedOrders = historyOrders.filter(
     (order) =>
       order.rating !== null &&
@@ -719,6 +745,12 @@ export default function App() {
 
   function formatPickupNumber(orderId: number): string {
     return `#${String(orderId).padStart(4, "0")}`;
+  }
+
+  function isOrderCreatedToday(order: Order): boolean {
+    const createdAt = new Date(order.createdAt);
+    if (Number.isNaN(createdAt.getTime())) return false;
+    return createdAt.toDateString() === new Date().toDateString();
   }
 
   function formatReceiptText(order: Order): string {
@@ -1804,6 +1836,13 @@ export default function App() {
       setCheckoutForm(emptyCheckoutForm);
       setIsCartOpen(false);
       await loadOrderHistory();
+      setStatusMessage(
+        "Order submitted. Check your pickup number, payment status, and receipt in Order history.",
+      );
+      ordersSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
     } catch (submitError) {
       const message =
         submitError instanceof Error
@@ -2180,15 +2219,20 @@ export default function App() {
         throw new Error(await readApiError(response));
       }
 
+      const payload = (await response.json()) as ApiDataResponse<Order>;
+      const createdOrder = payload?.data;
       await loadOrderHistory();
       setWalkInOrderForm(emptyWalkInOrderForm);
       setWalkInOrderItems([]);
       setWalkInSelectedItemId("");
       setWalkInQty("1");
+      const createdPickupNumber = createdOrder
+        ? ` ${formatPickupNumber(createdOrder.id)}`
+        : "";
       setStatusMessage(
         walkInOrderForm.orderSource === "phone"
-          ? "Phone order created."
-          : "Walk-in order created.",
+          ? `Phone order${createdPickupNumber} created. Track it in Orders board and call the guest if pickup time changes.`
+          : `Walk-in order${createdPickupNumber} created. Track it in Orders board.`,
       );
     } catch (walkInError) {
       const message =
@@ -3236,19 +3280,44 @@ export default function App() {
                     Track submitted orders and update kitchen / pickup status.
                   </p>
                 </div>
-                <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="mb-4">
+                  <h4 className="mb-2 font-semibold">
+                    Today operations summary
+                  </h4>
+                  <p className="mb-3 text-sm opacity-70">
+                    Use this snapshot to connect kitchen work, counter payment,
+                    phone orders, promotions, and order issues.
+                  </p>
+                </div>
+                <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
                   <div className="stat rounded-box border border-base-300 bg-base-200">
                     <div className="stat-title">Active orders</div>
                     <div className="stat-value text-info">{activeOrders}</div>
                   </div>
                   <div className="stat rounded-box border border-base-300 bg-base-200">
-                    <div className="stat-title">Ready for pickup</div>
-                    <div className="stat-value text-primary">{readyOrders}</div>
+                    <div className="stat-title">Unpaid orders</div>
+                    <div className="stat-value text-warning">{unpaidOrders}</div>
                   </div>
                   <div className="stat rounded-box border border-base-300 bg-base-200">
-                    <div className="stat-title">Completed</div>
+                    <div className="stat-title">Phone today</div>
+                    <div className="stat-value text-primary">
+                      {phoneOrdersToday}
+                    </div>
+                  </div>
+                  <div className="stat rounded-box border border-base-300 bg-base-200">
+                    <div className="stat-title">Walk-in today</div>
+                    <div className="stat-value">{walkInOrdersToday}</div>
+                  </div>
+                  <div className="stat rounded-box border border-base-300 bg-base-200">
+                    <div className="stat-title">Promo today</div>
                     <div className="stat-value text-success">
-                      {completedOrders}
+                      {promoOrdersToday}
+                    </div>
+                  </div>
+                  <div className="stat rounded-box border border-base-300 bg-base-200">
+                    <div className="stat-title">Open issues</div>
+                    <div className="stat-value text-error">
+                      {ordersWithIssue}
                     </div>
                   </div>
                 </div>
@@ -3494,6 +3563,14 @@ export default function App() {
                         issueType: order.issueType ?? "out_of_stock",
                         issueNote: "",
                       };
+                      const hasOrderOperationHints =
+                        (order.orderSource === "phone" &&
+                          Boolean(order.guestPhone)) ||
+                        (order.issueType !== null &&
+                          order.status !== "completed" &&
+                          order.status !== "cancelled") ||
+                        Boolean(order.promoCode) ||
+                        order.discountAmount > 0;
 
                       return (
                         <article
@@ -3684,6 +3761,30 @@ export default function App() {
                               </span>
                             ) : null}
                           </div>
+                          {hasOrderOperationHints ? (
+                            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                              {order.orderSource === "phone" &&
+                              order.guestPhone ? (
+                                <span className="rounded-box border border-base-300 px-2 py-1">
+                                  Phone order: call customer if pickup time
+                                  changes.
+                                </span>
+                              ) : null}
+                              {order.issueType !== null &&
+                              order.status !== "completed" &&
+                              order.status !== "cancelled" ? (
+                                <span className="rounded-box border border-warning px-2 py-1 text-warning">
+                                  Resolve issue before completion.
+                                </span>
+                              ) : null}
+                              {order.promoCode || order.discountAmount > 0 ? (
+                                <span className="rounded-box border border-success px-2 py-1 text-success">
+                                  Discount applied in receipt and analytics
+                                  total.
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
                           {order.issueType ? (
                             <div className="alert alert-warning mt-3 items-start">
                               <div>
@@ -3972,6 +4073,11 @@ export default function App() {
                   <h2 className="card-title">Audit logs</h2>
                   <p className="text-sm opacity-70">
                     Review recent system operations by owner and admin users.
+                  </p>
+                  <p className="text-xs opacity-60">
+                    Audit logs track manager actions such as menu changes, role
+                    reviews, promotions, payments, issues, staff orders, and
+                    phone orders. Phone numbers are masked in audit metadata.
                   </p>
                 </div>
                 <button
@@ -4263,6 +4369,19 @@ export default function App() {
                     Apply
                   </button>
                 </div>
+              </div>
+              <div className="rounded-box border border-base-300 bg-base-100 p-3 text-sm">
+                <h3 className="font-semibold">Data notes</h3>
+                <ul className="mt-2 list-disc space-y-1 pl-5 opacity-75">
+                  <li>Revenue uses discounted order total.</li>
+                  <li>
+                    Source comparison includes customer, walk-in, and phone
+                    orders.
+                  </li>
+                  <li>A/B analytics uses the order snapshot group.</li>
+                  <li>Price sensitivity uses order item snapshot prices.</li>
+                  <li>Cancelled orders are excluded from revenue metrics.</li>
+                </ul>
               </div>
               {analyticsMessage ? (
                 <div className="alert alert-warning">
@@ -5225,6 +5344,13 @@ export default function App() {
                   <option value="all">All</option>
                 </select>
               </div>
+              <div className="alert alert-info items-start">
+                <span>
+                  Promo codes can be used in customer checkout, walk-in orders,
+                  and phone orders. Discounts are shown on receipts and included
+                  in analytics revenue.
+                </span>
+              </div>
 
               {promotionMessage ? (
                 <div className="alert">
@@ -5319,6 +5445,7 @@ export default function App() {
                         <th>Code</th>
                         <th>Discount</th>
                         <th>Status</th>
+                        <th>Used orders</th>
                         <th>Updated</th>
                         <th>Actions</th>
                       </tr>
@@ -5342,6 +5469,11 @@ export default function App() {
                             >
                               {promotion.isActive ? "active" : "inactive"}
                             </span>
+                          </td>
+                          <td>
+                            {promotionUsageCounts[
+                              promotion.code.trim().toUpperCase()
+                            ] ?? 0}
                           </td>
                           <td>{formatCheckoutDateTime(promotion.updatedAt)}</td>
                           <td>

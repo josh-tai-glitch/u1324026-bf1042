@@ -17,8 +17,10 @@ import type {
   MenuItem,
   Order,
   OrderIssueType,
+  OrderSource,
   OrderStatus,
   PaymentMethod,
+  PaymentStatus,
   PriceSensitivityItem,
   Promotion,
   Role,
@@ -48,15 +50,20 @@ const abTestGroupOptions: Array<{ id: "" | AbTestGroup; label: string }> = [
   { id: "variant_a", label: "Variant A" },
   { id: "variant_b", label: "Variant B" },
 ];
-const orderBoardFilters = [
+const orderQuickFilters = [
   { id: "active", label: "Active" },
-  { id: "submitted", label: "Submitted" },
-  { id: "preparing", label: "Preparing" },
-  { id: "ready", label: "Ready" },
-  { id: "completed", label: "Completed" },
-  { id: "cancelled", label: "Cancelled" },
-  { id: "all", label: "All" },
+  { id: "ready_unpaid", label: "Ready unpaid" },
+  { id: "phone", label: "Phone orders" },
+  { id: "open_issues", label: "Open issues" },
+  { id: "promo", label: "Promo orders" },
 ] as const;
+const orderBoardColumnStatuses: OrderStatus[] = [
+  "submitted",
+  "preparing",
+  "ready",
+  "completed",
+  "cancelled",
+];
 const analyticsRangeOptions = [
   { id: "all", label: "All" },
   { id: "today", label: "Today" },
@@ -212,7 +219,7 @@ type ManagerTab =
   | "promotions"
   | "roleRequests"
   | "auditLogs";
-type OrderBoardFilter = (typeof orderBoardFilters)[number]["id"];
+type OrderQuickFilter = "" | (typeof orderQuickFilters)[number]["id"];
 type CategoryStatusFilter = "active" | "inactive" | "all";
 type PromotionStatusFilter = "active" | "inactive" | "all";
 type PromotionForm = typeof emptyPromotionForm;
@@ -410,8 +417,24 @@ export default function App() {
   const [ratingDrafts, setRatingDrafts] = useState<
     Record<number, OrderRatingDraft>
   >({});
-  const [orderStatusFilter, setOrderStatusFilter] =
-    useState<OrderBoardFilter>("active");
+  const [orderSearchText, setOrderSearchText] = useState("");
+  const [orderSourceFilter, setOrderSourceFilter] = useState<
+    "" | OrderSource
+  >("");
+  const [orderPaymentFilter, setOrderPaymentFilter] = useState<
+    "" | PaymentStatus
+  >("");
+  const [orderIssueFilter, setOrderIssueFilter] = useState<
+    "" | "has_issue" | "no_issue"
+  >("");
+  const [orderStatusFilter, setOrderStatusFilter] = useState<
+    "" | OrderStatus
+  >("");
+  const [orderQuickFilter, setOrderQuickFilter] =
+    useState<OrderQuickFilter>("");
+  const [ordersViewMode, setOrdersViewMode] = useState<"list" | "board">(
+    "list",
+  );
 
   // Role request / admin review state
   const [roleRequestRole, setRoleRequestRole] = useState<"staff" | "chef">(
@@ -706,19 +729,121 @@ export default function App() {
     : 0;
 
   // Order board helpers
-  const filteredBoardOrders = useMemo(() => {
-    if (orderStatusFilter === "all") {
-      return historyOrders;
-    }
+  const managerVisibleOrders = useMemo(() => {
+    const search = orderSearchText.trim().toLowerCase();
+    const searchDigits = search.replace(/\D/g, "");
+    const activeStatuses: OrderStatus[] = ["submitted", "preparing", "ready"];
 
-    if (orderStatusFilter === "active") {
-      return historyOrders.filter((order) =>
-        ["submitted", "preparing", "ready"].includes(order.status),
+    function matchesSearch(order: Order): boolean {
+      if (!search) return true;
+
+      const pickupNumber = formatPickupNumber(order.id).toLowerCase();
+      const pickupDigits = pickupNumber.replace(/\D/g, "");
+      const guestPhoneDigits = (order.guestPhone ?? "").replace(/\D/g, "");
+      const searchableValues = [
+        String(order.id),
+        pickupNumber,
+        pickupDigits,
+        order.guestName ?? "",
+        order.promoCode ?? "",
+      ].map((value) => value.toLowerCase());
+
+      return (
+        searchableValues.some((value) => value.includes(search)) ||
+        (searchDigits.length > 0 &&
+          guestPhoneDigits.endsWith(searchDigits)) ||
+        order.items.some((detail) =>
+          detail.item.name.toLowerCase().includes(search),
+        )
       );
     }
 
-    return historyOrders.filter((order) => order.status === orderStatusFilter);
-  }, [historyOrders, orderStatusFilter]);
+    function matchesQuickFilter(order: Order): boolean {
+      switch (orderQuickFilter) {
+        case "active":
+          return activeStatuses.includes(order.status);
+        case "ready_unpaid":
+          return (
+            order.status === "ready" && order.paymentStatus === "unpaid"
+          );
+        case "phone":
+          return order.orderSource === "phone";
+        case "open_issues":
+          return (
+            order.issueType !== null &&
+            order.status !== "completed" &&
+            order.status !== "cancelled"
+          );
+        case "promo":
+          return Boolean(order.promoCode) || order.discountAmount > 0;
+        default:
+          return true;
+      }
+    }
+
+    const statusPriority: Partial<Record<OrderStatus, number>> = {
+      submitted: 0,
+      preparing: 1,
+      ready: 2,
+      pending: 3,
+      completed: 4,
+      cancelled: 5,
+    };
+
+    return historyOrders
+      .filter(matchesSearch)
+      .filter((order) =>
+        orderStatusFilter ? order.status === orderStatusFilter : true,
+      )
+      .filter((order) =>
+        orderSourceFilter ? order.orderSource === orderSourceFilter : true,
+      )
+      .filter((order) =>
+        orderPaymentFilter
+          ? order.paymentStatus === orderPaymentFilter
+          : true,
+      )
+      .filter((order) => {
+        if (orderIssueFilter === "has_issue") return order.issueType !== null;
+        if (orderIssueFilter === "no_issue") return order.issueType === null;
+        return true;
+      })
+      .filter(matchesQuickFilter)
+      .slice()
+      .sort((left, right) => {
+        const statusDiff =
+          (statusPriority[left.status] ?? 99) -
+          (statusPriority[right.status] ?? 99);
+        if (statusDiff !== 0) return statusDiff;
+        return (
+          new Date(right.createdAt).getTime() -
+          new Date(left.createdAt).getTime()
+        );
+      });
+  }, [
+    historyOrders,
+    orderIssueFilter,
+    orderPaymentFilter,
+    orderQuickFilter,
+    orderSearchText,
+    orderSourceFilter,
+    orderStatusFilter,
+  ]);
+
+  function applyOrderQuickFilter(filter: OrderQuickFilter): void {
+    setOrderQuickFilter(filter);
+    notifyInfo("Order quick filter applied.");
+  }
+
+  function clearOrderFilters(): void {
+    setOrderSearchText("");
+    setOrderSourceFilter("");
+    setOrderPaymentFilter("");
+    setOrderIssueFilter("");
+    setOrderStatusFilter("");
+    setOrderQuickFilter("");
+    notifyInfo("Order filters cleared.");
+  }
 
   function getNextAllowedStatuses(order: Order): OrderStatus[] {
     if (canManageMenu) {
@@ -4009,20 +4134,144 @@ export default function App() {
                     </div>
                   </div>
                 ) : null}
-                <div className="mb-4 flex flex-wrap gap-2">
-                  {orderBoardFilters.map((filter) => (
+                <div className="mb-4 rounded-box border border-base-300 bg-base-200 p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h4 className="font-semibold">Find orders</h4>
+                      <p className="text-sm opacity-70">
+                        Use search, filters, and board view to find and process
+                        orders.
+                      </p>
+                    </div>
+                    <div className="join">
+                      <button
+                        className={`btn btn-sm join-item ${
+                          ordersViewMode === "list" ? "btn-primary" : ""
+                        }`}
+                        onClick={() => setOrdersViewMode("list")}
+                      >
+                        List view
+                      </button>
+                      <button
+                        className={`btn btn-sm join-item ${
+                          ordersViewMode === "board" ? "btn-primary" : ""
+                        }`}
+                        onClick={() => setOrdersViewMode("board")}
+                      >
+                        Board view
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-6">
+                    <label className="form-control lg:col-span-2">
+                      <span className="label-text">Search</span>
+                      <input
+                        className="input input-bordered input-sm"
+                        placeholder="Pickup, guest, phone, promo, item..."
+                        value={orderSearchText}
+                        onChange={(event) =>
+                          setOrderSearchText(event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="form-control">
+                      <span className="label-text">Source</span>
+                      <select
+                        className="select select-bordered select-sm"
+                        value={orderSourceFilter}
+                        onChange={(event) =>
+                          setOrderSourceFilter(
+                            event.target.value as "" | OrderSource,
+                          )
+                        }
+                      >
+                        <option value="">All sources</option>
+                        <option value="customer">Customer</option>
+                        <option value="walk_in">Walk-in</option>
+                        <option value="phone">Phone</option>
+                      </select>
+                    </label>
+                    <label className="form-control">
+                      <span className="label-text">Payment</span>
+                      <select
+                        className="select select-bordered select-sm"
+                        value={orderPaymentFilter}
+                        onChange={(event) =>
+                          setOrderPaymentFilter(
+                            event.target.value as "" | PaymentStatus,
+                          )
+                        }
+                      >
+                        <option value="">All payments</option>
+                        <option value="unpaid">Unpaid</option>
+                        <option value="paid">Paid</option>
+                      </select>
+                    </label>
+                    <label className="form-control">
+                      <span className="label-text">Issue</span>
+                      <select
+                        className="select select-bordered select-sm"
+                        value={orderIssueFilter}
+                        onChange={(event) =>
+                          setOrderIssueFilter(
+                            event.target.value as
+                              | ""
+                              | "has_issue"
+                              | "no_issue",
+                          )
+                        }
+                      >
+                        <option value="">All issues</option>
+                        <option value="has_issue">Has issue</option>
+                        <option value="no_issue">No issue</option>
+                      </select>
+                    </label>
+                    <label className="form-control">
+                      <span className="label-text">Status</span>
+                      <select
+                        className="select select-bordered select-sm"
+                        value={orderStatusFilter}
+                        onChange={(event) =>
+                          setOrderStatusFilter(
+                            event.target.value as "" | OrderStatus,
+                          )
+                        }
+                      >
+                        <option value="">All statuses</option>
+                        <option value="pending">Pending</option>
+                        <option value="submitted">Submitted</option>
+                        <option value="preparing">Preparing</option>
+                        <option value="ready">Ready</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {orderQuickFilters.map((filter) => (
+                      <button
+                        key={filter.id}
+                        className={`btn btn-xs ${
+                          orderQuickFilter === filter.id
+                            ? "btn-primary"
+                            : "btn-outline"
+                        }`}
+                        onClick={() => applyOrderQuickFilter(filter.id)}
+                      >
+                        {filter.label}
+                      </button>
+                    ))}
                     <button
-                      key={filter.id}
-                      className={`btn btn-sm ${
-                        orderStatusFilter === filter.id
-                          ? "btn-primary"
-                          : "btn-outline"
-                      }`}
-                      onClick={() => setOrderStatusFilter(filter.id)}
+                      className="btn btn-xs btn-ghost"
+                      onClick={clearOrderFilters}
                     >
-                      {filter.label}
+                      Clear filters
                     </button>
-                  ))}
+                    <span className="text-xs opacity-60">
+                      Showing {managerVisibleOrders.length} of{" "}
+                      {historyOrders.length} orders.
+                    </span>
+                  </div>
                 </div>
                 {statusMessage ? (
                   <div className="alert mb-4">
@@ -4037,15 +4286,203 @@ export default function App() {
                   <div className="alert alert-info">
                     <span>No orders yet.</span>
                   </div>
-                ) : filteredBoardOrders.length === 0 ? (
+                ) : managerVisibleOrders.length === 0 ? (
                   <div className="alert alert-info">
-                    <span>
-                      No orders match this filter. Try another status filter.
-                    </span>
+                    <span>No orders match the current filters.</span>
+                    <button
+                      className="btn btn-sm btn-outline"
+                      onClick={clearOrderFilters}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                ) : ordersViewMode === "board" ? (
+                  <div className="grid grid-cols-1 gap-3 xl:grid-cols-5">
+                    {orderBoardColumnStatuses.map((status) => {
+                      const columnOrders = managerVisibleOrders.filter(
+                        (order) => order.status === status,
+                      );
+                      return (
+                        <section
+                          className="rounded-box border border-base-300 bg-base-200 p-3"
+                          key={status}
+                        >
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <h4 className="font-semibold capitalize">
+                              {status}
+                            </h4>
+                            <span className="badge badge-outline">
+                              {columnOrders.length}
+                            </span>
+                          </div>
+                          {columnOrders.length === 0 ? (
+                            <div className="rounded-box border border-dashed border-base-300 bg-base-100 p-3 text-sm opacity-60">
+                              No orders
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {columnOrders.map((order) => {
+                                const primaryAction =
+                                  getPrimaryOrderAction(order);
+                                const urgent = isUrgentOrder(order);
+                                const orderAgeMinutes =
+                                  getOrderAgeMinutes(order);
+                                const canCancelThisOrder =
+                                  canCancelManagerOrder &&
+                                  (order.status === "submitted" ||
+                                    order.status === "preparing" ||
+                                    order.status === "ready");
+                                return (
+                                  <article
+                                    className={`rounded-box border bg-base-100 p-3 text-sm transition ${
+                                      order.id === recentlyUpdatedOrderId
+                                        ? "border-primary ring-2 ring-primary bg-primary/5"
+                                        : "border-base-300"
+                                    }`}
+                                    key={order.id}
+                                  >
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div>
+                                        <div className="font-semibold">
+                                          Pickup{" "}
+                                          {formatPickupNumber(order.id)}
+                                        </div>
+                                        <div className="text-xs opacity-70">
+                                          Order #{order.id}
+                                        </div>
+                                      </div>
+                                      <span
+                                        className={`badge badge-sm ${getStatusBadgeClass(
+                                          order.status,
+                                        )}`}
+                                      >
+                                        {order.status}
+                                      </span>
+                                    </div>
+                                    <div className="mt-2 flex flex-wrap gap-1">
+                                      {urgent ? (
+                                        <span className="badge badge-error badge-sm">
+                                          Urgent {orderAgeMinutes}m
+                                        </span>
+                                      ) : null}
+                                      {order.orderSource === "phone" ? (
+                                        <span className="badge badge-info badge-sm">
+                                          Phone
+                                        </span>
+                                      ) : null}
+                                      {order.issueType ? (
+                                        <span className="badge badge-warning badge-sm">
+                                          Issue
+                                        </span>
+                                      ) : null}
+                                      {order.promoCode ||
+                                      order.discountAmount > 0 ? (
+                                        <span className="badge badge-success badge-sm">
+                                          Promo
+                                        </span>
+                                      ) : null}
+                                      <span
+                                        className={`badge badge-sm ${
+                                          order.paymentStatus === "paid"
+                                            ? "badge-success"
+                                            : "badge-warning"
+                                        }`}
+                                      >
+                                        {order.paymentStatus}
+                                      </span>
+                                    </div>
+                                    {order.guestName ? (
+                                      <p className="mt-2 text-xs opacity-70">
+                                        Guest: {order.guestName}
+                                      </p>
+                                    ) : null}
+                                    <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
+                                      {order.items.slice(0, 3).map((detail) => (
+                                        <li
+                                          key={`${order.id}-${detail.item.id}`}
+                                        >
+                                          {detail.item.name} x {detail.qty}
+                                        </li>
+                                      ))}
+                                      {order.items.length > 3 ? (
+                                        <li>
+                                          +{order.items.length - 3} more items
+                                        </li>
+                                      ) : null}
+                                    </ul>
+                                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                                      <span className="font-semibold">
+                                        ${order.total}
+                                      </span>
+                                      <button
+                                        className="btn btn-xs btn-outline"
+                                        onClick={() => printReceipt(order)}
+                                      >
+                                        Receipt
+                                      </button>
+                                    </div>
+                                    {order.paymentStatus === "unpaid" &&
+                                    order.status !== "pending" &&
+                                    canUpdatePaymentStatus ? (
+                                      <button
+                                        className="btn btn-xs btn-outline mt-2 w-full"
+                                        disabled={
+                                          paymentUpdatingOrderId === order.id
+                                        }
+                                        onClick={() => {
+                                          void markOrderPaid(order.id);
+                                        }}
+                                      >
+                                        {paymentUpdatingOrderId === order.id
+                                          ? "Updating..."
+                                          : "Mark paid"}
+                                      </button>
+                                    ) : null}
+                                    {primaryAction ? (
+                                      <button
+                                        className="btn btn-xs btn-primary mt-2 w-full"
+                                        disabled={
+                                          statusUpdatingOrderId === order.id
+                                        }
+                                        onClick={() => {
+                                          void updateOrderStatus(
+                                            order.id,
+                                            primaryAction.status,
+                                          );
+                                        }}
+                                      >
+                                        {statusUpdatingOrderId === order.id
+                                          ? "Updating..."
+                                          : primaryAction.label}
+                                      </button>
+                                    ) : null}
+                                    {canCancelThisOrder ? (
+                                      <button
+                                        className="btn btn-xs btn-error btn-outline mt-2 w-full"
+                                        disabled={
+                                          cancelUpdatingOrderId === order.id
+                                        }
+                                        onClick={() => {
+                                          void cancelOrder(order.id, "manager");
+                                        }}
+                                      >
+                                        {cancelUpdatingOrderId === order.id
+                                          ? "Cancelling..."
+                                          : "Void order"}
+                                      </button>
+                                    ) : null}
+                                  </article>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </section>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {filteredBoardOrders.map((order) => {
+                    {managerVisibleOrders.map((order) => {
                       const allowedStatuses = getNextAllowedStatuses(order);
                       const primaryAction = getPrimaryOrderAction(order);
                       const urgent = isUrgentOrder(order);

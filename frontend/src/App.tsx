@@ -2679,6 +2679,7 @@ export default function App() {
   function renderPromotionEligibilityHint(
     promoCode: string,
     subtotal: number,
+    options: { compact?: boolean } = {},
   ) {
     const normalizedCode = promoCode.trim().toUpperCase();
     if (!normalizedCode) return null;
@@ -2689,7 +2690,7 @@ export default function App() {
 
     if (!promotion) {
       return (
-        <div className="mt-2 text-xs text-warning">
+        <div className={`${options.compact ? "mt-1" : "mt-2"} text-xs text-warning`}>
           Promo code will be checked when you submit.
         </div>
       );
@@ -2721,13 +2722,13 @@ export default function App() {
 
     return (
       <div
-        className={`mt-2 rounded-box border p-3 text-xs ${
+        className={`${options.compact ? "mt-1 p-2" : "mt-2 p-3"} rounded-box border text-xs ${
           hasBlockingRule
             ? "border-warning bg-warning/10"
             : "border-success bg-success/10"
         }`}
       >
-        <div className="mb-2 flex flex-wrap items-center gap-2">
+        <div className={`${options.compact ? "" : "mb-2"} flex flex-wrap items-center gap-2`}>
           <span
             className={`badge badge-sm ${getPromotionRuntimeStatusBadgeClass(
               runtimeStatus,
@@ -2739,11 +2740,24 @@ export default function App() {
             {helperText}
           </span>
         </div>
-        <ul className="list-disc space-y-1 pl-4 opacity-80">
-          {ruleSummary.map((summary) => (
-            <li key={summary}>{summary}</li>
-          ))}
-        </ul>
+        {options.compact ? (
+          <details className="mt-1">
+            <summary className="cursor-pointer opacity-70">
+              View promo rules
+            </summary>
+            <ul className="mt-1 list-disc space-y-1 pl-4 opacity-80">
+              {ruleSummary.map((summary) => (
+                <li key={summary}>{summary}</li>
+              ))}
+            </ul>
+          </details>
+        ) : (
+          <ul className="list-disc space-y-1 pl-4 opacity-80">
+            {ruleSummary.map((summary) => (
+              <li key={summary}>{summary}</li>
+            ))}
+          </ul>
+        )}
       </div>
     );
   }
@@ -9080,7 +9094,7 @@ export default function App() {
                   <span>Your cart is empty.</span>
                 </div>
               ) : (
-                <ul className="space-y-3">
+                <ul className="max-h-64 space-y-3 overflow-y-auto rounded-box border border-base-300 p-2">
                   {cartDetails.map((detail) => (
                     <li
                       key={detail.itemId}
@@ -9222,6 +9236,7 @@ export default function App() {
                   {renderPromotionEligibilityHint(
                     checkoutForm.promoCode,
                     cartSubtotal,
+                    { compact: true },
                   )}
                 </label>
                 <label className="form-control">

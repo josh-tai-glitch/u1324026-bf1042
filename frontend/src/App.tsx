@@ -192,6 +192,12 @@ type WalkInOrderForm = typeof emptyWalkInOrderForm;
 type WalkInOrderItem = { itemId: number; qty: number; menuItemVersion?: number };
 type OrderIssueDraft = { issueType: OrderIssueType; issueNote: string };
 type OrderRatingDraft = { rating: string; ratingComment: string };
+type FrequentMenuItem = {
+  currentItem: MenuItem;
+  totalQuantity: number;
+  orderCount: number;
+  lastOrderedAt: string;
+};
 type AnalyticsRange = "all" | "today" | "last7Days" | "thisMonth" | "custom";
 type AuditLogRange = "all" | "today" | "last7Days" | "thisMonth" | "custom";
 type AnalyticsDateFilters = {
@@ -379,6 +385,10 @@ export default function App() {
   const [cartBusyItemId, setCartBusyItemId] = useState<number | null>(null);
   const [isClearingCart, setIsClearingCart] = useState(false);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [reorderingOrderId, setReorderingOrderId] = useState<number | null>(
+    null,
+  );
+  const [reorderMessage, setReorderMessage] = useState("");
   const [checkoutForm, setCheckoutForm] =
     useState<CheckoutForm>(emptyCheckoutForm);
   const [walkInOrderForm, setWalkInOrderForm] =
@@ -2138,6 +2148,86 @@ export default function App() {
     return { groupedItems, categories };
   }, [items]);
 
+  const frequentItems = useMemo<FrequentMenuItem[]>(() => {
+    const currentItemById = new Map(items.map((item) => [item.id, item]));
+    const currentItemByGroupId = new Map<string, MenuItem>();
+    for (const item of items) {
+      if (item.menu_item_group_id) {
+        currentItemByGroupId.set(item.menu_item_group_id, item);
+      }
+    }
+
+    const statsByKey = new Map<
+      string,
+      {
+        groupId: string | null;
+        itemId: number;
+        totalQuantity: number;
+        orderIds: Set<number>;
+        lastOrderedAt: string;
+      }
+    >();
+
+    for (const order of historyOrders) {
+      if (order.status === "pending" || order.status === "cancelled") continue;
+      const orderedAt = order.submittedAt ?? order.createdAt;
+
+      for (const detail of order.items) {
+        const groupId =
+          detail.menu_item_group_id ?? detail.item.menu_item_group_id ?? null;
+        const key = groupId ? `group:${groupId}` : `item:${detail.item.id}`;
+        const existing = statsByKey.get(key);
+        const stat =
+          existing ??
+          {
+            groupId,
+            itemId: detail.item.id,
+            totalQuantity: 0,
+            orderIds: new Set<number>(),
+            lastOrderedAt: orderedAt,
+          };
+
+        stat.totalQuantity += detail.qty;
+        stat.orderIds.add(order.id);
+        if (
+          new Date(orderedAt).getTime() >
+          new Date(stat.lastOrderedAt).getTime()
+        ) {
+          stat.lastOrderedAt = orderedAt;
+        }
+        statsByKey.set(key, stat);
+      }
+    }
+
+    return Array.from(statsByKey.values())
+      .map((stat) => {
+        const currentItem =
+          (stat.groupId ? currentItemByGroupId.get(stat.groupId) : undefined) ??
+          currentItemById.get(stat.itemId);
+        if (!currentItem?.is_available) return null;
+        return {
+          currentItem,
+          totalQuantity: stat.totalQuantity,
+          orderCount: stat.orderIds.size,
+          lastOrderedAt: stat.lastOrderedAt,
+        };
+      })
+      .filter((entry): entry is FrequentMenuItem => entry !== null)
+      .sort((left, right) => {
+        if (right.totalQuantity !== left.totalQuantity) {
+          return right.totalQuantity - left.totalQuantity;
+        }
+        if (right.orderCount !== left.orderCount) {
+          return right.orderCount - left.orderCount;
+        }
+        return (
+          new Date(right.lastOrderedAt).getTime() -
+          new Date(left.lastOrderedAt).getTime()
+        );
+      })
+      .slice(0, 5);
+  }, [historyOrders, items]);
+
   const cartItemCount = useMemo(
     () => Object.values(cartQtyByItemId).reduce((sum, qty) => sum + qty, 0),
     [cartQtyByItemId],
@@ -2405,7 +2495,10 @@ export default function App() {
     notifyInfo("Signed out.");
   }
 
-  async function addToCart(item: MenuItem): Promise<void> {
+  async function addToCart(
+    item: MenuItem,
+    successMessage?: string,
+  ): Promise<void> {
     setActionError("");
     setActiveItemId(item.id);
 
@@ -2428,7 +2521,9 @@ export default function App() {
           nextQty,
         );
         syncCartFromOrder(updatedOrder);
-        notifySuccess(`Added ${item.name} to cart. Cart quantity: ${nextQty}.`);
+        notifySuccess(
+          successMessage ?? `Added ${item.name} to cart. Cart quantity: ${nextQty}.`,
+        );
       } catch (firstTryError) {
         const firstTryMessage =
           firstTryError instanceof Error ? firstTryError.message : "";
@@ -2454,7 +2549,8 @@ export default function App() {
           );
           syncCartFromOrder(retriedOrder);
           notifySuccess(
-            `Added ${item.name} to cart. Cart quantity: ${retryQty}.`,
+            successMessage ??
+              `Added ${item.name} to cart. Cart quantity: ${retryQty}.`,
           );
           return;
         }
@@ -2523,6 +2619,147 @@ export default function App() {
       console.error(cartError);
     } finally {
       setCartBusyItemId(null);
+    }
+  }
+
+  async function reorderPreviousOrder(order: Order): Promise<void> {
+    if (!user) {
+      notifyWarning("Please sign in first.");
+      return;
+    }
+
+    if (order.items.length === 0) {
+      notifyWarning("This order has no items to reorder.");
+      return;
+    }
+
+    setReorderingOrderId(order.id);
+    setReorderMessage("");
+    setActionError("");
+
+    try {
+      const currentItemById = new Map(items.map((item) => [item.id, item]));
+      const currentItemByGroupId = new Map<string, MenuItem>();
+      for (const item of items) {
+        if (item.menu_item_group_id) {
+          currentItemByGroupId.set(item.menu_item_group_id, item);
+        }
+      }
+
+      const targetOrderId = await ensureOrder();
+      const nextQtyByItemId = new Map<number, number>(
+        Object.entries(cartQtyByItemId).map(([itemId, qty]) => [
+          Number(itemId),
+          qty,
+        ]),
+      );
+      const addedItems: string[] = [];
+      const skippedItems: string[] = [];
+      const priceChangedItems: string[] = [];
+
+      for (const detail of order.items) {
+        const groupId =
+          detail.menu_item_group_id ?? detail.item.menu_item_group_id ?? null;
+        const currentItem =
+          (groupId ? currentItemByGroupId.get(groupId) : undefined) ??
+          currentItemById.get(detail.item.id);
+
+        if (!currentItem) {
+          skippedItems.push(`${detail.item.name} is no longer on the menu.`);
+          continue;
+        }
+
+        if (!currentItem.is_available) {
+          skippedItems.push(`${currentItem.name} is sold out.`);
+          continue;
+        }
+
+        const requestedQty = Math.max(1, Math.min(99, detail.qty));
+        const currentQty = nextQtyByItemId.get(currentItem.id) ?? 0;
+        const nextQty = Math.min(99, currentQty + requestedQty);
+        const addedQty = nextQty - currentQty;
+
+        if (addedQty <= 0) {
+          skippedItems.push(`${currentItem.name} is already at the maximum quantity.`);
+          continue;
+        }
+
+        if (currentItem.price !== detail.item.price) {
+          priceChangedItems.push(
+            `${currentItem.name}: $${detail.item.price} -> $${currentItem.price}`,
+          );
+        }
+
+        if (addedQty < requestedQty) {
+          skippedItems.push(`${currentItem.name} quantity was capped at 99.`);
+        }
+
+        try {
+          const updatedOrder = await patchOrderItemQty(
+            targetOrderId,
+            currentItem.id,
+            nextQty,
+          );
+          syncCartFromOrder(updatedOrder);
+          nextQtyByItemId.set(currentItem.id, nextQty);
+          addedItems.push(`${currentItem.name} x ${addedQty}`);
+        } catch (reorderItemError) {
+          const message =
+            reorderItemError instanceof Error
+              ? reorderItemError.message
+              : "Unable to reorder item.";
+          if (isMenuVersionChangedMessage(message)) {
+            await refreshMenuAndCurrentOrderAfterVersionConflict(message);
+            notifyWarning("Menu changed. Please refresh your cart.");
+          }
+          throw reorderItemError;
+        }
+      }
+
+      await loadCurrentOrder();
+
+      const summaryParts: string[] = [];
+      if (addedItems.length > 0) {
+        summaryParts.push(
+          `Added ${addedItems.length} item(s) from order ${formatPickupNumber(
+            order.id,
+          )} to your cart.`,
+        );
+      }
+      if (skippedItems.length > 0) {
+        summaryParts.push(`Skipped: ${skippedItems.join(" ")}`);
+      }
+      if (priceChangedItems.length > 0) {
+        summaryParts.push(`Price changed: ${priceChangedItems.join(" ")}`);
+      }
+      setReorderMessage(summaryParts.join("\n"));
+
+      if (addedItems.length > 0) {
+        setIsCartOpen(true);
+        notifySuccess(`Reordered ${addedItems.length} item(s).`);
+      } else {
+        notifyWarning("No items could be reordered. Please choose from the current menu.");
+      }
+      if (priceChangedItems.length > 0) {
+        notifyWarning("Some reordered items have current menu prices.");
+      }
+      if (skippedItems.length > 0) {
+        notifyWarning("Some items could not be reordered.");
+      }
+    } catch (reorderError) {
+      const message =
+        reorderError instanceof Error
+          ? reorderError.message
+          : "Unable to reorder this order.";
+      if (isMenuVersionChangedMessage(message)) {
+        setActionError(message);
+      } else {
+        setActionError(message);
+        notifyError(message);
+      }
+      console.error(reorderError);
+    } finally {
+      setReorderingOrderId(null);
     }
   }
 
@@ -7110,7 +7347,61 @@ export default function App() {
               <span>No menu items yet.</span>
             </div>
           ) : (
-            grouped.categories.map((category) => (
+            <>
+              {user && frequentItems.length > 0 ? (
+                <section className="mb-8 rounded-box border border-base-300 bg-base-100 p-4 shadow-sm">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h2 className="text-xl font-bold">Frequently ordered</h2>
+                      <p className="text-sm opacity-70">
+                        Quick picks from your previous completed and active orders.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {frequentItems.map((entry) => (
+                      <div
+                        key={entry.currentItem.id}
+                        className="rounded-box border border-base-300 bg-base-200 p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-semibold">
+                              {entry.currentItem.name}
+                            </h3>
+                            <p className="text-sm opacity-70">
+                              Ordered {entry.orderCount} time(s), total qty{" "}
+                              {entry.totalQuantity}
+                            </p>
+                            <p className="text-xs opacity-60">
+                              Last ordered{" "}
+                              {formatCheckoutDateTime(entry.lastOrderedAt)}
+                            </p>
+                          </div>
+                          <span className="font-bold text-success">
+                            ${entry.currentItem.price}
+                          </span>
+                        </div>
+                        <button
+                          className="btn btn-sm btn-outline mt-3 w-full"
+                          disabled={activeItemId === entry.currentItem.id}
+                          onClick={() => {
+                            void addToCart(
+                              entry.currentItem,
+                              `Added ${entry.currentItem.name} from frequent items.`,
+                            );
+                          }}
+                        >
+                          {activeItemId === entry.currentItem.id
+                            ? "Adding..."
+                            : "Add"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+              {grouped.categories.map((category) => (
               <section key={category} className="mb-8">
               <h2 className="text-3xl font-bold mb-4 text-primary border-b-2 border-primary pb-2">
                 {category}
@@ -7401,7 +7692,8 @@ export default function App() {
                 ))}
               </div>
               </section>
-            ))
+              ))}
+            </>
           )}
         </section>
 
@@ -7411,6 +7703,11 @@ export default function App() {
             {statusMessage ? (
               <div className="alert mb-4">
                 <span>{statusMessage}</span>
+              </div>
+            ) : null}
+            {reorderMessage ? (
+              <div className="alert alert-info mb-4 whitespace-pre-line">
+                <span>{reorderMessage}</span>
               </div>
             ) : null}
             {historyLoading ? (
@@ -7484,6 +7781,20 @@ export default function App() {
                                 {cancelUpdatingOrderId === order.id
                                   ? "Cancelling..."
                                   : "Cancel order"}
+                              </button>
+                            ) : null}
+                            {order.status !== "pending" &&
+                            order.items.length > 0 ? (
+                              <button
+                                className="btn btn-sm btn-outline"
+                                disabled={reorderingOrderId === order.id}
+                                onClick={() => {
+                                  void reorderPreviousOrder(order);
+                                }}
+                              >
+                                {reorderingOrderId === order.id
+                                  ? "Adding..."
+                                  : "Order again"}
                               </button>
                             ) : null}
                             {allowedStatuses.length > 0 ? (

@@ -37,6 +37,7 @@ import {
   getAdminRoleRequestsQuerySchema,
   getAuditLogsQuerySchema,
   getPromotionsQuerySchema,
+  guestOrderLookupBodySchema,
   getOrderByIdParamsSchema,
   healthResponseSchema,
   menuItemHistoryParamsSchema,
@@ -408,6 +409,17 @@ function toVisibleOrderResponse(
     issueReportedBy: null,
     issueReportedAt: null,
   });
+}
+
+function normalizePhoneDigits(phone?: string | null): string {
+  return phone?.replace(/\D/g, "") ?? "";
+}
+
+function parseGuestPickupNumber(pickupNumber: string): number | null {
+  const digits = pickupNumber.replace(/\D/g, "");
+  if (!digits) return null;
+  const orderId = Number.parseInt(digits, 10);
+  return Number.isFinite(orderId) && orderId > 0 ? orderId : null;
 }
 
 function toRoleRequestResponse(
@@ -1724,6 +1736,49 @@ app.post(
       404: apiErrorResponseSchema,
       409: apiErrorOrVersionConflictResponseSchema,
       500: apiErrorResponseSchema,
+    },
+  },
+);
+
+// Guest order lookup
+app.post(
+  "/api/orders/guest/lookup",
+  async ({ body, set }) => {
+    const input = body as { pickupNumber: string; guestPhone: string };
+    const orderId = parseGuestPickupNumber(input.pickupNumber);
+    const notFound = () => {
+      set.status = 404;
+      return { error: "Guest order not found" };
+    };
+
+    if (!orderId) {
+      return notFound();
+    }
+
+    const order = store.getOrderById(orderId);
+    if (!order || order.orderSource !== "guest") {
+      return notFound();
+    }
+
+    const inputPhoneDigits = normalizePhoneDigits(input.guestPhone);
+    const orderPhoneDigits = normalizePhoneDigits(order.guestPhone);
+    if (!inputPhoneDigits || inputPhoneDigits !== orderPhoneDigits) {
+      return notFound();
+    }
+
+    return { data: toVisibleOrderResponse(order, null) };
+  },
+  {
+    body: guestOrderLookupBodySchema,
+    detail: {
+      tags: ["orders"],
+      summary: "Look up guest order",
+      description:
+        "Look up a guest checkout order by pickup number and full phone number.",
+    },
+    response: {
+      200: orderResponseEnvelopeSchema,
+      404: apiErrorResponseSchema,
     },
   },
 );

@@ -475,6 +475,13 @@ export default function App() {
   const [guestCheckoutForm, setGuestCheckoutForm] =
     useState<GuestCheckoutForm>(emptyGuestCheckoutForm);
   const [lastGuestOrder, setLastGuestOrder] = useState<Order | null>(null);
+  const [guestLookupForm, setGuestLookupForm] = useState({
+    pickupNumber: "",
+    guestPhone: "",
+  });
+  const [guestLookupOrder, setGuestLookupOrder] = useState<Order | null>(null);
+  const [guestLookupLoading, setGuestLookupLoading] = useState(false);
+  const [guestLookupMessage, setGuestLookupMessage] = useState("");
   const [walkInOrderForm, setWalkInOrderForm] =
     useState<WalkInOrderForm>(emptyWalkInOrderForm);
   const [tastePreferenceChips, setTastePreferenceChips] = useState<string[]>(
@@ -3760,6 +3767,53 @@ export default function App() {
     }
   }
 
+  async function lookupGuestOrder(
+    override?: { pickupNumber: string; guestPhone: string },
+  ): Promise<void> {
+    const pickupNumber = (override?.pickupNumber ?? guestLookupForm.pickupNumber).trim();
+    const guestPhone = (override?.guestPhone ?? guestLookupForm.guestPhone).trim();
+
+    if (!pickupNumber || !guestPhone) {
+      setGuestLookupMessage("Enter pickup number and phone number.");
+      notifyWarning("Enter pickup number and phone number.");
+      return;
+    }
+
+    setGuestLookupLoading(true);
+    setGuestLookupMessage("");
+
+    try {
+      const response = await fetch(buildApiUrl("/api/orders/guest/lookup"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pickupNumber, guestPhone }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<Order>;
+      const order = payload?.data;
+      if (!order) {
+        throw new Error("Guest order lookup failed: invalid payload");
+      }
+
+      setGuestLookupOrder(order);
+      setGuestLookupMessage("");
+      notifySuccess("Guest order found.");
+    } catch (lookupError) {
+      const message =
+        "Guest order not found. Check pickup number and phone number.";
+      setGuestLookupOrder(null);
+      setGuestLookupMessage(message);
+      notifyError(message);
+      console.error(lookupError);
+    } finally {
+      setGuestLookupLoading(false);
+    }
+  }
+
   async function submitOrder(): Promise<void> {
     if (cartDetails.length === 0) return;
     if (!user) {
@@ -5297,10 +5351,11 @@ export default function App() {
 
       <main className="container mx-auto p-6">
         {!user ? (
-          <section
-            ref={accountSectionRef}
-            className="max-w-xl mx-auto card bg-base-100 shadow-md mb-8 scroll-mt-24"
-          >
+          <>
+            <section
+              ref={accountSectionRef}
+              className="max-w-xl mx-auto card bg-base-100 shadow-md mb-4 scroll-mt-24"
+            >
             <div className="card-body">
               <h2 className="card-title">Sign in with Google</h2>
               <p className="text-sm opacity-70">
@@ -5356,7 +5411,159 @@ export default function App() {
                 <p className="text-xs opacity-60">{demoAuthError}</p>
               ) : null}
             </div>
-          </section>
+            </section>
+            <section className="max-w-xl mx-auto card bg-base-100 shadow-md mb-8">
+              <div className="card-body">
+                <h2 className="card-title">Guest order lookup</h2>
+                <p className="text-sm opacity-70">
+                  Check your guest order with pickup number and phone number.
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="form-control">
+                    <span className="label-text mb-1">Pickup number</span>
+                    <input
+                      className="input input-bordered input-sm"
+                      value={guestLookupForm.pickupNumber}
+                      onChange={(event) =>
+                        setGuestLookupForm((current) => ({
+                          ...current,
+                          pickupNumber: event.target.value,
+                        }))
+                      }
+                      placeholder="#0007"
+                      maxLength={20}
+                    />
+                  </label>
+                  <label className="form-control">
+                    <span className="label-text mb-1">Phone number</span>
+                    <input
+                      className="input input-bordered input-sm"
+                      value={guestLookupForm.guestPhone}
+                      onChange={(event) =>
+                        setGuestLookupForm((current) => ({
+                          ...current,
+                          guestPhone: event.target.value,
+                        }))
+                      }
+                      placeholder="0912-345-678"
+                      maxLength={30}
+                    />
+                  </label>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={guestLookupLoading}
+                    onClick={() => {
+                      void lookupGuestOrder();
+                    }}
+                  >
+                    {guestLookupLoading ? "Checking..." : "Check order"}
+                  </button>
+                  {lastGuestOrder ? (
+                    <button
+                      className="btn btn-outline btn-sm"
+                      disabled={guestLookupLoading}
+                      onClick={() => {
+                        const nextForm = {
+                          pickupNumber: formatPickupNumber(lastGuestOrder.id),
+                          guestPhone: lastGuestOrder.guestPhone ?? "",
+                        };
+                        setGuestLookupForm(nextForm);
+                        void lookupGuestOrder(nextForm);
+                      }}
+                    >
+                      Use last guest order
+                    </button>
+                  ) : null}
+                </div>
+                {guestLookupMessage ? (
+                  <div className="alert alert-warning py-2 text-sm">
+                    <span>{guestLookupMessage}</span>
+                  </div>
+                ) : null}
+                {guestLookupOrder ? (
+                  <div className="rounded-box border border-base-300 bg-base-200 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm opacity-70">Pickup number</p>
+                        <p className="text-2xl font-bold text-primary">
+                          {formatPickupNumber(guestLookupOrder.id)}
+                        </p>
+                      </div>
+                      <span
+                        className={`badge ${getStatusBadgeClass(
+                          guestLookupOrder.status,
+                        )}`}
+                      >
+                        {guestLookupOrder.status}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+                      <p>
+                        Payment: {guestLookupOrder.paymentMethod} /{" "}
+                        {guestLookupOrder.paymentStatus}
+                      </p>
+                      <p>Fulfillment: {guestLookupOrder.fulfillmentType}</p>
+                      <p>
+                        Pickup:{" "}
+                        {guestLookupOrder.pickupTime
+                          ? formatCheckoutDateTime(guestLookupOrder.pickupTime)
+                          : "ASAP"}
+                      </p>
+                      <p>Total: ${guestLookupOrder.total}</p>
+                    </div>
+                    <div className="mt-3 rounded-box bg-base-100 p-2">
+                      <p className="mb-1 font-semibold">Items</p>
+                      <ul className="space-y-1 text-sm">
+                        {guestLookupOrder.items.map((detail) => (
+                          <li
+                            key={`${detail.item.id}-${detail.menu_item_version ?? "snapshot"}`}
+                            className="flex justify-between gap-2"
+                          >
+                            <span>
+                              {detail.item.name} x {detail.qty}
+                            </span>
+                            <span>${detail.item.price * detail.qty}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    {guestLookupOrder.discountAmount > 0 ||
+                    guestLookupOrder.promoCode ? (
+                      <p className="mt-2 text-sm">
+                        Promo: {guestLookupOrder.promoCode ?? "-"} / Discount $
+                        {guestLookupOrder.discountAmount}
+                      </p>
+                    ) : null}
+                    {guestLookupOrder.customerNote ? (
+                      <p className="mt-2 text-sm">
+                        Note: {guestLookupOrder.customerNote}
+                      </p>
+                    ) : null}
+                    <p className="mt-3 text-sm font-medium">
+                      {getCustomerOrderProgressLabel(guestLookupOrder)}
+                    </p>
+                    {["submitted", "preparing"].includes(
+                      guestLookupOrder.status,
+                    ) ? (
+                      <p className="text-sm opacity-70">
+                        Ahead of you: {getQueueAheadCount(guestLookupOrder)} order(s).
+                        Estimated wait:{" "}
+                        {estimateWaitMinutes(getQueueAheadCount(guestLookupOrder))} min.
+                      </p>
+                    ) : null}
+                    {guestLookupOrder.status === "ready" &&
+                    guestLookupOrder.paymentStatus === "unpaid" ? (
+                      <div className="alert alert-warning mt-3 py-2 text-sm">
+                        <span>Please pay at pickup before receiving your order.</span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </>
         ) : null}
 
         {actionError ? (
@@ -5404,6 +5611,20 @@ export default function App() {
                 <p>Status: {lastGuestOrder.status}</p>
                 <p>Payment: {lastGuestOrder.paymentMethod} / {lastGuestOrder.paymentStatus}</p>
                 <p>Total: ${lastGuestOrder.total}</p>
+                <button
+                  className="btn btn-sm btn-outline mt-2"
+                  disabled={guestLookupLoading}
+                  onClick={() => {
+                    const nextForm = {
+                      pickupNumber: formatPickupNumber(lastGuestOrder.id),
+                      guestPhone: lastGuestOrder.guestPhone ?? "",
+                    };
+                    setGuestLookupForm(nextForm);
+                    void lookupGuestOrder(nextForm);
+                  }}
+                >
+                  Check latest status
+                </button>
               </div>
             </div>
           </section>

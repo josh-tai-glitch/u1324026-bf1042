@@ -4,7 +4,10 @@ import {
   orderSchema,
   orderSourceSchema,
 } from "../shared/contracts.ts";
-import { createGuestOrderBodySchema } from "../shared/route-schemas.ts";
+import {
+  createGuestOrderBodySchema,
+  guestOrderLookupBodySchema,
+} from "../shared/route-schemas.ts";
 
 describe("guest checkout contracts", () => {
   test("order source accepts guest", () => {
@@ -32,6 +35,33 @@ describe("guest checkout contracts", () => {
       createGuestOrderBodySchema.parse({
         guestName: "Guest Customer",
         items: [{ itemId: 1, qty: 1 }],
+      }),
+    ).toThrow();
+  });
+
+  test("guest order lookup accepts formatted pickup number and phone", () => {
+    const parsed = guestOrderLookupBodySchema.parse({
+      pickupNumber: "#0007",
+      guestPhone: "0912-345-678",
+    });
+
+    expect(parsed.pickupNumber).toBe("#0007");
+    expect(parsed.guestPhone).toBe("0912-345-678");
+  });
+
+  test("guest order lookup rejects missing phone", () => {
+    expect(() =>
+      guestOrderLookupBodySchema.parse({
+        pickupNumber: "0007",
+      }),
+    ).toThrow();
+  });
+
+  test("guest order lookup rejects invalid phone", () => {
+    expect(() =>
+      guestOrderLookupBodySchema.parse({
+        pickupNumber: "7",
+        guestPhone: "not-a-phone",
       }),
     ).toThrow();
   });

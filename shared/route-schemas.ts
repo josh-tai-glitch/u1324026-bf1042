@@ -289,6 +289,19 @@ export const createGuestOrderBodySchema = z.object({
   promoCode: z.string().trim().max(32).optional().nullable(),
 });
 
+export const guestOrderLookupBodySchema = z.object({
+  pickupNumber: z.string().trim().min(1).max(20),
+  guestPhone: z
+    .string()
+    .trim()
+    .min(1, "Guest phone is required")
+    .max(30)
+    .refine(
+      (value) => /^[0-9+\-() ]{6,30}$/.test(value),
+      "Invalid phone number",
+    ),
+});
+
 function validatePromotionDateRange(
   value: { startsAt?: string | null; endsAt?: string | null },
   context: z.RefinementCtx,

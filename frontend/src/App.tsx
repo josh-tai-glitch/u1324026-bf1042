@@ -198,6 +198,7 @@ type FrequentMenuItem = {
   orderCount: number;
   lastOrderedAt: string;
 };
+type BusyLevel = "normal" | "busy" | "very_busy";
 type AnalyticsRange = "all" | "today" | "last7Days" | "thisMonth" | "custom";
 type AuditLogRange = "all" | "today" | "last7Days" | "thisMonth" | "custom";
 type AnalyticsDateFilters = {
@@ -677,9 +678,15 @@ export default function App() {
     }
   }
 
-  const activeOrders = historyOrders.filter((order) =>
+  const activeQueueOrders = historyOrders.filter((order) =>
     ["submitted", "preparing", "ready"].includes(order.status),
-  ).length;
+  );
+  const kitchenQueueOrders = historyOrders.filter((order) =>
+    ["submitted", "preparing"].includes(order.status),
+  );
+  const activeOrders = activeQueueOrders.length;
+  const estimatedWaitMinutes = estimateWaitMinutes(kitchenQueueOrders.length);
+  const busyLevel = getBusyLevel(kitchenQueueOrders.length);
   const unpaidOrders = historyOrders.filter(
     (order) =>
       order.paymentStatus === "unpaid" &&
@@ -1423,6 +1430,88 @@ export default function App() {
     const date = new Date(order.submittedAt ?? order.createdAt);
     if (Number.isNaN(date.getTime())) return 0;
     return Math.floor((Date.now() - date.getTime()) / 60000);
+  }
+
+  function estimateWaitMinutes(orderCount: number): number {
+    return Math.min(45, 5 + orderCount * 3);
+  }
+
+  function getBusyLevel(orderCount: number): BusyLevel {
+    if (orderCount >= 6) return "very_busy";
+    if (orderCount >= 3) return "busy";
+    return "normal";
+  }
+
+  function getBusyLevelLabel(level: BusyLevel): string {
+    if (level === "very_busy") return "Very busy";
+    if (level === "busy") return "Busy";
+    return "Normal";
+  }
+
+  function getBusyLevelBadgeClass(level: BusyLevel): string {
+    if (level === "very_busy") return "badge-error";
+    if (level === "busy") return "badge-warning";
+    return "badge-success";
+  }
+
+  function getBusyLevelMessage(level: BusyLevel): string {
+    if (level === "very_busy") {
+      return "High demand right now. Pickup may take longer than usual.";
+    }
+    if (level === "busy") {
+      return "The kitchen is currently busy. Consider choosing a later pickup time.";
+    }
+    return "Orders are moving normally.";
+  }
+
+  function getOrderQueueTime(order: Order): number {
+    const date = new Date(order.submittedAt ?? order.createdAt);
+    return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+  }
+
+  function getQueueAheadCount(order: Order): number {
+    const orderTime = getOrderQueueTime(order);
+    return activeQueueOrders.filter(
+      (queueOrder) =>
+        queueOrder.id !== order.id && getOrderQueueTime(queueOrder) < orderTime,
+    ).length;
+  }
+
+  function getCustomerOrderProgressLabel(order: Order): string {
+    if (order.status === "ready") return "Ready for pickup";
+    if (order.status === "completed") return "Completed";
+    if (order.status === "cancelled") return "Cancelled";
+    if (order.status === "preparing") return "Being prepared";
+    if (order.status === "submitted") return "Waiting for kitchen";
+    return order.status;
+  }
+
+  function getReadyAgeMinutes(order: Order): number | null {
+    if (order.status !== "ready") return null;
+    const orderWithTiming = order as Order & {
+      readyAt?: string | null;
+      updatedAt?: string | null;
+    };
+    const date = new Date(
+      orderWithTiming.readyAt ??
+        orderWithTiming.updatedAt ??
+        order.submittedAt ??
+        order.createdAt,
+    );
+    if (Number.isNaN(date.getTime())) return 0;
+    return Math.floor((Date.now() - date.getTime()) / 60000);
+  }
+
+  function isReadyPickupOverdue(order: Order): boolean {
+    const readyAgeMinutes = getReadyAgeMinutes(order);
+    return readyAgeMinutes !== null && readyAgeMinutes > 10;
+  }
+
+  function getManagerOrderFlowHint(order: Order): string {
+    if (order.status === "submitted") return "Waiting for kitchen";
+    if (order.status === "preparing") return "Being prepared";
+    if (order.status === "ready") return "Ready for pickup";
+    return "";
   }
 
   function isUrgentOrder(order: Order): boolean {
@@ -4514,7 +4603,7 @@ export default function App() {
                     phone orders, promotions, and order issues.
                   </p>
                 </div>
-                <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-9">
                   <div className="stat rounded-box border border-base-300 bg-base-200">
                     <div className="stat-title">Active orders</div>
                     <div className="stat-value text-info">{activeOrders}</div>
@@ -4543,6 +4632,32 @@ export default function App() {
                     <div className="stat-title">Open issues</div>
                     <div className="stat-value text-error">
                       {ordersWithIssue}
+                    </div>
+                  </div>
+                  <div className="stat rounded-box border border-base-300 bg-base-200">
+                    <div className="stat-title">Kitchen queue</div>
+                    <div className="stat-value text-info">
+                      {kitchenQueueOrders.length}
+                    </div>
+                  </div>
+                  <div className="stat rounded-box border border-base-300 bg-base-200">
+                    <div className="stat-title">Estimated wait</div>
+                    <div className="stat-value text-primary">
+                      {estimatedWaitMinutes}m
+                    </div>
+                  </div>
+                  <div className="stat rounded-box border border-base-300 bg-base-200">
+                    <div className="stat-title">Busy level</div>
+                    <div
+                      className={`stat-value text-2xl ${
+                        busyLevel === "very_busy"
+                          ? "text-error"
+                          : busyLevel === "busy"
+                            ? "text-warning"
+                            : "text-success"
+                      }`}
+                    >
+                      {getBusyLevelLabel(busyLevel)}
                     </div>
                   </div>
                 </div>
@@ -4922,6 +5037,12 @@ export default function App() {
                                 const urgent = isUrgentOrder(order);
                                 const orderAgeMinutes =
                                   getOrderAgeMinutes(order);
+                                const readyAgeMinutes =
+                                  getReadyAgeMinutes(order);
+                                const readyPickupOverdue =
+                                  isReadyPickupOverdue(order);
+                                const managerFlowHint =
+                                  getManagerOrderFlowHint(order);
                                 const canCancelThisOrder =
                                   canCancelManagerOrder &&
                                   (order.status === "submitted" ||
@@ -4960,6 +5081,19 @@ export default function App() {
                                           Urgent {orderAgeMinutes}m
                                         </span>
                                       ) : null}
+                                      {managerFlowHint ? (
+                                        <span className="badge badge-outline badge-sm">
+                                          {managerFlowHint}
+                                        </span>
+                                      ) : null}
+                                      {readyPickupOverdue ? (
+                                        <span className="badge badge-error badge-sm">
+                                          Pickup overdue
+                                          {readyAgeMinutes !== null
+                                            ? ` ${readyAgeMinutes}m`
+                                            : ""}
+                                        </span>
+                                      ) : null}
                                       {order.orderSource === "phone" ? (
                                         <span className="badge badge-info badge-sm">
                                           Phone
@@ -4989,6 +5123,24 @@ export default function App() {
                                     {order.guestName ? (
                                       <p className="mt-2 text-xs opacity-70">
                                         Guest: {order.guestName}
+                                      </p>
+                                    ) : null}
+                                    {readyPickupOverdue ? (
+                                      <p className="mt-2 text-xs font-medium text-error">
+                                        Pickup overdue.
+                                      </p>
+                                    ) : null}
+                                    {order.status === "ready" &&
+                                    order.paymentStatus === "unpaid" ? (
+                                      <p className="mt-1 text-xs text-warning">
+                                        Confirm payment before pickup.
+                                      </p>
+                                    ) : null}
+                                    {order.status === "ready" &&
+                                    order.orderSource === "phone" &&
+                                    order.guestPhone ? (
+                                      <p className="mt-1 text-xs text-info">
+                                        Call customer for pickup.
                                       </p>
                                     ) : null}
                                     <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
@@ -5082,6 +5234,9 @@ export default function App() {
                       const primaryAction = getPrimaryOrderAction(order);
                       const urgent = isUrgentOrder(order);
                       const orderAgeMinutes = getOrderAgeMinutes(order);
+                      const readyAgeMinutes = getReadyAgeMinutes(order);
+                      const readyPickupOverdue = isReadyPickupOverdue(order);
+                      const managerFlowHint = getManagerOrderFlowHint(order);
                       const draftedStatus = orderStatusDrafts[order.id];
                       const selectedStatus =
                         draftedStatus && allowedStatuses.includes(draftedStatus)
@@ -5138,6 +5293,19 @@ export default function App() {
                               {urgent ? (
                                 <span className="badge badge-error">
                                   Urgent {orderAgeMinutes}m
+                                </span>
+                              ) : null}
+                              {managerFlowHint ? (
+                                <span className="badge badge-outline">
+                                  {managerFlowHint}
+                                </span>
+                              ) : null}
+                              {readyPickupOverdue ? (
+                                <span className="badge badge-error">
+                                  Pickup overdue
+                                  {readyAgeMinutes !== null
+                                    ? ` ${readyAgeMinutes}m`
+                                    : ""}
                                 </span>
                               ) : null}
                               {order.status === "ready" ? (
@@ -5287,6 +5455,24 @@ export default function App() {
                               order.status === "completed") ? (
                               <span className="text-warning">
                                 Payment due before pickup.
+                              </span>
+                            ) : null}
+                            {readyPickupOverdue ? (
+                              <span className="text-error">
+                                Pickup overdue.
+                              </span>
+                            ) : null}
+                            {order.status === "ready" &&
+                            order.paymentStatus === "unpaid" ? (
+                              <span className="text-warning">
+                                Confirm payment before pickup.
+                              </span>
+                            ) : null}
+                            {order.status === "ready" &&
+                            order.orderSource === "phone" &&
+                            order.guestPhone ? (
+                              <span className="text-info">
+                                Call customer for pickup.
                               </span>
                             ) : null}
                             {order.customerNote ? (
@@ -7348,6 +7534,29 @@ export default function App() {
             </div>
           ) : (
             <>
+              <section className="mb-8 rounded-box border border-base-300 bg-base-100 p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-bold">Current wait estimate</h2>
+                    <p className="text-sm opacity-70">
+                      Kitchen queue: {kitchenQueueOrders.length} order(s)
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="badge badge-outline">
+                      Estimated wait: {estimatedWaitMinutes} min
+                    </span>
+                    <span
+                      className={`badge ${getBusyLevelBadgeClass(busyLevel)}`}
+                    >
+                      {getBusyLevelLabel(busyLevel)}
+                    </span>
+                  </div>
+                </div>
+                <p className="mt-2 text-sm opacity-80">
+                  {getBusyLevelMessage(busyLevel)}
+                </p>
+              </section>
               {user && frequentItems.length > 0 ? (
                 <section className="mb-8 rounded-box border border-base-300 bg-base-100 p-4 shadow-sm">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -7729,6 +7938,17 @@ export default function App() {
                       : allowedStatuses[0];
                   const canCancelOwnOrder =
                     order.status === "submitted" && order.userId === user.id;
+                  const isCustomerActiveOrder = [
+                    "submitted",
+                    "preparing",
+                    "ready",
+                  ].includes(order.status);
+                  const queueAheadCount = isCustomerActiveOrder
+                    ? getQueueAheadCount(order)
+                    : 0;
+                  const customerEstimatedWait = estimateWaitMinutes(queueAheadCount);
+                  const customerProgressLabel =
+                    getCustomerOrderProgressLabel(order);
                   const ratingDraft = ratingDrafts[order.id] ?? {
                     rating: order.rating ? String(order.rating) : "",
                     ratingComment: order.ratingComment ?? "",
@@ -7759,6 +7979,11 @@ export default function App() {
                             {order.status === "cancelled" ? (
                               <p className="text-sm font-semibold text-error">
                                 Cancelled
+                              </p>
+                            ) : null}
+                            {isCustomerActiveOrder ? (
+                              <p className="text-sm opacity-80">
+                                {customerProgressLabel}
                               </p>
                             ) : null}
                           </div>
@@ -7842,6 +8067,25 @@ export default function App() {
                               .createdAtTaipei ?? order.createdAt
                           }
                         </p>
+                        {isCustomerActiveOrder ? (
+                          <div className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+                            <span>Ahead of you: {queueAheadCount} order(s)</span>
+                            {order.status === "ready" ? (
+                              <span className="font-semibold text-primary">
+                                Ready for pickup
+                              </span>
+                            ) : (
+                              <span>
+                                Estimated wait: {customerEstimatedWait} min
+                              </span>
+                            )}
+                          </div>
+                        ) : order.status === "completed" ||
+                          order.status === "cancelled" ? (
+                          <p className="mt-2 text-sm opacity-80">
+                            {customerProgressLabel}
+                          </p>
+                        ) : null}
                         <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
                           <span>Fulfillment: {order.fulfillmentType}</span>
                           <span>
@@ -8040,6 +8284,19 @@ export default function App() {
             <div className="p-4 border-t border-base-300 space-y-3">
               <div className="rounded-box border border-base-300 bg-base-100 p-3 space-y-3">
                 <h3 className="font-semibold">Checkout details</h3>
+                <div
+                  className={`alert ${
+                    busyLevel === "normal" ? "alert-info" : "alert-warning"
+                  } py-2 text-sm`}
+                >
+                  <span>
+                    Estimated wait: {estimatedWaitMinutes} minutes. Ahead of
+                    you: {activeQueueOrders.length} active order(s).
+                    {busyLevel === "normal"
+                      ? ""
+                      : " The kitchen is busy. Please review your pickup time before submitting."}
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="form-control">
                     <span className="label-text mb-1">Fulfillment</span>

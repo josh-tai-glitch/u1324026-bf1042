@@ -714,6 +714,252 @@ export default function App() {
     startDate: appliedAnalyticsStartDate,
     endDate: appliedAnalyticsEndDate,
   });
+  const appliedAnalyticsFilters = {
+    range: appliedAnalyticsRange,
+    startDate: appliedAnalyticsStartDate,
+    endDate: appliedAnalyticsEndDate,
+  };
+  const analyticsRangeOrders = historyOrders.filter((order) =>
+    isOrderInAnalyticsDateRange(order.submittedAt ?? order.createdAt, {
+      range: appliedAnalyticsRange,
+      startDate: appliedAnalyticsStartDate,
+      endDate: appliedAnalyticsEndDate,
+    }),
+  );
+  const formalAnalyticsOrders = analyticsRangeOrders.filter(
+    (order) => order.status !== "pending",
+  );
+  const revenueAnalyticsOrders = formalAnalyticsOrders.filter(
+    (order) => order.status !== "cancelled",
+  );
+  const promotionPerformanceRows = useMemo(() => {
+    const rowsByCode = new Map<
+      string,
+      {
+        code: string;
+        isActive: boolean | null;
+        usedOrders: number;
+        totalSubtotal: number;
+        totalDiscount: number;
+        totalRevenue: number;
+        averageOrderValue: number;
+        lastUsedAt: string | null;
+      }
+    >();
+
+    for (const promotion of promotions) {
+      rowsByCode.set(promotion.code.toUpperCase(), {
+        code: promotion.code,
+        isActive: promotion.isActive,
+        usedOrders: 0,
+        totalSubtotal: 0,
+        totalDiscount: 0,
+        totalRevenue: 0,
+        averageOrderValue: 0,
+        lastUsedAt: null,
+      });
+    }
+
+    for (const order of revenueAnalyticsOrders) {
+      if (!order.promoCode && order.discountAmount <= 0) continue;
+      const normalizedCode = (order.promoCode ?? "UNKNOWN")
+        .trim()
+        .toUpperCase();
+      const existing = rowsByCode.get(normalizedCode);
+      const row =
+        existing ??
+        {
+          code: normalizedCode,
+          isActive: null,
+          usedOrders: 0,
+          totalSubtotal: 0,
+          totalDiscount: 0,
+          totalRevenue: 0,
+          averageOrderValue: 0,
+          lastUsedAt: null,
+        };
+
+      row.usedOrders += 1;
+      row.totalSubtotal += order.subtotal;
+      row.totalDiscount += order.discountAmount;
+      row.totalRevenue += order.total;
+      const usedAt = order.submittedAt ?? order.createdAt;
+      if (
+        !row.lastUsedAt ||
+        new Date(usedAt).getTime() > new Date(row.lastUsedAt).getTime()
+      ) {
+        row.lastUsedAt = usedAt;
+      }
+      rowsByCode.set(normalizedCode, row);
+    }
+
+    return Array.from(rowsByCode.values())
+      .map((row) => ({
+        ...row,
+        averageOrderValue:
+          row.usedOrders > 0 ? row.totalRevenue / row.usedOrders : 0,
+      }))
+      .sort((left, right) => {
+        if (right.usedOrders !== left.usedOrders) {
+          return right.usedOrders - left.usedOrders;
+        }
+        return left.code.localeCompare(right.code);
+      });
+  }, [promotions, revenueAnalyticsOrders]);
+  const issueOrders = formalAnalyticsOrders.filter(
+    (order) => order.issueType !== null,
+  );
+  const openIssueOrders = issueOrders.filter(
+    (order) => order.status !== "completed" && order.status !== "cancelled",
+  );
+  const resolvedIssueOrders = issueOrders.filter(
+    (order) =>
+      order.status === "completed" ||
+      Boolean((order as Order & { issueClearedAt?: string | null }).issueClearedAt),
+  );
+  const issueSummary = {
+    totalIssueOrders: issueOrders.length,
+    openIssueOrders: openIssueOrders.length,
+    resolvedIssueOrders: resolvedIssueOrders.length,
+    issueRate:
+      formalAnalyticsOrders.length > 0
+        ? issueOrders.length / formalAnalyticsOrders.length
+        : 0,
+  };
+  const issueTypeRows = orderIssueTypeOptions
+    .map((issueType) => {
+      const ordersForType = issueOrders.filter(
+        (order) => order.issueType === issueType,
+      );
+      return {
+        issueType,
+        count: ordersForType.length,
+        openCount: ordersForType.filter(
+          (order) =>
+            order.status !== "completed" && order.status !== "cancelled",
+        ).length,
+        completedCount: ordersForType.filter(
+          (order) => order.status === "completed",
+        ).length,
+        cancelledCount: ordersForType.filter(
+          (order) => order.status === "cancelled",
+        ).length,
+      };
+    })
+    .filter((row) => row.count > 0);
+  const issueSourceRows = (["customer", "walk_in", "phone"] as OrderSource[])
+    .map((source) => {
+      const sourceOrders = formalAnalyticsOrders.filter(
+        (order) => order.orderSource === source,
+      );
+      const sourceIssueOrders = sourceOrders.filter(
+        (order) => order.issueType !== null,
+      );
+      return {
+        source,
+        issueOrders: sourceIssueOrders.length,
+        totalOrders: sourceOrders.length,
+        issueRate:
+          sourceOrders.length > 0
+            ? sourceIssueOrders.length / sourceOrders.length
+            : 0,
+      };
+    })
+    .filter((row) => row.totalOrders > 0 || row.issueOrders > 0);
+  const staffOperationRows = useMemo(() => {
+    const staffRoles: Role[] = ["staff", "chef", "owner", "admin"];
+    const menuChangeActions: AuditLogAction[] = [
+      "menu_create",
+      "menu_update",
+      "menu_availability_update",
+      "menu_display_order_update",
+      "menu_ab_test_update",
+      "menu_delete",
+    ];
+    const rowsByActor = new Map<
+      string,
+      {
+        actorLabel: string;
+        staffOrdersCreated: number;
+        phoneOrdersCreated: number;
+        paymentsUpdated: number;
+        statusesUpdated: number;
+        issuesHandled: number;
+        menuChanges: number;
+        roleChanges: number;
+        totalActions: number;
+        lastActionAt: string | null;
+      }
+    >();
+
+    for (const log of auditLogs) {
+      if (
+        !isOrderInAnalyticsDateRange(log.createdAt, appliedAnalyticsFilters)
+      ) {
+        continue;
+      }
+      if (!log.actorRoles.some((role) => staffRoles.includes(role))) {
+        continue;
+      }
+
+      const actorKey = log.actorUserId ?? log.actorName ?? "unknown";
+      const row =
+        rowsByActor.get(actorKey) ??
+        {
+          actorLabel: log.actorName || log.actorUserId || "Unknown",
+          staffOrdersCreated: 0,
+          phoneOrdersCreated: 0,
+          paymentsUpdated: 0,
+          statusesUpdated: 0,
+          issuesHandled: 0,
+          menuChanges: 0,
+          roleChanges: 0,
+          totalActions: 0,
+          lastActionAt: null,
+        };
+
+      row.totalActions += 1;
+      if (
+        log.action === "walk_in_order_create" ||
+        log.action === "phone_order_create"
+      ) {
+        row.staffOrdersCreated += 1;
+      }
+      if (log.action === "phone_order_create") row.phoneOrdersCreated += 1;
+      if (log.action === "order_payment_update") row.paymentsUpdated += 1;
+      if (log.action === "order_status_update") row.statusesUpdated += 1;
+      if (
+        log.action === "order_issue_set" ||
+        log.action === "order_issue_clear"
+      ) {
+        row.issuesHandled += 1;
+      }
+      if (menuChangeActions.includes(log.action)) row.menuChanges += 1;
+      if (
+        log.action === "role_update" ||
+        log.action === "role_request_review"
+      ) {
+        row.roleChanges += 1;
+      }
+      if (
+        !row.lastActionAt ||
+        new Date(log.createdAt).getTime() >
+          new Date(row.lastActionAt).getTime()
+      ) {
+        row.lastActionAt = log.createdAt;
+      }
+      rowsByActor.set(actorKey, row);
+    }
+
+    return Array.from(rowsByActor.values()).sort(
+      (left, right) => right.totalActions - left.totalActions,
+    );
+  }, [
+    appliedAnalyticsEndDate,
+    appliedAnalyticsRange,
+    appliedAnalyticsStartDate,
+    auditLogs,
+  ]);
 
   // Analytics derived helpers
   const maxDailyRevenue = analyticsTrends
@@ -5770,6 +6016,218 @@ export default function App() {
                         ? "Loading insights..."
                         : "No insight data yet."}
                     </span>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold">Promotion performance</h3>
+                  <p className="text-sm opacity-70">
+                    Compare promo code usage and discounted revenue for the
+                    selected analytics range.
+                  </p>
+                </div>
+                {promotionPerformanceRows.length === 0 ? (
+                  <div className="alert">
+                    <span>No promotion usage data for this range.</span>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Code</th>
+                          <th>Status</th>
+                          <th>Used orders</th>
+                          <th>Subtotal</th>
+                          <th>Discount</th>
+                          <th>Revenue</th>
+                          <th>AOV</th>
+                          <th>Last used</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {promotionPerformanceRows.map((row) => (
+                          <tr key={row.code}>
+                            <td className="font-semibold">{row.code}</td>
+                            <td>
+                              <span
+                                className={`badge ${
+                                  row.isActive === null
+                                    ? "badge-neutral"
+                                    : row.isActive
+                                      ? "badge-success"
+                                      : "badge-warning"
+                                }`}
+                              >
+                                {row.isActive === null
+                                  ? "unknown"
+                                  : row.isActive
+                                    ? "active"
+                                    : "inactive"}
+                              </span>
+                            </td>
+                            <td>{row.usedOrders}</td>
+                            <td>${row.totalSubtotal}</td>
+                            <td>${row.totalDiscount}</td>
+                            <td>${row.totalRevenue}</td>
+                            <td>${row.averageOrderValue.toFixed(0)}</td>
+                            <td>
+                              {row.lastUsedAt
+                                ? formatCheckoutDateTime(row.lastUsedAt)
+                                : "-"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold">Issue analytics</h3>
+                  <p className="text-sm opacity-70">
+                    Track kitchen and counter issues by type and order source
+                    for the selected analytics range.
+                  </p>
+                </div>
+                {issueSummary.totalIssueOrders === 0 ? (
+                  <div className="alert">
+                    <span>No issue data for this range.</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                      <div className="stat rounded-box border border-base-300 bg-base-200">
+                        <div className="stat-title">Issue orders</div>
+                        <div className="stat-value">
+                          {issueSummary.totalIssueOrders}
+                        </div>
+                      </div>
+                      <div className="stat rounded-box border border-base-300 bg-base-200">
+                        <div className="stat-title">Open issues</div>
+                        <div className="stat-value text-warning">
+                          {issueSummary.openIssueOrders}
+                        </div>
+                      </div>
+                      <div className="stat rounded-box border border-base-300 bg-base-200">
+                        <div className="stat-title">Resolved issues</div>
+                        <div className="stat-value text-success">
+                          {issueSummary.resolvedIssueOrders}
+                        </div>
+                      </div>
+                      <div className="stat rounded-box border border-base-300 bg-base-200">
+                        <div className="stat-title">Issue rate</div>
+                        <div className="stat-value text-error">
+                          {(issueSummary.issueRate * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      <div className="overflow-x-auto">
+                        <table className="table">
+                          <thead>
+                            <tr>
+                              <th>Issue type</th>
+                              <th>Count</th>
+                              <th>Open</th>
+                              <th>Completed</th>
+                              <th>Cancelled</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {issueTypeRows.map((row) => (
+                              <tr key={row.issueType}>
+                                <td>{row.issueType}</td>
+                                <td>{row.count}</td>
+                                <td>{row.openCount}</td>
+                                <td>{row.completedCount}</td>
+                                <td>{row.cancelledCount}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="table">
+                          <thead>
+                            <tr>
+                              <th>Source</th>
+                              <th>Issue orders</th>
+                              <th>Total orders</th>
+                              <th>Issue rate</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {issueSourceRows.map((row) => (
+                              <tr key={row.source}>
+                                <td>{formatOrderSource(row.source)}</td>
+                                <td>{row.issueOrders}</td>
+                                <td>{row.totalOrders}</td>
+                                <td>{(row.issueRate * 100).toFixed(1)}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold">Staff operation summary</h3>
+                  <p className="text-sm opacity-70">
+                    This summary is derived from audit logs, so it reflects
+                    manager and staff actions already recorded by the system.
+                  </p>
+                </div>
+                {staffOperationRows.length === 0 ? (
+                  <div className="alert">
+                    <span>
+                      No staff operation data loaded. Refresh audit logs to
+                      populate this summary.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Actor</th>
+                          <th>Total actions</th>
+                          <th>Staff orders</th>
+                          <th>Phone orders</th>
+                          <th>Payments</th>
+                          <th>Status updates</th>
+                          <th>Issues</th>
+                          <th>Menu changes</th>
+                          <th>Role changes</th>
+                          <th>Last action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {staffOperationRows.map((row) => (
+                          <tr key={row.actorLabel}>
+                            <td>{row.actorLabel}</td>
+                            <td>{row.totalActions}</td>
+                            <td>{row.staffOrdersCreated}</td>
+                            <td>{row.phoneOrdersCreated}</td>
+                            <td>{row.paymentsUpdated}</td>
+                            <td>{row.statusesUpdated}</td>
+                            <td>{row.issuesHandled}</td>
+                            <td>{row.menuChanges}</td>
+                            <td>{row.roleChanges}</td>
+                            <td>
+                              {row.lastActionAt
+                                ? formatCheckoutDateTime(row.lastActionAt)
+                                : "-"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>

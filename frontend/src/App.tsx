@@ -199,6 +199,23 @@ const emptyWalkInOrderForm = {
   paymentMethod: "cash" as PaymentMethod,
   promoCode: "",
 };
+const defaultTastePreferenceChips = [
+  "少冰",
+  "去冰",
+  "半糖",
+  "無糖",
+  "加辣",
+  "不加辣",
+  "不要洋蔥",
+  "不要胡椒",
+  "醬少",
+  "醬多",
+  "吐司不要切",
+  "蛋全熟",
+];
+const tastePreferenceStorageKey = "bf_taste_preference_chips_v1";
+const maxTastePreferenceChips = 20;
+const maxTastePreferenceChipLength = 30;
 
 type MenuForm = typeof emptyMenuForm;
 type CategoryForm = typeof emptyCategoryForm;
@@ -266,6 +283,34 @@ function normalizeUser(user: Partial<SessionUser>): SessionUser {
       ? user.roles
       : defaultRoles,
   };
+}
+
+function sanitizeTastePreferenceChips(
+  chips: unknown,
+  options: { fallbackToDefault?: boolean } = {},
+): string[] {
+  if (!Array.isArray(chips)) return defaultTastePreferenceChips;
+
+  const seen = new Set<string>();
+  const sanitized: string[] = [];
+
+  for (const chip of chips) {
+    if (typeof chip !== "string") continue;
+    const trimmedChip = chip.trim().slice(0, maxTastePreferenceChipLength);
+    if (!trimmedChip) continue;
+
+    const normalizedChip = trimmedChip.toLocaleLowerCase();
+    if (seen.has(normalizedChip)) continue;
+
+    seen.add(normalizedChip);
+    sanitized.push(trimmedChip);
+
+    if (sanitized.length >= maxTastePreferenceChips) break;
+  }
+
+  return sanitized.length > 0 || !options.fallbackToDefault
+    ? sanitized
+    : defaultTastePreferenceChips;
 }
 
 async function readApiError(response: Response) {
@@ -418,6 +463,21 @@ export default function App() {
     useState<CheckoutForm>(emptyCheckoutForm);
   const [walkInOrderForm, setWalkInOrderForm] =
     useState<WalkInOrderForm>(emptyWalkInOrderForm);
+  const [tastePreferenceChips, setTastePreferenceChips] = useState<string[]>(
+    () => {
+      try {
+        const storedChips = window.localStorage.getItem(
+          tastePreferenceStorageKey,
+        );
+        return storedChips
+          ? sanitizeTastePreferenceChips(JSON.parse(storedChips))
+          : defaultTastePreferenceChips;
+      } catch {
+        return defaultTastePreferenceChips;
+      }
+    },
+  );
+  const [newTastePreferenceChip, setNewTastePreferenceChip] = useState("");
   const [walkInOrderItems, setWalkInOrderItems] = useState<WalkInOrderItem[]>(
     [],
   );
@@ -2348,6 +2408,17 @@ export default function App() {
 
   // Effects
   useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        tastePreferenceStorageKey,
+        JSON.stringify(sanitizeTastePreferenceChips(tastePreferenceChips)),
+      );
+    } catch {
+      // Local storage is an enhancement only; ordering still works without it.
+    }
+  }, [tastePreferenceChips]);
+
+  useEffect(() => {
     let mounted = true;
 
     async function restoreSession() {
@@ -2675,6 +2746,171 @@ export default function App() {
     () => walkInOrderDetails.reduce((sum, entry) => sum + entry.subtotal, 0),
     [walkInOrderDetails],
   );
+
+  function appendNoteText(current: string, addition: string): string {
+    const trimmedCurrent = current.trim();
+    const trimmedAddition = addition.trim();
+    if (!trimmedAddition) return trimmedCurrent;
+    if (!trimmedCurrent) return trimmedAddition;
+    if (trimmedCurrent.includes(trimmedAddition)) return trimmedCurrent;
+    return `${trimmedCurrent}；${trimmedAddition}`;
+  }
+
+  function applyTastePreferenceChip(target: "checkout" | "staff", chip: string): void {
+    const currentNote =
+      target === "checkout"
+        ? checkoutForm.customerNote
+        : walkInOrderForm.customerNote;
+    const nextNote = appendNoteText(currentNote, chip);
+
+    if (nextNote === currentNote.trim()) {
+      notifyInfo("Preference already added.");
+      return;
+    }
+
+    if (target === "checkout") {
+      setCheckoutForm((current) => ({
+        ...current,
+        customerNote: nextNote,
+      }));
+    } else {
+      setWalkInOrderForm((current) => ({
+        ...current,
+        customerNote: nextNote,
+      }));
+    }
+
+    notifyInfo(`Added ${chip} to note.`);
+  }
+
+  function addTastePreferenceChip(): void {
+    const trimmedChip = newTastePreferenceChip
+      .trim()
+      .slice(0, maxTastePreferenceChipLength);
+
+    if (!trimmedChip) {
+      notifyWarning("Enter a shortcut first.");
+      return;
+    }
+
+    const normalizedChip = trimmedChip.toLocaleLowerCase();
+    const alreadyExists = tastePreferenceChips.some(
+      (chip) => chip.toLocaleLowerCase() === normalizedChip,
+    );
+
+    if (alreadyExists) {
+      notifyWarning("This shortcut already exists.");
+      return;
+    }
+
+    if (tastePreferenceChips.length >= maxTastePreferenceChips) {
+      notifyWarning("Shortcut limit reached.");
+      return;
+    }
+
+    setTastePreferenceChips((currentChips) =>
+      sanitizeTastePreferenceChips([...currentChips, trimmedChip]),
+    );
+    setNewTastePreferenceChip("");
+    notifySuccess("Preference shortcut added.");
+  }
+
+  function removeTastePreferenceChip(chipToRemove: string): void {
+    setTastePreferenceChips((currentChips) =>
+      sanitizeTastePreferenceChips(
+        currentChips.filter((chip) => chip !== chipToRemove),
+      ),
+    );
+    notifyInfo("Preference shortcut removed.");
+  }
+
+  function resetTastePreferenceChips(): void {
+    setTastePreferenceChips(defaultTastePreferenceChips);
+    setNewTastePreferenceChip("");
+    notifyInfo("Preference shortcuts reset.");
+  }
+
+  function renderTastePreferencePanel(
+    target: "checkout" | "staff",
+    options: { collapsed?: boolean } = {},
+  ) {
+    const content = (
+      <div className="space-y-2">
+        <p className="text-xs opacity-70">
+          Tap shortcuts to add common notes. Shortcuts are saved on this browser
+          only.
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {tastePreferenceChips.map((chip) => (
+            <span key={chip} className="inline-flex items-center gap-1">
+              <button
+                className="btn btn-xs btn-outline"
+                type="button"
+                onClick={() => applyTastePreferenceChip(target, chip)}
+              >
+                {chip}
+              </button>
+              <button
+                className="btn btn-xs btn-ghost px-1"
+                type="button"
+                aria-label={`Remove ${chip}`}
+                onClick={() => removeTastePreferenceChip(chip)}
+              >
+                x
+              </button>
+            </span>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            className="input input-bordered input-xs min-w-40 flex-1"
+            maxLength={maxTastePreferenceChipLength}
+            placeholder="Add shortcut, e.g. 不加美乃滋"
+            value={newTastePreferenceChip}
+            onChange={(event) => setNewTastePreferenceChip(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addTastePreferenceChip();
+              }
+            }}
+          />
+          <button
+            className="btn btn-xs btn-outline"
+            type="button"
+            onClick={addTastePreferenceChip}
+          >
+            Add
+          </button>
+          <button
+            className="btn btn-xs btn-ghost"
+            type="button"
+            onClick={resetTastePreferenceChips}
+          >
+            Reset defaults
+          </button>
+        </div>
+      </div>
+    );
+
+    if (options.collapsed) {
+      return (
+        <details className="rounded-box border border-base-300 bg-base-200 p-2">
+          <summary className="cursor-pointer text-sm font-semibold">
+            Taste preferences
+          </summary>
+          <div className="mt-2">{content}</div>
+        </details>
+      );
+    }
+
+    return (
+      <div className="rounded-box border border-base-300 bg-base-200 p-3">
+        <h4 className="text-sm font-semibold">Taste preferences</h4>
+        {content}
+      </div>
+    );
+  }
 
   function renderPromotionEligibilityHint(
     promoCode: string,
@@ -5207,6 +5443,9 @@ export default function App() {
                         }))
                       }
                     />
+                    <div className="mt-3">
+                      {renderTastePreferencePanel("staff")}
+                    </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <select
                         className="select select-bordered select-sm min-w-48 flex-1"
@@ -9253,6 +9492,7 @@ export default function App() {
                     }
                   />
                 </label>
+                {renderTastePreferencePanel("checkout", { collapsed: true })}
               </div>
               <div className="flex items-center justify-between font-semibold">
                 <span>Items</span>

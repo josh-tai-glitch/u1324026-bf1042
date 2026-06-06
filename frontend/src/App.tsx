@@ -5418,18 +5418,29 @@ export default function App() {
                 <p className="text-sm opacity-70">
                   Check your guest order with pickup number and phone number.
                 </p>
+                <p className="text-xs opacity-60">
+                  Enter the pickup number from your receipt and the full phone
+                  number used at checkout.
+                </p>
+                {!lastGuestOrder ? (
+                  <p className="text-xs opacity-60">
+                    The "Use last guest order" shortcut appears only after you
+                    submit a guest order in this browser session.
+                  </p>
+                ) : null}
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="form-control">
                     <span className="label-text mb-1">Pickup number</span>
                     <input
                       className="input input-bordered input-sm"
                       value={guestLookupForm.pickupNumber}
-                      onChange={(event) =>
+                      onChange={(event) => {
                         setGuestLookupForm((current) => ({
                           ...current,
                           pickupNumber: event.target.value,
-                        }))
-                      }
+                        }));
+                        setGuestLookupMessage("");
+                      }}
                       placeholder="#0007"
                       maxLength={20}
                     />
@@ -5439,12 +5450,13 @@ export default function App() {
                     <input
                       className="input input-bordered input-sm"
                       value={guestLookupForm.guestPhone}
-                      onChange={(event) =>
+                      onChange={(event) => {
                         setGuestLookupForm((current) => ({
                           ...current,
                           guestPhone: event.target.value,
-                        }))
-                      }
+                        }));
+                        setGuestLookupMessage("");
+                      }}
                       placeholder="0912-345-678"
                       maxLength={30}
                     />
@@ -5481,6 +5493,12 @@ export default function App() {
                   <div className="alert alert-warning py-2 text-sm">
                     <span>{guestLookupMessage}</span>
                   </div>
+                ) : null}
+                {!guestLookupMessage && !guestLookupOrder ? (
+                  <p className="text-xs opacity-60">
+                    You can look up guest orders only. Signed-in, walk-in, and
+                    phone orders are not available through this form.
+                  </p>
                 ) : null}
                 {guestLookupOrder ? (
                   <div className="rounded-box border border-base-300 bg-base-200 p-3">

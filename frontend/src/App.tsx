@@ -2832,24 +2832,27 @@ export default function App() {
 
   function renderTastePreferencePanel(
     target: "checkout" | "staff",
-    options: { collapsed?: boolean } = {},
+    options: { collapsed?: boolean; compact?: boolean } = {},
   ) {
-    const content = (
-      <div className="space-y-2">
-        <p className="text-xs opacity-70">
-          Tap shortcuts to add common notes. Shortcuts are saved on this browser
-          only.
-        </p>
-        <div className="flex flex-wrap gap-1.5">
-          {tastePreferenceChips.map((chip) => (
-            <span key={chip} className="inline-flex items-center gap-1">
-              <button
-                className="btn btn-xs btn-outline"
-                type="button"
-                onClick={() => applyTastePreferenceChip(target, chip)}
-              >
-                {chip}
-              </button>
+    const visibleChips = options.compact
+      ? tastePreferenceChips.slice(0, 6)
+      : tastePreferenceChips;
+    const hiddenChips = options.compact ? tastePreferenceChips.slice(6) : [];
+    const chipGapClass = options.compact ? "gap-1" : "gap-1.5";
+    const panelPaddingClass = options.compact ? "p-2" : "p-3";
+    const textSizeClass = options.compact ? "text-xs" : "text-sm";
+    const chipButtons = (chips: string[], showRemove: boolean) => (
+      <div className={`flex flex-wrap ${chipGapClass}`}>
+        {chips.map((chip) => (
+          <span key={chip} className="inline-flex items-center gap-1">
+            <button
+              className="btn btn-xs btn-outline"
+              type="button"
+              onClick={() => applyTastePreferenceChip(target, chip)}
+            >
+              {chip}
+            </button>
+            {showRemove ? (
               <button
                 className="btn btn-xs btn-ghost px-1"
                 type="button"
@@ -2858,9 +2861,13 @@ export default function App() {
               >
                 x
               </button>
-            </span>
-          ))}
-        </div>
+            ) : null}
+          </span>
+        ))}
+      </div>
+    );
+    const manageShortcuts = (
+      <div className="space-y-2">
         <div className="flex flex-wrap gap-2">
           <input
             className="input input-bordered input-xs min-w-40 flex-1"
@@ -2890,22 +2897,80 @@ export default function App() {
             Reset defaults
           </button>
         </div>
+        {options.compact ? (
+          <div className={`flex flex-wrap ${chipGapClass}`}>
+            {tastePreferenceChips.map((chip) => (
+              <span
+                key={chip}
+                className="inline-flex items-center gap-1 rounded-box bg-base-100 px-2 py-1"
+              >
+                <span>{chip}</span>
+                <button
+                  className="btn btn-xs btn-ghost min-h-0 h-5 px-1"
+                  type="button"
+                  aria-label={`Remove ${chip}`}
+                  onClick={() => removeTastePreferenceChip(chip)}
+                >
+                  x
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+    const content = (
+      <div className={`${options.compact ? "space-y-1.5" : "space-y-2"}`}>
+        <p className="text-xs opacity-70">
+          Tap shortcuts to add common notes. Shortcuts are saved on this browser
+          only.
+        </p>
+        {visibleChips.length > 0 ? (
+          chipButtons(visibleChips, !options.compact)
+        ) : (
+          <p className="text-xs opacity-60">No shortcuts yet.</p>
+        )}
+        {options.compact && hiddenChips.length > 0 ? (
+          <details className="rounded-box bg-base-100 px-2 py-1">
+            <summary className="cursor-pointer text-xs font-semibold">
+              More shortcuts
+            </summary>
+            <div className="mt-2">{chipButtons(hiddenChips, false)}</div>
+          </details>
+        ) : null}
+        {options.compact ? (
+          <details className="rounded-box bg-base-100 px-2 py-1">
+            <summary className="cursor-pointer text-xs font-semibold">
+              Manage shortcuts
+            </summary>
+            <div className="mt-2">{manageShortcuts}</div>
+          </details>
+        ) : (
+          manageShortcuts
+        )}
       </div>
     );
 
     if (options.collapsed) {
       return (
-        <details className="rounded-box border border-base-300 bg-base-200 p-2">
-          <summary className="cursor-pointer text-sm font-semibold">
-            Taste preferences
+        <details
+          className={`rounded-box border border-base-300 bg-base-200 ${panelPaddingClass} ${textSizeClass}`}
+        >
+          <summary className="cursor-pointer font-semibold">
+            Taste preferences{" "}
+            {options.compact ? (
+              <span className="ml-1 font-normal opacity-60">Quick notes</span>
+            ) : null}
           </summary>
-          <div className="mt-2">{content}</div>
+          <div className={options.compact ? "mt-1.5" : "mt-2"}>{content}</div>
         </details>
       );
     }
 
     return (
-      <div className="rounded-box border border-base-300 bg-base-200 p-3">
+      <div
+        className={`rounded-box border border-base-300 bg-base-200 ${panelPaddingClass} ${textSizeClass}`}
+      >
         <h4 className="text-sm font-semibold">Taste preferences</h4>
         {content}
       </div>
@@ -9333,7 +9398,7 @@ export default function App() {
                   <span>Your cart is empty.</span>
                 </div>
               ) : (
-                <ul className="max-h-64 space-y-3 overflow-y-auto rounded-box border border-base-300 p-2">
+                <ul className="max-h-56 space-y-3 overflow-y-auto rounded-box border border-base-300 bg-base-100 p-2">
                   {cartDetails.map((detail) => (
                     <li
                       key={detail.itemId}
@@ -9492,7 +9557,10 @@ export default function App() {
                     }
                   />
                 </label>
-                {renderTastePreferencePanel("checkout", { collapsed: true })}
+                {renderTastePreferencePanel("checkout", {
+                  collapsed: true,
+                  compact: true,
+                })}
               </div>
               <div className="flex items-center justify-between font-semibold">
                 <span>Items</span>

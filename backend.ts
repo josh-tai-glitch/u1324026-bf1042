@@ -282,8 +282,22 @@ function isPromotionDiscountValueValid(
 
 function respondPromotionStoreError(
   set: { status: number },
-  code: "PROMOTION_NOT_FOUND" | "PROMOTION_INACTIVE" | "INVALID_PROMOTION",
+  code:
+    | "PROMOTION_NOT_FOUND"
+    | "PROMOTION_INACTIVE"
+    | "PROMOTION_MIN_ORDER_NOT_MET"
+    | "PROMOTION_NOT_STARTED"
+    | "PROMOTION_EXPIRED"
+    | "PROMOTION_USAGE_LIMIT_REACHED"
+    | "INVALID_PROMOTION",
+  promoCode?: string | null,
 ) {
+  const normalizedCode = promoCode ? normalizePromotionCodeForApi(promoCode) : "";
+  const promotion = normalizedCode
+    ? store
+        .getPromotions({ status: "all" })
+        .find((candidate) => candidate.code === normalizedCode)
+    : undefined;
   switch (code) {
     case "PROMOTION_NOT_FOUND":
       set.status = 404;
@@ -291,6 +305,24 @@ function respondPromotionStoreError(
     case "PROMOTION_INACTIVE":
       set.status = 409;
       return { error: "Promotion code is inactive" };
+    case "PROMOTION_MIN_ORDER_NOT_MET":
+      set.status = 409;
+      return {
+        error: `Minimum order amount for ${
+          promotion?.code ?? (normalizedCode || "this promo code")
+        } is $${promotion?.minOrderAmount ?? 0}.`,
+      };
+    case "PROMOTION_NOT_STARTED":
+      set.status = 409;
+      return { error: `Promo code ${promotion?.code ?? normalizedCode} is not active yet.` };
+    case "PROMOTION_EXPIRED":
+      set.status = 409;
+      return { error: `Promo code ${promotion?.code ?? normalizedCode} has expired.` };
+    case "PROMOTION_USAGE_LIMIT_REACHED":
+      set.status = 409;
+      return {
+        error: `Promo code ${promotion?.code ?? normalizedCode} has reached its usage limit.`,
+      };
     case "INVALID_PROMOTION":
       set.status = 400;
       return { error: "Invalid promotion" };
@@ -815,6 +847,10 @@ app.post(
       code: string;
       discountType: DiscountType;
       discountValue: number;
+      minOrderAmount?: number;
+      startsAt?: string | null;
+      endsAt?: string | null;
+      usageLimit?: number | null;
     };
     const code = normalizePromotionCodeForApi(input.code);
     const duplicate = store
@@ -833,6 +869,10 @@ app.post(
       code,
       discountType: input.discountType,
       discountValue: input.discountValue,
+      minOrderAmount: input.minOrderAmount ?? 0,
+      startsAt: input.startsAt ?? null,
+      endsAt: input.endsAt ?? null,
+      usageLimit: input.usageLimit ?? null,
     });
 
     set.status = 201;
@@ -845,6 +885,10 @@ app.post(
         code: promotion.code,
         discountType: promotion.discountType,
         discountValue: promotion.discountValue,
+        minOrderAmount: promotion.minOrderAmount,
+        startsAt: promotion.startsAt,
+        endsAt: promotion.endsAt,
+        usageLimit: promotion.usageLimit,
       },
     });
     return { data: promotion };
@@ -885,6 +929,10 @@ app.patch(
       code?: string;
       discountType?: DiscountType;
       discountValue?: number;
+      minOrderAmount?: number;
+      startsAt?: string | null;
+      endsAt?: string | null;
+      usageLimit?: number | null;
       isActive?: boolean;
     };
     if (patch.code !== undefined) {
@@ -909,6 +957,18 @@ app.patch(
       set.status = 400;
       return { error: "Invalid promotion discount value" };
     }
+    const nextStartsAt =
+      patch.startsAt !== undefined ? patch.startsAt : currentPromotion.startsAt;
+    const nextEndsAt =
+      patch.endsAt !== undefined ? patch.endsAt : currentPromotion.endsAt;
+    if (
+      nextStartsAt &&
+      nextEndsAt &&
+      Date.parse(nextStartsAt) > Date.parse(nextEndsAt)
+    ) {
+      set.status = 400;
+      return { error: "Promotion end time must be after start time." };
+    }
 
     const promotion = await store.updatePromotion(promotionId, patch);
     if (!promotion) {
@@ -926,6 +986,10 @@ app.patch(
         code: promotion.code,
         discountType: promotion.discountType,
         discountValue: promotion.discountValue,
+        minOrderAmount: promotion.minOrderAmount,
+        startsAt: promotion.startsAt,
+        endsAt: promotion.endsAt,
+        usageLimit: promotion.usageLimit,
         isActive: promotion.isActive,
       },
     });
@@ -1529,8 +1593,12 @@ app.post(
           return { error: "Menu item is unavailable" };
         case "PROMOTION_NOT_FOUND":
         case "PROMOTION_INACTIVE":
+        case "PROMOTION_MIN_ORDER_NOT_MET":
+        case "PROMOTION_NOT_STARTED":
+        case "PROMOTION_EXPIRED":
+        case "PROMOTION_USAGE_LIMIT_REACHED":
         case "INVALID_PROMOTION":
-          return respondPromotionStoreError(set, result.code);
+          return respondPromotionStoreError(set, result.code, input.promoCode);
         default:
           set.status = 500;
           return { error: "Unexpected store state" };
@@ -2143,8 +2211,12 @@ app.post(
           return { error: "Empty order cannot be submitted" };
         case "PROMOTION_NOT_FOUND":
         case "PROMOTION_INACTIVE":
+        case "PROMOTION_MIN_ORDER_NOT_MET":
+        case "PROMOTION_NOT_STARTED":
+        case "PROMOTION_EXPIRED":
+        case "PROMOTION_USAGE_LIMIT_REACHED":
         case "INVALID_PROMOTION":
-          return respondPromotionStoreError(set, result.code);
+          return respondPromotionStoreError(set, result.code, input.promoCode);
         default:
           set.status = 500;
           return { error: "Unexpected store state" };

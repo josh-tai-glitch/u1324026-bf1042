@@ -31,6 +31,7 @@ import {
   calculatePromotionDiscount,
   isPromotionValueValid,
   normalizePromotionCode,
+  validatePromotionForSubtotal,
 } from "../promotions/PromotionCalculator.ts";
 import {
   CategoryNotFoundError,
@@ -268,6 +269,10 @@ function normalizePromotion(promotion: Partial<Promotion>): Promotion {
     code: normalizePromotionCode(promotion.code) ?? "",
     discountType: promotion.discountType === "percent" ? "percent" : "fixed",
     discountValue: promotion.discountValue ?? 1,
+    minOrderAmount: promotion.minOrderAmount ?? 0,
+    startsAt: promotion.startsAt ?? null,
+    endsAt: promotion.endsAt ?? null,
+    usageLimit: promotion.usageLimit ?? null,
     isActive: promotion.isActive ?? true,
     createdAt: promotion.createdAt ?? now,
     updatedAt: promotion.updatedAt ?? now,
@@ -505,6 +510,10 @@ export class JsonFileStore implements Store {
     code: string;
     discountType: DiscountType;
     discountValue: number;
+    minOrderAmount?: number;
+    startsAt?: string | null;
+    endsAt?: string | null;
+    usageLimit?: number | null;
   }): Promise<Promotion> {
     const code = normalizePromotionCode(input.code);
     if (!code || !this.isDiscountValueValid(input.discountType, input.discountValue)) {
@@ -517,6 +526,10 @@ export class JsonFileStore implements Store {
       code,
       discountType: input.discountType,
       discountValue: input.discountValue,
+      minOrderAmount: input.minOrderAmount ?? 0,
+      startsAt: input.startsAt ?? null,
+      endsAt: input.endsAt ?? null,
+      usageLimit: input.usageLimit ?? null,
       isActive: true,
       createdAt: now,
       updatedAt: now,
@@ -532,6 +545,10 @@ export class JsonFileStore implements Store {
       code?: string;
       discountType?: DiscountType;
       discountValue?: number;
+      minOrderAmount?: number;
+      startsAt?: string | null;
+      endsAt?: string | null;
+      usageLimit?: number | null;
       isActive?: boolean;
     },
   ): Promise<Promotion | null> {
@@ -551,6 +568,12 @@ export class JsonFileStore implements Store {
     }
     promotion.discountType = nextDiscountType;
     promotion.discountValue = nextDiscountValue;
+    if (patch.minOrderAmount !== undefined) {
+      promotion.minOrderAmount = patch.minOrderAmount;
+    }
+    if (patch.startsAt !== undefined) promotion.startsAt = patch.startsAt;
+    if (patch.endsAt !== undefined) promotion.endsAt = patch.endsAt;
+    if (patch.usageLimit !== undefined) promotion.usageLimit = patch.usageLimit;
     if (patch.isActive !== undefined) promotion.isActive = patch.isActive;
     promotion.updatedAt = new Date().toISOString();
     await this.persist();
@@ -960,6 +983,10 @@ export class JsonFileStore implements Store {
           | "MENU_ITEM_UNAVAILABLE"
           | "PROMOTION_NOT_FOUND"
           | "PROMOTION_INACTIVE"
+          | "PROMOTION_MIN_ORDER_NOT_MET"
+          | "PROMOTION_NOT_STARTED"
+          | "PROMOTION_EXPIRED"
+          | "PROMOTION_USAGE_LIMIT_REACHED"
           | "INVALID_PROMOTION";
         itemName?: string;
       }
@@ -1192,6 +1219,10 @@ export class JsonFileStore implements Store {
           | "MENU_VERSION_CHANGED"
           | "PROMOTION_NOT_FOUND"
           | "PROMOTION_INACTIVE"
+          | "PROMOTION_MIN_ORDER_NOT_MET"
+          | "PROMOTION_NOT_STARTED"
+          | "PROMOTION_EXPIRED"
+          | "PROMOTION_USAGE_LIMIT_REACHED"
           | "INVALID_PROMOTION"
           | "EMPTY_ORDER";
       }
@@ -2077,6 +2108,10 @@ export class JsonFileStore implements Store {
         code:
           | "PROMOTION_NOT_FOUND"
           | "PROMOTION_INACTIVE"
+          | "PROMOTION_MIN_ORDER_NOT_MET"
+          | "PROMOTION_NOT_STARTED"
+          | "PROMOTION_EXPIRED"
+          | "PROMOTION_USAGE_LIMIT_REACHED"
           | "INVALID_PROMOTION";
       } {
     const normalizedCode = normalizePromotionCode(promoCode);
@@ -2089,15 +2124,26 @@ export class JsonFileStore implements Store {
 
     const promotion = this.findPromotionByCode(normalizedCode);
     if (!promotion) return { ok: false, code: "PROMOTION_NOT_FOUND" };
-    if (!promotion.isActive) return { ok: false, code: "PROMOTION_INACTIVE" };
-    if (!isPromotionValueValid(promotion)) {
-      return { ok: false, code: "INVALID_PROMOTION" };
-    }
+    const validation = validatePromotionForSubtotal({
+      promotion,
+      subtotal,
+      usageCount: this.countPromotionUsage(promotion.code),
+    });
+    if (!validation.ok) return validation;
 
     return {
       ok: true,
       preview: calculatePromotionDiscount({ subtotal, promotion }),
     };
+  }
+
+  private countPromotionUsage(code: string): number {
+    const normalizedCode = normalizePromotionCode(code);
+    if (!normalizedCode) return 0;
+    return this.orders.filter((order) => {
+      if (order.status === "pending" || order.status === "cancelled") return false;
+      return normalizePromotionCode(order.promoCode) === normalizedCode;
+    }).length;
   }
 
   private createInitialStore(): DataStore {

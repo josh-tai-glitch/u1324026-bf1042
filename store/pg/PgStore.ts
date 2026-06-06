@@ -41,6 +41,7 @@ import {
   calculatePromotionDiscount,
   isPromotionValueValid,
   normalizePromotionCode,
+  validatePromotionForSubtotal,
 } from "../promotions/PromotionCalculator.ts";
 import {
   CategoryNotFoundError,
@@ -237,6 +238,10 @@ export class PgStore implements Store {
     code: string;
     discountType: DiscountType;
     discountValue: number;
+    minOrderAmount?: number;
+    startsAt?: string | null;
+    endsAt?: string | null;
+    usageLimit?: number | null;
   }): Promise<Promotion> {
     const code = normalizePromotionCode(input.code);
     if (!code) throw new Error("Invalid promotion code");
@@ -250,6 +255,10 @@ export class PgStore implements Store {
         code,
         discountType: input.discountType,
         discountValue: input.discountValue,
+        minOrderAmount: input.minOrderAmount ?? 0,
+        startsAt: input.startsAt ? new Date(input.startsAt) : null,
+        endsAt: input.endsAt ? new Date(input.endsAt) : null,
+        usageLimit: input.usageLimit ?? null,
       })
       .returning();
 
@@ -264,6 +273,10 @@ export class PgStore implements Store {
       code?: string;
       discountType?: DiscountType;
       discountValue?: number;
+      minOrderAmount?: number;
+      startsAt?: string | null;
+      endsAt?: string | null;
+      usageLimit?: number | null;
       isActive?: boolean;
     },
   ): Promise<Promotion | null> {
@@ -277,6 +290,16 @@ export class PgStore implements Store {
     }
     if (patch.discountType !== undefined) values.discountType = patch.discountType;
     if (patch.discountValue !== undefined) values.discountValue = patch.discountValue;
+    if (patch.minOrderAmount !== undefined) {
+      values.minOrderAmount = patch.minOrderAmount;
+    }
+    if (patch.startsAt !== undefined) {
+      values.startsAt = patch.startsAt ? new Date(patch.startsAt) : null;
+    }
+    if (patch.endsAt !== undefined) {
+      values.endsAt = patch.endsAt ? new Date(patch.endsAt) : null;
+    }
+    if (patch.usageLimit !== undefined) values.usageLimit = patch.usageLimit;
     if (patch.isActive !== undefined) values.isActive = patch.isActive;
 
     const currentPromotion = this.promotions.find(
@@ -882,6 +905,10 @@ export class PgStore implements Store {
           | "MENU_ITEM_UNAVAILABLE"
           | "PROMOTION_NOT_FOUND"
           | "PROMOTION_INACTIVE"
+          | "PROMOTION_MIN_ORDER_NOT_MET"
+          | "PROMOTION_NOT_STARTED"
+          | "PROMOTION_EXPIRED"
+          | "PROMOTION_USAGE_LIMIT_REACHED"
           | "INVALID_PROMOTION";
         itemName?: string;
       }
@@ -1188,6 +1215,10 @@ export class PgStore implements Store {
           | "MENU_VERSION_CHANGED"
           | "PROMOTION_NOT_FOUND"
           | "PROMOTION_INACTIVE"
+          | "PROMOTION_MIN_ORDER_NOT_MET"
+          | "PROMOTION_NOT_STARTED"
+          | "PROMOTION_EXPIRED"
+          | "PROMOTION_USAGE_LIMIT_REACHED"
           | "INVALID_PROMOTION"
           | "EMPTY_ORDER";
       }
@@ -2424,6 +2455,18 @@ export class PgStore implements Store {
       code: row.code,
       discountType: row.discountType === "percent" ? "percent" : "fixed",
       discountValue: row.discountValue,
+      minOrderAmount: row.minOrderAmount ?? 0,
+      startsAt: row.startsAt
+        ? row.startsAt instanceof Date
+          ? row.startsAt.toISOString()
+          : new Date(row.startsAt).toISOString()
+        : null,
+      endsAt: row.endsAt
+        ? row.endsAt instanceof Date
+          ? row.endsAt.toISOString()
+          : new Date(row.endsAt).toISOString()
+        : null,
+      usageLimit: row.usageLimit ?? null,
       isActive: row.isActive,
       createdAt:
         row.createdAt instanceof Date
@@ -2469,6 +2512,10 @@ export class PgStore implements Store {
         code:
           | "PROMOTION_NOT_FOUND"
           | "PROMOTION_INACTIVE"
+          | "PROMOTION_MIN_ORDER_NOT_MET"
+          | "PROMOTION_NOT_STARTED"
+          | "PROMOTION_EXPIRED"
+          | "PROMOTION_USAGE_LIMIT_REACHED"
           | "INVALID_PROMOTION";
       } {
     const normalizedCode = normalizePromotionCode(promoCode);
@@ -2481,15 +2528,26 @@ export class PgStore implements Store {
 
     const promotion = this.findPromotionByCode(normalizedCode);
     if (!promotion) return { ok: false, code: "PROMOTION_NOT_FOUND" };
-    if (!promotion.isActive) return { ok: false, code: "PROMOTION_INACTIVE" };
-    if (!isPromotionValueValid(promotion)) {
-      return { ok: false, code: "INVALID_PROMOTION" };
-    }
+    const validation = validatePromotionForSubtotal({
+      promotion,
+      subtotal,
+      usageCount: this.countPromotionUsage(promotion.code),
+    });
+    if (!validation.ok) return validation;
 
     return {
       ok: true,
       preview: calculatePromotionDiscount({ subtotal, promotion }),
     };
+  }
+
+  private countPromotionUsage(code: string): number {
+    const normalizedCode = normalizePromotionCode(code);
+    if (!normalizedCode) return 0;
+    return this.orders.filter((order) => {
+      if (order.status === "pending" || order.status === "cancelled") return false;
+      return normalizePromotionCode(order.promoCode) === normalizedCode;
+    }).length;
   }
 
   private toMenuItemSnapshot(

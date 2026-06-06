@@ -262,18 +262,44 @@ export const createWalkInOrderBodySchema = z.object({
   promoCode: z.string().trim().max(32).optional().nullable(),
 });
 
-export const createPromotionBodySchema = z.object({
-  code: z.string().trim().min(1).max(32),
-  discountType: discountTypeSchema,
-  discountValue: z.number().int().positive(),
-});
+function validatePromotionDateRange(
+  value: { startsAt?: string | null; endsAt?: string | null },
+  context: z.RefinementCtx,
+) {
+  if (!value.startsAt || !value.endsAt) return;
+  if (Date.parse(value.startsAt) > Date.parse(value.endsAt)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["endsAt"],
+      message: "Promotion end time must be after start time.",
+    });
+  }
+}
 
-export const updatePromotionBodySchema = z.object({
-  code: z.string().trim().min(1).max(32).optional(),
-  discountType: discountTypeSchema.optional(),
-  discountValue: z.number().int().positive().optional(),
-  isActive: z.boolean().optional(),
-});
+export const createPromotionBodySchema = z
+  .object({
+    code: z.string().trim().min(1).max(32),
+    discountType: discountTypeSchema,
+    discountValue: z.number().int().positive(),
+    minOrderAmount: z.number().int().min(0).max(999999).optional(),
+    startsAt: optionalIsoDateTimeSchema,
+    endsAt: optionalIsoDateTimeSchema,
+    usageLimit: z.number().int().min(1).max(999999).nullable().optional(),
+  })
+  .superRefine(validatePromotionDateRange);
+
+export const updatePromotionBodySchema = z
+  .object({
+    code: z.string().trim().min(1).max(32).optional(),
+    discountType: discountTypeSchema.optional(),
+    discountValue: z.number().int().positive().optional(),
+    minOrderAmount: z.number().int().min(0).max(999999).optional(),
+    startsAt: optionalIsoDateTimeSchema,
+    endsAt: optionalIsoDateTimeSchema,
+    usageLimit: z.number().int().min(1).max(999999).nullable().optional(),
+    isActive: z.boolean().optional(),
+  })
+  .superRefine(validatePromotionDateRange);
 
 export const promotionParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),

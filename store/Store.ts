@@ -53,6 +53,10 @@ export type SubmitOrderErrorCode =
   | "MENU_VERSION_CHANGED"
   | "PROMOTION_NOT_FOUND"
   | "PROMOTION_INACTIVE"
+  | "PROMOTION_MIN_ORDER_NOT_MET"
+  | "PROMOTION_NOT_STARTED"
+  | "PROMOTION_EXPIRED"
+  | "PROMOTION_USAGE_LIMIT_REACHED"
   | "INVALID_PROMOTION"
   | "EMPTY_ORDER";
 
@@ -87,6 +91,10 @@ export type CreateWalkInOrderErrorCode =
   | "MENU_ITEM_UNAVAILABLE"
   | "PROMOTION_NOT_FOUND"
   | "PROMOTION_INACTIVE"
+  | "PROMOTION_MIN_ORDER_NOT_MET"
+  | "PROMOTION_NOT_STARTED"
+  | "PROMOTION_EXPIRED"
+  | "PROMOTION_USAGE_LIMIT_REACHED"
   | "INVALID_PROMOTION";
 
 export type CategoryStatusFilter = "active" | "inactive" | "all";
@@ -197,6 +205,10 @@ export interface Store {
     code: string;
     discountType: DiscountType;
     discountValue: number;
+    minOrderAmount?: number;
+    startsAt?: string | null;
+    endsAt?: string | null;
+    usageLimit?: number | null;
   }): Promise<Promotion>;
   updatePromotion(
     promotionId: number,
@@ -204,6 +216,10 @@ export interface Store {
       code?: string;
       discountType?: DiscountType;
       discountValue?: number;
+      minOrderAmount?: number;
+      startsAt?: string | null;
+      endsAt?: string | null;
+      usageLimit?: number | null;
       isActive?: boolean;
     },
   ): Promise<Promotion | null>;

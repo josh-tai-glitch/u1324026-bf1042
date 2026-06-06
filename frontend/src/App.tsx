@@ -166,6 +166,10 @@ const emptyPromotionForm = {
   code: "",
   discountType: "percent" as DiscountType,
   discountValue: "10",
+  minOrderAmount: "0",
+  startsAt: "",
+  endsAt: "",
+  usageLimit: "",
 };
 const emptyCheckoutForm = {
   fulfillmentType: "takeout" as FulfillmentType,
@@ -606,6 +610,21 @@ export default function App() {
   function getCheckoutErrorToastMessage(message: string): string {
     const normalizedMessage = message.toLowerCase();
     if (
+      normalizedMessage.includes("minimum") ||
+      normalizedMessage.includes("min order")
+    ) {
+      return "This promo requires a higher order subtotal.";
+    }
+    if (normalizedMessage.includes("not active yet")) {
+      return "This promo is not active yet.";
+    }
+    if (normalizedMessage.includes("expired")) {
+      return "This promo has expired.";
+    }
+    if (normalizedMessage.includes("usage limit")) {
+      return "This promo has reached its usage limit.";
+    }
+    if (
       normalizedMessage.includes("promotion") ||
       normalizedMessage.includes("promo") ||
       normalizedMessage.includes("code") ||
@@ -650,6 +669,15 @@ export default function App() {
       normalizedMessage.includes("already exists")
     ) {
       return "Promo code already exists. Please use a different code.";
+    }
+    if (normalizedMessage.includes("end time")) {
+      return "Promotion end time must be after start time.";
+    }
+    if (normalizedMessage.includes("usage")) {
+      return "Usage limit must be a positive number.";
+    }
+    if (normalizedMessage.includes("minimum") || normalizedMessage.includes("min")) {
+      return "Minimum order amount must be zero or more.";
     }
     return message;
   }
@@ -766,6 +794,10 @@ export default function App() {
         totalRevenue: number;
         averageOrderValue: number;
         lastUsedAt: string | null;
+        minOrderAmount: number | null;
+        startsAt: string | null;
+        endsAt: string | null;
+        usageLimit: number | null;
       }
     >();
 
@@ -779,6 +811,10 @@ export default function App() {
         totalRevenue: 0,
         averageOrderValue: 0,
         lastUsedAt: null,
+        minOrderAmount: promotion.minOrderAmount,
+        startsAt: promotion.startsAt,
+        endsAt: promotion.endsAt,
+        usageLimit: promotion.usageLimit,
       });
     }
 
@@ -799,6 +835,10 @@ export default function App() {
           totalRevenue: 0,
           averageOrderValue: 0,
           lastUsedAt: null,
+          minOrderAmount: null,
+          startsAt: null,
+          endsAt: null,
+          usageLimit: null,
         };
 
       row.usedOrders += 1;
@@ -3546,7 +3586,7 @@ export default function App() {
         notifyError(
           message.toLowerCase().includes("phone")
             ? "Phone number is invalid. Use numbers, spaces, +, -, or parentheses."
-            : message,
+            : getCheckoutErrorToastMessage(message),
         );
       }
     } finally {
@@ -4017,6 +4057,10 @@ export default function App() {
       code: promotion.code,
       discountType: promotion.discountType,
       discountValue: String(promotion.discountValue),
+      minOrderAmount: String(promotion.minOrderAmount ?? 0),
+      startsAt: promotion.startsAt ? promotion.startsAt.slice(0, 16) : "",
+      endsAt: promotion.endsAt ? promotion.endsAt.slice(0, 16) : "",
+      usageLimit: promotion.usageLimit ? String(promotion.usageLimit) : "",
     });
     setEditingPromotionId(promotion.id);
     setPromotionMessage("");
@@ -4041,6 +4085,35 @@ export default function App() {
       return;
     }
 
+    const minOrderAmount = Number.parseInt(promotionForm.minOrderAmount, 10);
+    if (!Number.isFinite(minOrderAmount) || minOrderAmount < 0) {
+      setPromotionMessage("Minimum order amount must be zero or more.");
+      notifyError("Minimum order amount must be zero or more.");
+      return;
+    }
+
+    const usageLimit = promotionForm.usageLimit
+      ? Number.parseInt(promotionForm.usageLimit, 10)
+      : null;
+    if (
+      promotionForm.usageLimit &&
+      (!Number.isFinite(usageLimit) || usageLimit === null || usageLimit < 1)
+    ) {
+      setPromotionMessage("Usage limit must be a positive number.");
+      notifyError("Usage limit must be a positive number.");
+      return;
+    }
+
+    if (
+      promotionForm.startsAt &&
+      promotionForm.endsAt &&
+      Date.parse(promotionForm.startsAt) > Date.parse(promotionForm.endsAt)
+    ) {
+      setPromotionMessage("Promotion end time must be after start time.");
+      notifyWarning("Promotion end time must be after start time.");
+      return;
+    }
+
     setPromotionBusy(true);
     setPromotionMessage("");
     try {
@@ -4058,6 +4131,14 @@ export default function App() {
             code: promotionForm.code,
             discountType: promotionForm.discountType,
             discountValue,
+            minOrderAmount,
+            startsAt: promotionForm.startsAt
+              ? new Date(promotionForm.startsAt).toISOString()
+              : null,
+            endsAt: promotionForm.endsAt
+              ? new Date(promotionForm.endsAt).toISOString()
+              : null,
+            usageLimit,
           }),
         },
       );
@@ -6955,6 +7036,9 @@ export default function App() {
                           <th>Code</th>
                           <th>Status</th>
                           <th>Used orders</th>
+                          <th>Min order</th>
+                          <th>Limit</th>
+                          <th>Valid period</th>
                           <th>Subtotal</th>
                           <th>Discount</th>
                           <th>Revenue</th>
@@ -6984,6 +7068,30 @@ export default function App() {
                               </span>
                             </td>
                             <td>{row.usedOrders}</td>
+                            <td>
+                              {row.minOrderAmount === null
+                                ? "-"
+                                : `$${row.minOrderAmount}`}
+                            </td>
+                            <td>
+                              {row.usageLimit === null
+                                ? "Unlimited"
+                                : `${row.usedOrders} / ${row.usageLimit}`}
+                            </td>
+                            <td>
+                              <div className="text-xs">
+                                <div>
+                                  {row.startsAt
+                                    ? formatCheckoutDateTime(row.startsAt)
+                                    : "Immediate"}
+                                </div>
+                                <div>
+                                  {row.endsAt
+                                    ? formatCheckoutDateTime(row.endsAt)
+                                    : "No end"}
+                                </div>
+                              </div>
+                            </td>
                             <td>${row.totalSubtotal}</td>
                             <td>${row.totalDiscount}</td>
                             <td>${row.totalRevenue}</td>
@@ -7799,6 +7907,54 @@ export default function App() {
                     }
                     required
                   />
+                  <input
+                    className="input input-bordered input-sm"
+                    min={0}
+                    placeholder="Minimum order amount"
+                    type="number"
+                    value={promotionForm.minOrderAmount}
+                    onChange={(event) =>
+                      setPromotionForm((current) => ({
+                        ...current,
+                        minOrderAmount: event.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    className="input input-bordered input-sm"
+                    type="datetime-local"
+                    value={promotionForm.startsAt}
+                    onChange={(event) =>
+                      setPromotionForm((current) => ({
+                        ...current,
+                        startsAt: event.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    className="input input-bordered input-sm"
+                    type="datetime-local"
+                    value={promotionForm.endsAt}
+                    onChange={(event) =>
+                      setPromotionForm((current) => ({
+                        ...current,
+                        endsAt: event.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    className="input input-bordered input-sm"
+                    min={1}
+                    placeholder="Usage limit"
+                    type="number"
+                    value={promotionForm.usageLimit}
+                    onChange={(event) =>
+                      setPromotionForm((current) => ({
+                        ...current,
+                        usageLimit: event.target.value,
+                      }))
+                    }
+                  />
                 </div>
                 <button
                   className="btn btn-sm btn-primary mt-3"
@@ -7823,8 +7979,10 @@ export default function App() {
                       <tr>
                         <th>Code</th>
                         <th>Discount</th>
+                        <th>Min order</th>
+                        <th>Valid period</th>
                         <th>Status</th>
-                        <th>Used orders</th>
+                        <th>Usage</th>
                         <th>Updated</th>
                         <th>Actions</th>
                       </tr>
@@ -7845,6 +8003,23 @@ export default function App() {
                               ? `${promotion.discountValue}%`
                               : `$${promotion.discountValue}`}
                           </td>
+                          <td>${promotion.minOrderAmount}</td>
+                          <td>
+                            <div className="text-sm">
+                              <div>
+                                Starts:{" "}
+                                {promotion.startsAt
+                                  ? formatCheckoutDateTime(promotion.startsAt)
+                                  : "Immediate"}
+                              </div>
+                              <div>
+                                Ends:{" "}
+                                {promotion.endsAt
+                                  ? formatCheckoutDateTime(promotion.endsAt)
+                                  : "No end"}
+                              </div>
+                            </div>
+                          </td>
                           <td>
                             <span
                               className={`badge ${
@@ -7857,9 +8032,17 @@ export default function App() {
                             </span>
                           </td>
                           <td>
-                            {promotionUsageCounts[
-                              promotion.code.trim().toUpperCase()
-                            ] ?? 0}
+                            {promotion.usageLimit
+                              ? `Used ${
+                                promotionUsageCounts[
+                                  promotion.code.trim().toUpperCase()
+                                ] ?? 0
+                              } / ${promotion.usageLimit}`
+                              : `Used ${
+                                promotionUsageCounts[
+                                  promotion.code.trim().toUpperCase()
+                                ] ?? 0
+                              } / Unlimited`}
                           </td>
                           <td>{formatCheckoutDateTime(promotion.updatedAt)}</td>
                           <td>

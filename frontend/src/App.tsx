@@ -443,9 +443,9 @@ export default function App() {
   >("");
   const [orderQuickFilter, setOrderQuickFilter] =
     useState<OrderQuickFilter>("");
-  const [ordersViewMode, setOrdersViewMode] = useState<"list" | "board">(
-    "list",
-  );
+  const [ordersViewMode, setOrdersViewMode] = useState<
+    "list" | "board" | "kitchen"
+  >("list");
 
   // Role request / admin review state
   const [roleRequestRole, setRoleRequestRole] = useState<"staff" | "chef">(
@@ -1142,6 +1142,118 @@ export default function App() {
     orderStatusFilter,
   ]);
 
+  const kitchenDisplayOrders = useMemo(() => {
+    const search = orderSearchText.trim().toLowerCase();
+    const searchDigits = search.replace(/\D/g, "");
+
+    function matchesSearch(order: Order): boolean {
+      if (!search) return true;
+      const pickupNumber = formatPickupNumber(order.id).toLowerCase();
+      const pickupDigits = pickupNumber.replace(/\D/g, "");
+      const guestPhoneDigits = (order.guestPhone ?? "").replace(/\D/g, "");
+      const searchableValues = [
+        String(order.id),
+        pickupNumber,
+        pickupDigits,
+        order.guestName ?? "",
+      ].map((value) => value.toLowerCase());
+
+      return (
+        searchableValues.some((value) => value.includes(search)) ||
+        (searchDigits.length > 0 && guestPhoneDigits.endsWith(searchDigits)) ||
+        order.items.some((detail) =>
+          detail.item.name.toLowerCase().includes(search),
+        )
+      );
+    }
+
+    function priorityScore(order: Order): number {
+      const pickupTime = order.pickupTime
+        ? new Date(order.pickupTime).getTime()
+        : Number.POSITIVE_INFINITY;
+      const ageMinutes = getOrderAgeMinutes(order);
+      const statusWeight = order.status === "submitted" ? 0 : 1;
+      return pickupTime + statusWeight * 1_000 - ageMinutes * 60_000;
+    }
+
+    return historyOrders
+      .filter(
+        (order) => order.status === "submitted" || order.status === "preparing",
+      )
+      .filter(matchesSearch)
+      .slice()
+      .sort((left, right) => {
+        const leftPickup = left.pickupTime
+          ? new Date(left.pickupTime).getTime()
+          : Number.POSITIVE_INFINITY;
+        const rightPickup = right.pickupTime
+          ? new Date(right.pickupTime).getTime()
+          : Number.POSITIVE_INFINITY;
+        if (leftPickup !== rightPickup) return leftPickup - rightPickup;
+
+        const priorityDiff = priorityScore(left) - priorityScore(right);
+        if (priorityDiff !== 0) return priorityDiff;
+
+        return getOrderQueueTime(left) - getOrderQueueTime(right);
+      });
+  }, [historyOrders, orderSearchText]);
+
+  const kitchenItemSummary = useMemo(() => {
+    const rowsByKey = new Map<
+      string,
+      {
+        name: string;
+        totalQty: number;
+        orderIds: Set<number>;
+        sources: Set<OrderSource>;
+        earliestTime: string;
+      }
+    >();
+
+    for (const order of kitchenDisplayOrders) {
+      const orderTime = order.pickupTime ?? order.submittedAt ?? order.createdAt;
+      for (const detail of order.items) {
+        const groupId =
+          detail.menu_item_group_id ?? detail.item.menu_item_group_id ?? null;
+        const key = groupId ? `group:${groupId}` : `item:${detail.item.id}`;
+        const row =
+          rowsByKey.get(key) ??
+          {
+            name: detail.item.name,
+            totalQty: 0,
+            orderIds: new Set<number>(),
+            sources: new Set<OrderSource>(),
+            earliestTime: orderTime,
+          };
+
+        row.totalQty += detail.qty;
+        row.orderIds.add(order.id);
+        row.sources.add(order.orderSource);
+        if (
+          new Date(orderTime).getTime() < new Date(row.earliestTime).getTime()
+        ) {
+          row.earliestTime = orderTime;
+        }
+        rowsByKey.set(key, row);
+      }
+    }
+
+    return Array.from(rowsByKey.values()).sort((left, right) => {
+      if (right.totalQty !== left.totalQty) return right.totalQty - left.totalQty;
+      return (
+        new Date(left.earliestTime).getTime() -
+        new Date(right.earliestTime).getTime()
+      );
+    });
+  }, [kitchenDisplayOrders]);
+
+  const urgentKitchenOrders = kitchenDisplayOrders.filter(isUrgentOrder).length;
+  const totalKitchenItemsWaiting = kitchenDisplayOrders.reduce(
+    (sum, order) =>
+      sum + order.items.reduce((itemSum, detail) => itemSum + detail.qty, 0),
+    0,
+  );
+
   function applyOrderQuickFilter(filter: OrderQuickFilter): void {
     setOrderQuickFilter(filter);
     notifyInfo("Order quick filter applied.");
@@ -1512,6 +1624,36 @@ export default function App() {
     if (order.status === "preparing") return "Being prepared";
     if (order.status === "ready") return "Ready for pickup";
     return "";
+  }
+
+  function getKitchenPriorityLabel(order: Order): "normal" | "soon" | "urgent" {
+    const pickupTime = order.pickupTime ? new Date(order.pickupTime) : null;
+    const pickupMs = pickupTime?.getTime() ?? Number.NaN;
+    const minutesUntilPickup = Number.isNaN(pickupMs)
+      ? Number.POSITIVE_INFINITY
+      : Math.floor((pickupMs - Date.now()) / 60000);
+
+    if (getOrderAgeMinutes(order) > 10 || minutesUntilPickup < 0) {
+      return "urgent";
+    }
+    if (minutesUntilPickup <= 10) {
+      return "soon";
+    }
+    return "normal";
+  }
+
+  function getKitchenPriorityBadgeClass(
+    priority: "normal" | "soon" | "urgent",
+  ): string {
+    if (priority === "urgent") return "badge-error";
+    if (priority === "soon") return "badge-warning";
+    return "badge-outline";
+  }
+
+  function formatKitchenPriority(priority: "normal" | "soon" | "urgent") {
+    if (priority === "urgent") return "Urgent";
+    if (priority === "soon") return "Due soon";
+    return "Normal";
   }
 
   function isUrgentOrder(order: Order): boolean {
@@ -4870,6 +5012,14 @@ export default function App() {
                       >
                         Board view
                       </button>
+                      <button
+                        className={`btn btn-sm join-item ${
+                          ordersViewMode === "kitchen" ? "btn-primary" : ""
+                        }`}
+                        onClick={() => setOrdersViewMode("kitchen")}
+                      >
+                        Kitchen view
+                      </button>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-6">
@@ -4995,6 +5145,233 @@ export default function App() {
                 ) : historyOrders.length === 0 ? (
                   <div className="alert alert-info">
                     <span>No orders yet.</span>
+                  </div>
+                ) : ordersViewMode === "kitchen" ? (
+                  <div className="space-y-4">
+                    <section className="rounded-box border border-base-300 bg-base-200 p-4">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h4 className="font-semibold">Kitchen display</h4>
+                          <p className="text-sm opacity-70">
+                            Focused view for submitted and preparing orders.
+                          </p>
+                        </div>
+                        <span
+                          className={`badge ${getBusyLevelBadgeClass(busyLevel)}`}
+                        >
+                          {getBusyLevelLabel(busyLevel)}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                        <div className="stat rounded-box border border-base-300 bg-base-100">
+                          <div className="stat-title">Kitchen queue</div>
+                          <div className="stat-value text-info">
+                            {kitchenDisplayOrders.length}
+                          </div>
+                        </div>
+                        <div className="stat rounded-box border border-base-300 bg-base-100">
+                          <div className="stat-title">Estimated wait</div>
+                          <div className="stat-value text-primary">
+                            {estimatedWaitMinutes}m
+                          </div>
+                        </div>
+                        <div className="stat rounded-box border border-base-300 bg-base-100">
+                          <div className="stat-title">Urgent orders</div>
+                          <div className="stat-value text-error">
+                            {urgentKitchenOrders}
+                          </div>
+                        </div>
+                        <div className="stat rounded-box border border-base-300 bg-base-100">
+                          <div className="stat-title">Items waiting</div>
+                          <div className="stat-value">
+                            {totalKitchenItemsWaiting}
+                          </div>
+                        </div>
+                        <div className="stat rounded-box border border-base-300 bg-base-100">
+                          <div className="stat-title">Busy level</div>
+                          <div
+                            className={`stat-value text-2xl ${
+                              busyLevel === "very_busy"
+                                ? "text-error"
+                                : busyLevel === "busy"
+                                  ? "text-warning"
+                                  : "text-success"
+                            }`}
+                          >
+                            {getBusyLevelLabel(busyLevel)}
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="rounded-box border border-base-300 bg-base-100 p-4">
+                      <h4 className="mb-3 font-semibold">Items to prepare</h4>
+                      {kitchenItemSummary.length === 0 ? (
+                        <div className="rounded-box border border-dashed border-base-300 p-3 text-sm opacity-60">
+                          No items waiting.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                          {kitchenItemSummary.map((row) => (
+                            <div
+                              key={row.name}
+                              className="rounded-box border border-base-300 bg-base-200 p-3"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="font-semibold">{row.name}</span>
+                                <span className="badge badge-primary">
+                                  x {row.totalQty}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs opacity-70">
+                                {row.orderIds.size} order(s) /{" "}
+                                {Array.from(row.sources)
+                                  .map(formatOrderSource)
+                                  .join(", ")}
+                              </p>
+                              <p className="text-xs opacity-60">
+                                Earliest: {formatCheckoutDateTime(row.earliestTime)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+
+                    {kitchenDisplayOrders.length === 0 ? (
+                      <div className="alert alert-info">
+                        <div>
+                          <div>No active kitchen orders.</div>
+                          <div className="text-sm">
+                            Submitted and preparing orders will appear here.
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                        {kitchenDisplayOrders.map((order) => {
+                          const primaryAction = getPrimaryOrderAction(order);
+                          const priority = getKitchenPriorityLabel(order);
+                          const urgent = isUrgentOrder(order);
+                          const orderAgeMinutes = getOrderAgeMinutes(order);
+                          return (
+                            <article
+                              key={order.id}
+                              className={`rounded-box border bg-base-100 p-5 shadow-sm transition ${
+                                order.id === recentlyUpdatedOrderId
+                                  ? "border-primary ring-2 ring-primary bg-primary/5"
+                                  : priority === "urgent"
+                                    ? "border-error"
+                                    : "border-base-300"
+                              }`}
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-3xl font-bold text-primary">
+                                    {formatPickupNumber(order.id)}
+                                  </div>
+                                  <p className="text-sm opacity-70">
+                                    Order #{order.id} /{" "}
+                                    {formatOrderSource(order.orderSource)}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap justify-end gap-2">
+                                  <span
+                                    className={`badge ${getStatusBadgeClass(
+                                      order.status,
+                                    )}`}
+                                  >
+                                    {order.status}
+                                  </span>
+                                  <span
+                                    className={`badge ${getKitchenPriorityBadgeClass(
+                                      priority,
+                                    )}`}
+                                  >
+                                    {formatKitchenPriority(priority)}
+                                  </span>
+                                  <span className="badge badge-outline">
+                                    Age {orderAgeMinutes}m
+                                  </span>
+                                  {urgent ? (
+                                    <span className="badge badge-error">
+                                      Urgent
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div className="mt-3 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+                                <span>
+                                  Source: {formatOrderSource(order.orderSource)}
+                                </span>
+                                <span>Payment: {order.paymentStatus}</span>
+                                {order.pickupTime ? (
+                                  <span>
+                                    Pickup:{" "}
+                                    {formatCheckoutDateTime(order.pickupTime)}
+                                  </span>
+                                ) : (
+                                  <span>Pickup: as soon as possible</span>
+                                )}
+                                {order.guestName ? (
+                                  <span>Guest: {order.guestName}</span>
+                                ) : null}
+                                {order.customerNote ? (
+                                  <span className="md:col-span-2">
+                                    Note: {order.customerNote}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              {order.issueType ? (
+                                <div className="alert alert-warning mt-3 py-2">
+                                  <span>
+                                    Issue: {order.issueType}
+                                    {order.issueNote
+                                      ? ` / ${order.issueNote}`
+                                      : ""}
+                                  </span>
+                                </div>
+                              ) : null}
+
+                              <ul className="mt-4 space-y-2">
+                                {order.items.map((detail) => (
+                                  <li
+                                    key={`${order.id}-${detail.item.id}`}
+                                    className="flex items-center justify-between rounded-box bg-base-200 px-3 py-2 text-lg"
+                                  >
+                                    <span className="font-semibold">
+                                      {detail.item.name}
+                                    </span>
+                                    <span className="badge badge-primary text-base">
+                                      x {detail.qty}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+
+                              {primaryAction ? (
+                                <button
+                                  className="btn btn-primary mt-4 w-full"
+                                  disabled={statusUpdatingOrderId === order.id}
+                                  onClick={() => {
+                                    void updateOrderStatus(
+                                      order.id,
+                                      primaryAction.status,
+                                    );
+                                  }}
+                                >
+                                  {statusUpdatingOrderId === order.id
+                                    ? "Updating..."
+                                    : primaryAction.label}
+                                </button>
+                              ) : null}
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 ) : managerVisibleOrders.length === 0 ? (
                   <div className="alert alert-info">

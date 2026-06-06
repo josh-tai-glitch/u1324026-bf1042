@@ -488,6 +488,11 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [auditLogsLoading, setAuditLogsLoading] = useState(false);
   const [auditLogsMessage, setAuditLogsMessage] = useState("");
+  const [operationAuditLogs, setOperationAuditLogs] = useState<AuditLog[]>([]);
+  const [operationAuditLogsLoading, setOperationAuditLogsLoading] =
+    useState(false);
+  const [operationAuditLogsMessage, setOperationAuditLogsMessage] =
+    useState("");
   const [auditLogActionFilter, setAuditLogActionFilter] = useState<
     "" | AuditLogAction
   >("");
@@ -868,6 +873,31 @@ export default function App() {
     .filter((row) => row.totalOrders > 0 || row.issueOrders > 0);
   const staffOperationRows = useMemo(() => {
     const staffRoles: Role[] = ["staff", "chef", "owner", "admin"];
+    const managerActions: AuditLogAction[] = [
+      "walk_in_order_create",
+      "phone_order_create",
+      "order_payment_update",
+      "order_status_update",
+      "order_issue_set",
+      "order_issue_clear",
+      "menu_create",
+      "menu_update",
+      "menu_availability_update",
+      "menu_display_order_update",
+      "menu_ab_test_update",
+      "menu_delete",
+      "menu_category_assign",
+      "menu_category_remove",
+      "category_create",
+      "category_update",
+      "category_delete",
+      "promotion_create",
+      "promotion_update",
+      "promotion_delete",
+      "role_update",
+      "role_request_review",
+      "role_request_create",
+    ];
     const menuChangeActions: AuditLogAction[] = [
       "menu_create",
       "menu_update",
@@ -875,6 +905,16 @@ export default function App() {
       "menu_display_order_update",
       "menu_ab_test_update",
       "menu_delete",
+      "menu_category_assign",
+      "menu_category_remove",
+      "category_create",
+      "category_update",
+      "category_delete",
+    ];
+    const promotionChangeActions: AuditLogAction[] = [
+      "promotion_create",
+      "promotion_update",
+      "promotion_delete",
     ];
     const rowsByActor = new Map<
       string,
@@ -886,19 +926,23 @@ export default function App() {
         statusesUpdated: number;
         issuesHandled: number;
         menuChanges: number;
+        promotionChanges: number;
         roleChanges: number;
         totalActions: number;
         lastActionAt: string | null;
       }
     >();
 
-    for (const log of auditLogs) {
+    for (const log of operationAuditLogs) {
       if (
         !isOrderInAnalyticsDateRange(log.createdAt, appliedAnalyticsFilters)
       ) {
         continue;
       }
-      if (!log.actorRoles.some((role) => staffRoles.includes(role))) {
+      if (
+        !log.actorRoles.some((role) => staffRoles.includes(role)) &&
+        !managerActions.includes(log.action)
+      ) {
         continue;
       }
 
@@ -913,6 +957,7 @@ export default function App() {
           statusesUpdated: 0,
           issuesHandled: 0,
           menuChanges: 0,
+          promotionChanges: 0,
           roleChanges: 0,
           totalActions: 0,
           lastActionAt: null,
@@ -935,9 +980,13 @@ export default function App() {
         row.issuesHandled += 1;
       }
       if (menuChangeActions.includes(log.action)) row.menuChanges += 1;
+      if (promotionChangeActions.includes(log.action)) {
+        row.promotionChanges += 1;
+      }
       if (
         log.action === "role_update" ||
-        log.action === "role_request_review"
+        log.action === "role_request_review" ||
+        log.action === "role_request_create"
       ) {
         row.roleChanges += 1;
       }
@@ -958,7 +1007,7 @@ export default function App() {
     appliedAnalyticsEndDate,
     appliedAnalyticsRange,
     appliedAnalyticsStartDate,
-    auditLogs,
+    operationAuditLogs,
   ]);
 
   // Analytics derived helpers
@@ -1572,6 +1621,67 @@ export default function App() {
     }
   }, [adminStatus, isAdmin]);
 
+  const loadOperationAuditLogs = useCallback(
+    async (
+      filters?: AnalyticsDateFilters,
+      options: { notify?: boolean } = {},
+    ) => {
+      if (!canManageMenu) return false;
+
+      const activeFilters = filters ?? {
+        range: appliedAnalyticsRange,
+        startDate: appliedAnalyticsStartDate,
+        endDate: appliedAnalyticsEndDate,
+      };
+      const params = new URLSearchParams({
+        limit: "200",
+        range: activeFilters.range,
+      });
+      if (activeFilters.range === "custom") {
+        if (activeFilters.startDate) {
+          params.set("startDate", activeFilters.startDate);
+        }
+        if (activeFilters.endDate) params.set("endDate", activeFilters.endDate);
+      }
+
+      setOperationAuditLogsLoading(true);
+      setOperationAuditLogsMessage("");
+      try {
+        const response = await fetch(
+          buildApiUrl(`/api/admin/audit-logs?${params.toString()}`),
+          { credentials: "include" },
+        );
+
+        if (!response.ok) {
+          throw new Error(await readApiError(response));
+        }
+
+        const payload = (await response.json()) as ApiDataResponse<AuditLog[]>;
+        setOperationAuditLogs(
+          Array.isArray(payload?.data) ? payload.data : [],
+        );
+        if (options.notify) notifyInfo("Operation logs refreshed.");
+        return true;
+      } catch (operationError) {
+        const message =
+          operationError instanceof Error
+            ? operationError.message
+            : "Unable to load operation logs.";
+        setOperationAuditLogsMessage(message);
+        notifyError(message);
+        return false;
+      } finally {
+        setOperationAuditLogsLoading(false);
+      }
+    },
+    [
+      appliedAnalyticsEndDate,
+      appliedAnalyticsRange,
+      appliedAnalyticsStartDate,
+      canManageMenu,
+    ],
+  );
+
   const loadAnalytics = useCallback(async (filters?: AnalyticsDateFilters) => {
     if (!canManageMenu) return;
 
@@ -1689,6 +1799,7 @@ export default function App() {
       setAbTestAnalytics(
         Array.isArray(abTestPayload?.data) ? abTestPayload.data : [],
       );
+      await loadOperationAuditLogs(activeFilters);
       return true;
     } catch (analyticsError) {
       const message =
@@ -1706,6 +1817,7 @@ export default function App() {
     appliedAnalyticsRange,
     appliedAnalyticsStartDate,
     canManageMenu,
+    loadOperationAuditLogs,
   ]);
 
   function applyAnalyticsDateRange() {
@@ -5577,19 +5689,23 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <div className="rounded-box border border-base-300 bg-base-100 p-3 text-sm">
-                <h3 className="font-semibold">Data notes</h3>
-                <ul className="mt-2 list-disc space-y-1 pl-5 opacity-75">
-                  <li>Revenue uses discounted order total.</li>
-                  <li>
-                    Source comparison includes customer, walk-in, and phone
-                    orders.
-                  </li>
-                  <li>A/B analytics uses the order snapshot group.</li>
-                  <li>Price sensitivity uses order item snapshot prices.</li>
-                  <li>Cancelled orders are excluded from revenue metrics.</li>
-                </ul>
-              </div>
+              <details className="collapse collapse-arrow border border-base-300 bg-base-100">
+                <summary className="collapse-title font-semibold">
+                  Data notes and metric definitions
+                </summary>
+                <div className="collapse-content text-sm">
+                  <ul className="list-disc space-y-1 pl-5 opacity-75">
+                    <li>Revenue uses discounted order total.</li>
+                    <li>
+                      Source comparison includes customer, walk-in, and phone
+                      orders.
+                    </li>
+                    <li>A/B analytics uses the order snapshot group.</li>
+                    <li>Price sensitivity uses order item snapshot prices.</li>
+                    <li>Cancelled orders are excluded from revenue metrics.</li>
+                  </ul>
+                </div>
+              </details>
               {analyticsMessage ? (
                 <div className="alert alert-warning">
                   <span>{analyticsMessage}</span>
@@ -5685,7 +5801,7 @@ export default function App() {
                   </span>
                 </div>
               )}
-              <div className="space-y-4">
+              <div className="space-y-4 rounded-box border border-base-300 bg-base-100 p-4">
                 <div>
                   <h3 className="font-semibold">Trends</h3>
                   <p className="text-sm opacity-70">
@@ -5849,7 +5965,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="space-y-4">
+              <div className="space-y-4 rounded-box border border-base-300 bg-base-100 p-4">
                 <div>
                   <h3 className="font-semibold">Operational insights</h3>
                   <p className="text-sm opacity-70">
@@ -6019,7 +6135,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="space-y-4">
+              <div className="space-y-4 rounded-box border border-base-300 bg-base-100 p-4">
                 <div>
                   <h3 className="font-semibold">Promotion performance</h3>
                   <p className="text-sm opacity-70">
@@ -6084,7 +6200,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="space-y-4">
+              <div className="space-y-4 rounded-box border border-base-300 bg-base-100 p-4">
                 <div>
                   <h3 className="font-semibold">Issue analytics</h3>
                   <p className="text-sm opacity-70">
@@ -6175,22 +6291,47 @@ export default function App() {
                   </>
                 )}
               </div>
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-semibold">Staff operation summary</h3>
-                  <p className="text-sm opacity-70">
-                    This summary is derived from audit logs, so it reflects
-                    manager and staff actions already recorded by the system.
-                  </p>
-                </div>
-                {staffOperationRows.length === 0 ? (
-                  <div className="alert">
-                    <span>
-                      No staff operation data loaded. Refresh audit logs to
-                      populate this summary.
-                    </span>
+              <details className="collapse collapse-arrow border border-base-300 bg-base-100">
+                <summary className="collapse-title font-semibold">
+                  Staff operation summary
+                </summary>
+                <div className="collapse-content space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm opacity-70">
+                      This summary is derived from audit logs, so it reflects
+                      manager and staff actions already recorded by the system.
+                    </p>
+                    <button
+                      className="btn btn-sm btn-outline"
+                      disabled={operationAuditLogsLoading}
+                      onClick={() => {
+                        void loadOperationAuditLogs(undefined, {
+                          notify: true,
+                        });
+                      }}
+                    >
+                      {operationAuditLogsLoading
+                        ? "Loading..."
+                        : "Refresh operation logs"}
+                    </button>
                   </div>
-                ) : (
+                  {operationAuditLogsLoading ? (
+                    <div className="alert">
+                      <span>Loading staff operation data...</span>
+                    </div>
+                  ) : operationAuditLogsMessage ? (
+                    <div className="alert alert-warning">
+                      <span>{operationAuditLogsMessage}</span>
+                    </div>
+                  ) : operationAuditLogs.length === 0 ? (
+                    <div className="alert alert-info">
+                      <span>No staff operation logs loaded.</span>
+                    </div>
+                  ) : staffOperationRows.length === 0 ? (
+                    <div className="alert alert-info">
+                      <span>No staff operations found for this range.</span>
+                    </div>
+                  ) : (
                   <div className="overflow-x-auto">
                     <table className="table">
                       <thead>
@@ -6203,6 +6344,7 @@ export default function App() {
                           <th>Status updates</th>
                           <th>Issues</th>
                           <th>Menu changes</th>
+                          <th>Promotions</th>
                           <th>Role changes</th>
                           <th>Last action</th>
                         </tr>
@@ -6218,6 +6360,7 @@ export default function App() {
                             <td>{row.statusesUpdated}</td>
                             <td>{row.issuesHandled}</td>
                             <td>{row.menuChanges}</td>
+                            <td>{row.promotionChanges}</td>
                             <td>{row.roleChanges}</td>
                             <td>
                               {row.lastActionAt
@@ -6229,16 +6372,18 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
-                )}
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-semibold">Price sensitivity</h3>
+                  )}
+                </div>
+              </details>
+              <details className="collapse collapse-arrow border border-base-300 bg-base-100">
+                <summary className="collapse-title font-semibold">
+                  Price sensitivity
+                </summary>
+                <div className="collapse-content space-y-4">
                   <p className="text-sm opacity-70">
                     Compare quantity and revenue across historical snapshot
                     prices for the same menu item.
                   </p>
-                </div>
                 {priceSensitivity.length === 0 ? (
                   <div className="alert">
                     <span>No price sensitivity data for this range.</span>
@@ -6287,15 +6432,17 @@ export default function App() {
                     </table>
                   </div>
                 )}
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-semibold">A/B testing</h3>
+                </div>
+              </details>
+              <details className="collapse collapse-arrow border border-base-300 bg-base-100">
+                <summary className="collapse-title font-semibold">
+                  A/B testing
+                </summary>
+                <div className="collapse-content space-y-4">
                   <p className="text-sm opacity-70">
                     Compare revenue and order behavior across control and menu
                     variants.
                   </p>
-                </div>
                 {abTestAnalytics.length === 0 ? (
                   <div className="alert">
                     <span>No A/B testing data for this range.</span>
@@ -6326,7 +6473,8 @@ export default function App() {
                     </table>
                   </div>
                 )}
-              </div>
+                </div>
+              </details>
               {!analyticsLoading &&
               categorySales.length === 0 &&
               topItemSales.length === 0 ? (
@@ -6334,9 +6482,13 @@ export default function App() {
                   <span>No category or top item data for this range.</span>
                 </div>
               ) : null}
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                <div>
-                  <h3 className="font-semibold mb-2">Category sales</h3>
+              <details className="collapse collapse-arrow border border-base-300 bg-base-100">
+                <summary className="collapse-title font-semibold">
+                  Category and top item sales
+                </summary>
+                <div className="collapse-content grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <div>
+                    <h3 className="font-semibold mb-2">Category sales</h3>
                   {categorySales.length === 0 ? (
                     <div className="alert">
                       <span>No category sales data for this range.</span>
@@ -6365,9 +6517,9 @@ export default function App() {
                       </table>
                     </div>
                   )}
-                </div>
-                <div>
-                  <h3 className="font-semibold mb-2">Top items</h3>
+                  </div>
+                  <div>
+                    <h3 className="font-semibold mb-2">Top items</h3>
                   {topItemSales.length === 0 ? (
                     <div className="alert">
                       <span>No top item data yet.</span>
@@ -6401,7 +6553,8 @@ export default function App() {
                     </div>
                   )}
                 </div>
-              </div>
+                </div>
+              </details>
               <div className="mt-4">
                 <h3 className="font-semibold mb-2">Customer ratings</h3>
                 {ratedOrders.length === 0 ? (

@@ -145,6 +145,17 @@ const auditLogTargetTypeLabels: Record<AuditLogTargetType, string> = {
   menu_item_category: "Menu item category",
   order: "Order",
 };
+const promotionRuntimeFilterOptions: Array<{
+  id: PromotionRuntimeFilter;
+  label: string;
+}> = [
+  { id: "all", label: "All" },
+  { id: "active_now", label: "Active now" },
+  { id: "scheduled", label: "Scheduled" },
+  { id: "expired", label: "Expired" },
+  { id: "usage_full", label: "Usage full" },
+  { id: "inactive", label: "Inactive" },
+];
 const emptyMenuForm = {
   name: "",
   price: "",
@@ -233,6 +244,13 @@ type ManagerTab =
 type OrderQuickFilter = "" | (typeof orderQuickFilters)[number]["id"];
 type CategoryStatusFilter = "active" | "inactive" | "all";
 type PromotionStatusFilter = "active" | "inactive" | "all";
+type PromotionRuntimeStatus =
+  | "active_now"
+  | "scheduled"
+  | "expired"
+  | "usage_full"
+  | "inactive";
+type PromotionRuntimeFilter = "all" | PromotionRuntimeStatus;
 type PromotionForm = typeof emptyPromotionForm;
 
 function buildApiUrl(path: string) {
@@ -351,6 +369,8 @@ export default function App() {
   );
   const [promotionStatusFilter, setPromotionStatusFilter] =
     useState<PromotionStatusFilter>("active");
+  const [promotionRuntimeFilter, setPromotionRuntimeFilter] =
+    useState<PromotionRuntimeFilter>("all");
   const [promotionMessage, setPromotionMessage] = useState("");
   const [promotionBusy, setPromotionBusy] = useState(false);
   const [recentlyUpdatedPromotionId, setRecentlyUpdatedPromotionId] = useState<
@@ -682,6 +702,89 @@ export default function App() {
     return message;
   }
 
+  function getPromotionRuntimeStatus(
+    promotion: Promotion,
+    usedCount: number,
+    now = new Date(),
+  ): PromotionRuntimeStatus {
+    const startsAt = promotion.startsAt ? Date.parse(promotion.startsAt) : null;
+    const endsAt = promotion.endsAt ? Date.parse(promotion.endsAt) : null;
+
+    if (!promotion.isActive) return "inactive";
+    if (startsAt !== null && Number.isFinite(startsAt) && now.getTime() < startsAt) {
+      return "scheduled";
+    }
+    if (endsAt !== null && Number.isFinite(endsAt) && now.getTime() > endsAt) {
+      return "expired";
+    }
+    if (promotion.usageLimit !== null && usedCount >= promotion.usageLimit) {
+      return "usage_full";
+    }
+    return "active_now";
+  }
+
+  function getPromotionRuntimeStatusLabel(
+    status: PromotionRuntimeStatus,
+  ): string {
+    switch (status) {
+      case "active_now":
+        return "Active now";
+      case "scheduled":
+        return "Scheduled";
+      case "expired":
+        return "Expired";
+      case "usage_full":
+        return "Usage full";
+      case "inactive":
+        return "Inactive";
+    }
+  }
+
+  function getPromotionRuntimeStatusBadgeClass(
+    status: PromotionRuntimeStatus,
+  ): string {
+    switch (status) {
+      case "active_now":
+        return "badge-success";
+      case "scheduled":
+        return "badge-info";
+      case "expired":
+        return "badge-warning";
+      case "usage_full":
+        return "badge-error";
+      case "inactive":
+        return "badge-neutral";
+    }
+  }
+
+  function formatPromotionRuleSummary(
+    promotion: Promotion,
+    usedCount: number,
+  ): string[] {
+    const runtimeStatus = getPromotionRuntimeStatus(promotion, usedCount);
+    const discount =
+      promotion.discountType === "percent"
+        ? `${promotion.discountValue}% off`
+        : `$${promotion.discountValue} off`;
+
+    return [
+      discount,
+      promotion.minOrderAmount > 0
+        ? `Minimum order: $${promotion.minOrderAmount}`
+        : "No minimum order",
+      promotion.startsAt
+        ? `Valid from ${formatCheckoutDateTime(promotion.startsAt)}`
+        : "Valid immediately",
+      promotion.endsAt
+        ? `Ends ${formatCheckoutDateTime(promotion.endsAt)}`
+        : "No end date",
+      promotion.usageLimit
+        ? `Usage: ${usedCount} / ${promotion.usageLimit}`
+        : `Usage: ${usedCount} / Unlimited`,
+      getPromotionRuntimeStatusLabel(runtimeStatus),
+    ];
+  }
+
   function isInvalidCustomDateRange(
     range: AnalyticsRange | AuditLogRange,
     startDate: string,
@@ -741,12 +844,26 @@ export default function App() {
   const promotionUsageCounts = useMemo(() => {
     const usageCounts: Record<string, number> = {};
     for (const order of historyOrders) {
+      if (order.status === "pending" || order.status === "cancelled") continue;
       if (!order.promoCode) continue;
       const normalizedCode = order.promoCode.trim().toUpperCase();
       usageCounts[normalizedCode] = (usageCounts[normalizedCode] ?? 0) + 1;
     }
     return usageCounts;
   }, [historyOrders]);
+  const filteredPromotions = useMemo(
+    () =>
+      promotions.filter((promotion) => {
+        if (promotionRuntimeFilter === "all") return true;
+        const usedCount =
+          promotionUsageCounts[promotion.code.trim().toUpperCase()] ?? 0;
+        return (
+          getPromotionRuntimeStatus(promotion, usedCount) ===
+          promotionRuntimeFilter
+        );
+      }),
+    [promotionRuntimeFilter, promotionUsageCounts, promotions],
+  );
   const ratedOrders = historyOrders.filter(
     (order) =>
       order.rating !== null &&
@@ -2533,6 +2650,11 @@ export default function App() {
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }, [cartItemSnapshotsById, cartQtyByItemId, items]);
 
+  const cartSubtotal = useMemo(
+    () => cartDetails.reduce((sum, detail) => sum + detail.subtotal, 0),
+    [cartDetails],
+  );
+
   const walkInOrderDetails = useMemo(() => {
     const itemById = new Map(items.map((item) => [item.id, item]));
 
@@ -2553,6 +2675,78 @@ export default function App() {
     () => walkInOrderDetails.reduce((sum, entry) => sum + entry.subtotal, 0),
     [walkInOrderDetails],
   );
+
+  function renderPromotionEligibilityHint(
+    promoCode: string,
+    subtotal: number,
+  ) {
+    const normalizedCode = promoCode.trim().toUpperCase();
+    if (!normalizedCode) return null;
+
+    const promotion = promotions.find(
+      (candidate) => candidate.code.trim().toUpperCase() === normalizedCode,
+    );
+
+    if (!promotion) {
+      return (
+        <div className="mt-2 text-xs text-warning">
+          Promo code will be checked when you submit.
+        </div>
+      );
+    }
+
+    const usedCount = promotionUsageCounts[promotion.code.trim().toUpperCase()] ?? 0;
+    const runtimeStatus = getPromotionRuntimeStatus(promotion, usedCount);
+    const ruleSummary = formatPromotionRuleSummary(promotion, usedCount);
+    const missingMinimum = Math.max(0, promotion.minOrderAmount - subtotal);
+    const hasBlockingRule =
+      missingMinimum > 0 ||
+      runtimeStatus === "scheduled" ||
+      runtimeStatus === "expired" ||
+      runtimeStatus === "usage_full" ||
+      runtimeStatus === "inactive";
+
+    let helperText = "This promo looks available for this cart.";
+    if (missingMinimum > 0) {
+      helperText = `Add $${missingMinimum} more to use this promo.`;
+    } else if (runtimeStatus === "scheduled") {
+      helperText = "This promo has not started yet.";
+    } else if (runtimeStatus === "expired") {
+      helperText = "This promo has expired.";
+    } else if (runtimeStatus === "usage_full") {
+      helperText = "This promo has reached its usage limit.";
+    } else if (runtimeStatus === "inactive") {
+      helperText = "This promo is inactive.";
+    }
+
+    return (
+      <div
+        className={`mt-2 rounded-box border p-3 text-xs ${
+          hasBlockingRule
+            ? "border-warning bg-warning/10"
+            : "border-success bg-success/10"
+        }`}
+      >
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span
+            className={`badge badge-sm ${getPromotionRuntimeStatusBadgeClass(
+              runtimeStatus,
+            )}`}
+          >
+            {getPromotionRuntimeStatusLabel(runtimeStatus)}
+          </span>
+          <span className={hasBlockingRule ? "text-warning" : "text-success"}>
+            {helperText}
+          </span>
+        </div>
+        <ul className="list-disc space-y-1 pl-4 opacity-80">
+          {ruleSummary.map((summary) => (
+            <li key={summary}>{summary}</li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
 
   // Event handlers
   async function ensureOrder(): Promise<number> {
@@ -4981,6 +5175,12 @@ export default function App() {
                           }))
                         }
                       />
+                      <div className="lg:col-span-4">
+                        {renderPromotionEligibilityHint(
+                          walkInOrderForm.promoCode,
+                          walkInOrderTotal,
+                        )}
+                      </div>
                     </div>
                     <textarea
                       className="textarea textarea-bordered mt-3 min-h-20 w-full"
@@ -7035,6 +7235,7 @@ export default function App() {
                         <tr>
                           <th>Code</th>
                           <th>Status</th>
+                          <th>Runtime</th>
                           <th>Used orders</th>
                           <th>Min order</th>
                           <th>Limit</th>
@@ -7047,7 +7248,16 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {promotionPerformanceRows.map((row) => (
+                        {promotionPerformanceRows.map((row) => {
+                          const promotion = promotions.find(
+                            (candidate) =>
+                              candidate.code.trim().toUpperCase() === row.code,
+                          );
+                          const runtimeStatus = promotion
+                            ? getPromotionRuntimeStatus(promotion, row.usedOrders)
+                            : null;
+
+                          return (
                           <tr key={row.code}>
                             <td className="font-semibold">{row.code}</td>
                             <td>
@@ -7063,9 +7273,22 @@ export default function App() {
                                 {row.isActive === null
                                   ? "unknown"
                                   : row.isActive
-                                    ? "active"
+                                ? "active"
                                     : "inactive"}
                               </span>
+                            </td>
+                            <td>
+                              {runtimeStatus ? (
+                                <span
+                                  className={`badge ${getPromotionRuntimeStatusBadgeClass(
+                                    runtimeStatus,
+                                  )}`}
+                                >
+                                  {getPromotionRuntimeStatusLabel(runtimeStatus)}
+                                </span>
+                              ) : (
+                                "-"
+                              )}
                             </td>
                             <td>{row.usedOrders}</td>
                             <td>
@@ -7102,7 +7325,8 @@ export default function App() {
                                 : "-"}
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -7838,6 +8062,42 @@ export default function App() {
                   in analytics revenue.
                 </span>
               </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {promotionRuntimeFilterOptions.map((filter) => (
+                  <button
+                    key={filter.id}
+                    className={`btn btn-xs ${
+                      promotionRuntimeFilter === filter.id
+                        ? "btn-primary"
+                        : "btn-outline"
+                    }`}
+                    onClick={() => {
+                      setPromotionRuntimeFilter(filter.id);
+                      if (filter.id !== "all") {
+                        notifyInfo("Promotion filter applied.");
+                      }
+                    }}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+                {promotionRuntimeFilter !== "all" ? (
+                  <button
+                    className="btn btn-xs btn-ghost"
+                    onClick={() => {
+                      setPromotionRuntimeFilter("all");
+                      notifyInfo("Promotion filters cleared.");
+                    }}
+                  >
+                    Clear filter
+                  </button>
+                ) : null}
+                {promotionRuntimeFilter !== "all" ? (
+                  <span className="text-xs opacity-60">
+                    Showing promotions by runtime status.
+                  </span>
+                ) : null}
+              </div>
 
               {promotionMessage ? (
                 <div className="alert">
@@ -7972,6 +8232,10 @@ export default function App() {
                 <div className="alert alert-info">
                   <span>No promotions found.</span>
                 </div>
+              ) : filteredPromotions.length === 0 ? (
+                <div className="alert alert-info">
+                  <span>No promotions match the current filters.</span>
+                </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="table">
@@ -7979,6 +8243,7 @@ export default function App() {
                       <tr>
                         <th>Code</th>
                         <th>Discount</th>
+                        <th>Runtime</th>
                         <th>Min order</th>
                         <th>Valid period</th>
                         <th>Status</th>
@@ -7988,14 +8253,34 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {promotions.map((promotion) => (
+                      {filteredPromotions.map((promotion) => {
+                        const usedCount =
+                          promotionUsageCounts[
+                            promotion.code.trim().toUpperCase()
+                          ] ?? 0;
+                        const runtimeStatus = getPromotionRuntimeStatus(
+                          promotion,
+                          usedCount,
+                        );
+                        const ruleSummary = formatPromotionRuleSummary(
+                          promotion,
+                          usedCount,
+                        );
+
+                        return (
                         <tr
                           key={promotion.id}
-                          className={
+                          className={`${
                             promotion.id === recentlyUpdatedPromotionId
                               ? "bg-primary/10"
                               : ""
-                          }
+                          } ${
+                            runtimeStatus === "usage_full"
+                              ? "border-l-4 border-error"
+                              : runtimeStatus === "expired"
+                                ? "opacity-70"
+                                : ""
+                          }`}
                         >
                           <td className="font-semibold">{promotion.code}</td>
                           <td>
@@ -8022,6 +8307,20 @@ export default function App() {
                           </td>
                           <td>
                             <span
+                              className={`badge ${getPromotionRuntimeStatusBadgeClass(
+                                runtimeStatus,
+                              )}`}
+                            >
+                              {getPromotionRuntimeStatusLabel(runtimeStatus)}
+                            </span>
+                            <ul className="mt-2 list-disc space-y-1 pl-4 text-xs opacity-70">
+                              {ruleSummary.map((summary) => (
+                                <li key={summary}>{summary}</li>
+                              ))}
+                            </ul>
+                          </td>
+                          <td>
+                            <span
                               className={`badge ${
                                 promotion.isActive
                                   ? "badge-success"
@@ -8032,17 +8331,17 @@ export default function App() {
                             </span>
                           </td>
                           <td>
-                            {promotion.usageLimit
-                              ? `Used ${
-                                promotionUsageCounts[
-                                  promotion.code.trim().toUpperCase()
-                                ] ?? 0
-                              } / ${promotion.usageLimit}`
-                              : `Used ${
-                                promotionUsageCounts[
-                                  promotion.code.trim().toUpperCase()
-                                ] ?? 0
-                              } / Unlimited`}
+                            <span
+                              className={
+                                runtimeStatus === "usage_full"
+                                  ? "font-semibold text-error"
+                                  : ""
+                              }
+                            >
+                              {promotion.usageLimit
+                                ? `Used ${usedCount} / ${promotion.usageLimit}`
+                                : `Used ${usedCount} / Unlimited`}
+                            </span>
                           </td>
                           <td>{formatCheckoutDateTime(promotion.updatedAt)}</td>
                           <td>
@@ -8078,7 +8377,8 @@ export default function App() {
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -8919,6 +9219,10 @@ export default function App() {
                     }
                     placeholder="Optional"
                   />
+                  {renderPromotionEligibilityHint(
+                    checkoutForm.promoCode,
+                    cartSubtotal,
+                  )}
                 </label>
                 <label className="form-control">
                   <span className="label-text mb-1">Note</span>

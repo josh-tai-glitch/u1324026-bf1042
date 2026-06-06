@@ -23,6 +23,7 @@ import {
   createCategoryBodySchema,
   createMenuItemBodySchema,
   createPromotionBodySchema,
+  createGuestOrderBodySchema,
   createRoleRequestBodySchema,
   createWalkInOrderBodySchema,
   currentUserResponseSchema,
@@ -394,9 +395,9 @@ async function upsertDemoUser(user: {
 
 function toVisibleOrderResponse(
   order: Parameters<typeof toOrderResponse>[0],
-  user: { roles: readonly Role[] },
+  user: { roles: readonly Role[] } | null,
 ) {
-  if (user.roles.some((role) => orderViewerRoles.includes(role))) {
+  if (user?.roles.some((role) => orderViewerRoles.includes(role))) {
     return toOrderResponse(order);
   }
 
@@ -1653,6 +1654,80 @@ app.post(
   },
 );
 
+// Guest checkout
+app.post(
+  "/api/orders/guest",
+  async ({ body, set }) => {
+    const input = body as {
+      guestName: string;
+      guestPhone: string;
+      items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+      fulfillmentType: "dine_in" | "takeout";
+      customerNote?: string | null;
+      pickupTime?: string | null;
+      paymentMethod: "cash" | "card" | "online";
+      promoCode?: string | null;
+    };
+
+    const result = await store.createGuestOrder({
+      guestName: input.guestName,
+      guestPhone: input.guestPhone,
+      items: input.items,
+      fulfillmentType: input.fulfillmentType,
+      customerNote: input.customerNote ?? null,
+      pickupTime: input.pickupTime ?? null,
+      paymentMethod: input.paymentMethod,
+      promoCode: input.promoCode ?? null,
+    });
+
+    if (result.ok === false) {
+      switch (result.code) {
+        case "EMPTY_ORDER":
+          set.status = 400;
+          return { error: "Empty order cannot be submitted" };
+        case "MENU_ITEM_NOT_FOUND":
+          set.status = 404;
+          return { error: "Menu item not found" };
+        case "MENU_VERSION_CHANGED":
+          return respondMenuVersionChanged(set, "cart", result.itemName);
+        case "MENU_ITEM_UNAVAILABLE":
+          set.status = 409;
+          return { error: "Menu item is unavailable" };
+        case "PROMOTION_NOT_FOUND":
+        case "PROMOTION_INACTIVE":
+        case "PROMOTION_MIN_ORDER_NOT_MET":
+        case "PROMOTION_NOT_STARTED":
+        case "PROMOTION_EXPIRED":
+        case "PROMOTION_USAGE_LIMIT_REACHED":
+        case "INVALID_PROMOTION":
+          return respondPromotionStoreError(set, result.code, input.promoCode);
+        default:
+          set.status = 500;
+          return { error: "Unexpected store state" };
+      }
+    }
+
+    set.status = 201;
+    return { data: toVisibleOrderResponse(result.order, null) };
+  },
+  {
+    body: createGuestOrderBodySchema,
+    detail: {
+      tags: ["orders"],
+      summary: "Create guest checkout order",
+      description:
+        "Create a submitted order for an unauthenticated guest checkout.",
+    },
+    response: {
+      201: orderResponseEnvelopeSchema,
+      400: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+      409: apiErrorOrVersionConflictResponseSchema,
+      500: apiErrorResponseSchema,
+    },
+  },
+);
+
 app.get(
   "/api/orders/:id",
   async ({ params, request, set }) => {
@@ -1709,7 +1784,7 @@ app.patch(
 
     const patch = body as { itemId: number; qty: number };
     const result = await store.updateOrderItem(orderId, {
-      userId: order.userId,
+      userId: order.userId ?? user.id,
       itemId: patch.itemId,
       qty: patch.qty,
     });

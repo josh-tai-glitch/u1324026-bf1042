@@ -65,7 +65,7 @@ describe("phone order contracts", () => {
         completed: 0,
         cancelled: 0,
       },
-      orderSources: { customer: 0, walk_in: 0, phone: 1 },
+      orderSources: { customer: 0, walk_in: 0, phone: 1, guest: 0 },
     });
 
     expect(parsed.orderSources.phone).toBe(1);

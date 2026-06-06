@@ -105,7 +105,6 @@ export const menuItemCategoriesTable = appSchema.table(
 export const ordersTable = appSchema.table("orders", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   userId: text("user_id")
-    .notNull()
     .references(() => user.id),
   subtotal: integer("subtotal").notNull().default(0),
   discountAmount: integer("discount_amount").notNull().default(0),

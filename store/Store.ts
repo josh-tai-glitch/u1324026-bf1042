@@ -96,6 +96,7 @@ export type CreateWalkInOrderErrorCode =
   | "PROMOTION_EXPIRED"
   | "PROMOTION_USAGE_LIMIT_REACHED"
   | "INVALID_PROMOTION";
+export type CreateGuestOrderErrorCode = CreateWalkInOrderErrorCode;
 
 export type CategoryStatusFilter = "active" | "inactive" | "all";
 export type PromotionStatusFilter = "active" | "inactive" | "all";
@@ -251,6 +252,19 @@ export interface Store {
   }): Promise<
     | { ok: true; order: Order }
     | { ok: false; code: CreateWalkInOrderErrorCode; itemName?: string }
+  >;
+  createGuestOrder(input: {
+    guestName: string;
+    guestPhone: string;
+    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+    fulfillmentType: FulfillmentType;
+    customerNote?: string | null;
+    pickupTime?: string | null;
+    paymentMethod: PaymentMethod;
+    promoCode?: string | null;
+  }): Promise<
+    | { ok: true; order: Order }
+    | { ok: false; code: CreateGuestOrderErrorCode; itemName?: string }
   >;
 
   // Order operations

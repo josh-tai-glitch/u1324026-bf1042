@@ -262,6 +262,33 @@ export const createWalkInOrderBodySchema = z.object({
   promoCode: z.string().trim().max(32).optional().nullable(),
 });
 
+export const createGuestOrderBodySchema = z.object({
+  guestName: z.string().trim().min(1).max(80),
+  guestPhone: z
+    .string()
+    .trim()
+    .min(1, "Guest phone is required")
+    .max(30)
+    .refine(
+      (value) => /^[0-9+\-() ]{6,30}$/.test(value),
+      "Invalid phone number",
+    ),
+  items: z
+    .array(
+      z.object({
+        itemId: z.number().int().min(1),
+        qty: z.number().int().min(1).max(99),
+        menuItemVersion: z.number().int().min(1).optional(),
+      }),
+    )
+    .min(1),
+  fulfillmentType: fulfillmentTypeSchema.default("takeout"),
+  customerNote: z.string().max(500).optional().nullable(),
+  pickupTime: optionalIsoDateTimeSchema,
+  paymentMethod: paymentMethodSchema.default("cash"),
+  promoCode: z.string().trim().max(32).optional().nullable(),
+});
+
 function validatePromotionDateRange(
   value: { startsAt?: string | null; endsAt?: string | null },
   context: z.RefinementCtx,

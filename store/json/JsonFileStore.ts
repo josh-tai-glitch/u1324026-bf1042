@@ -406,7 +406,10 @@ export class JsonFileStore implements Store {
         menu: parsed.menu.map((item) => normalizeMenuItem(item)),
         orders: parsed.orders.map((order) => ({
           ...order,
-          userId: normalizeUserId(order.userId ?? fallbackUserId),
+          userId:
+            order.userId === null
+              ? null
+              : normalizeUserId(order.userId ?? fallbackUserId),
           items: order.items.map((orderItem) => ({
             ...orderItem,
             item: normalizeMenuItem(orderItem.item),
@@ -443,6 +446,8 @@ export class JsonFileStore implements Store {
           orderSource:
             order.orderSource === "phone"
               ? "phone"
+              : order.orderSource === "guest"
+                ? "guest"
               : order.orderSource === "walk_in"
                 ? "walk_in"
                 : "customer",
@@ -1056,6 +1061,113 @@ export class JsonFileStore implements Store {
       pickupTime: input.pickupTime || null,
       paymentMethod: input.paymentMethod,
       paymentStatus: input.paymentStatus ?? "unpaid",
+      issueType: null,
+      issueNote: null,
+      issueReportedBy: null,
+      issueReportedAt: null,
+      rating: null,
+      ratingComment: null,
+      ratedAt: null,
+      createdAt: submittedAt,
+      submittedAt,
+    };
+
+    this.orders.unshift(order);
+    await this.persist();
+    return { ok: true, order };
+  }
+
+  async createGuestOrder(input: {
+    guestName: string;
+    guestPhone: string;
+    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+    fulfillmentType: FulfillmentType;
+    customerNote?: string | null;
+    pickupTime?: string | null;
+    paymentMethod: PaymentMethod;
+    promoCode?: string | null;
+  }): Promise<
+    | { ok: true; order: Order }
+    | {
+        ok: false;
+        code:
+          | "EMPTY_ORDER"
+          | "MENU_ITEM_NOT_FOUND"
+          | "MENU_VERSION_CHANGED"
+          | "MENU_ITEM_UNAVAILABLE"
+          | "PROMOTION_NOT_FOUND"
+          | "PROMOTION_INACTIVE"
+          | "PROMOTION_MIN_ORDER_NOT_MET"
+          | "PROMOTION_NOT_STARTED"
+          | "PROMOTION_EXPIRED"
+          | "PROMOTION_USAGE_LIMIT_REACHED"
+          | "INVALID_PROMOTION";
+        itemName?: string;
+      }
+  > {
+    const requestedItems = input.items.filter((item) => item.qty > 0);
+    if (requestedItems.length === 0) {
+      return { ok: false, code: "EMPTY_ORDER" };
+    }
+
+    const orderItems: OrderItem[] = [];
+    for (const requestedItem of requestedItems) {
+      const menuItem = this.menu.find((item) => item.id === requestedItem.itemId);
+      if (!menuItem) {
+        return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
+      }
+      if (
+        !menuItem.is_current_version ||
+        (requestedItem.menuItemVersion !== undefined &&
+          requestedItem.menuItemVersion !== menuItem.version)
+      ) {
+        return {
+          ok: false,
+          code: "MENU_VERSION_CHANGED",
+          itemName: menuItem.name,
+        };
+      }
+      if (!menuItem.is_available) {
+        return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
+      }
+      orderItems.push({
+        item: { ...menuItem },
+        qty: requestedItem.qty,
+        menu_item_version: menuItem.version,
+        menu_item_version_major: menuItem.version_major,
+        menu_item_version_minor: menuItem.version_minor,
+        menu_item_group_id: menuItem.menu_item_group_id,
+        ab_test_group: menuItem.ab_test_group,
+      });
+    }
+
+    const subtotal = calculateOrderTotal(orderItems);
+    const discount = this.calculateDiscountForPromoCode(
+      subtotal,
+      input.promoCode,
+    );
+    if (!discount.ok) return { ok: false, code: discount.code };
+    const { discountAmount, promoCode, total } = discount.preview;
+    const submittedAt = new Date().toISOString();
+    const order: Order = {
+      id: ++this.orderIdCounter,
+      userId: null,
+      items: orderItems,
+      subtotal,
+      discountAmount,
+      promoCode,
+      abTestGroup: "control",
+      total,
+      status: "submitted",
+      orderSource: "guest",
+      guestName: input.guestName.trim(),
+      guestPhone: input.guestPhone.trim(),
+      createdByStaffId: null,
+      fulfillmentType: input.fulfillmentType,
+      customerNote: input.customerNote?.trim() || null,
+      pickupTime: input.pickupTime || null,
+      paymentMethod: input.paymentMethod,
+      paymentStatus: "unpaid",
       issueType: null,
       issueNote: null,
       issueReportedBy: null,
@@ -1728,7 +1840,7 @@ export class JsonFileStore implements Store {
         completed: 0,
         cancelled: 0,
       },
-      orderSources: { customer: 0, walk_in: 0, phone: 0 },
+      orderSources: { customer: 0, walk_in: 0, phone: 0, guest: 0 },
     };
 
     for (const order of formalOrders) {
@@ -1824,6 +1936,7 @@ export class JsonFileStore implements Store {
       { source: "customer", orderCount: 0, revenue: 0 },
       { source: "walk_in", orderCount: 0, revenue: 0 },
       { source: "phone", orderCount: 0, revenue: 0 },
+      { source: "guest", orderCount: 0, revenue: 0 },
     ];
     const paymentMethodComparison: AnalyticsInsights["paymentMethodComparison"] = [
       { paymentMethod: "cash", orderCount: 0, revenue: 0 },

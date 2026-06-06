@@ -65,7 +65,7 @@ interface SeedData {
   menu?: MenuItem[];
   orders?: Array<{
     id: number;
-    userId: string | number;
+    userId: string | number | null;
     status: OrderStatus;
     total: number;
     createdAt: string;
@@ -79,7 +79,7 @@ interface SeedData {
     issueNote?: string | null;
     issueReportedBy?: string | null;
     issueReportedAt?: string | null;
-    orderSource?: "customer" | "walk_in" | "phone";
+    orderSource?: "customer" | "walk_in" | "phone" | "guest";
     guestName?: string | null;
     guestPhone?: string | null;
     createdByStaffId?: string | null;
@@ -1041,6 +1041,159 @@ export class PgStore implements Store {
     return { ok: true, order };
   }
 
+  async createGuestOrder(input: {
+    guestName: string;
+    guestPhone: string;
+    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+    fulfillmentType: FulfillmentType;
+    customerNote?: string | null;
+    pickupTime?: string | null;
+    paymentMethod: PaymentMethod;
+    promoCode?: string | null;
+  }): Promise<
+    | { ok: true; order: Order }
+    | {
+        ok: false;
+        code:
+          | "EMPTY_ORDER"
+          | "MENU_ITEM_NOT_FOUND"
+          | "MENU_VERSION_CHANGED"
+          | "MENU_ITEM_UNAVAILABLE"
+          | "PROMOTION_NOT_FOUND"
+          | "PROMOTION_INACTIVE"
+          | "PROMOTION_MIN_ORDER_NOT_MET"
+          | "PROMOTION_NOT_STARTED"
+          | "PROMOTION_EXPIRED"
+          | "PROMOTION_USAGE_LIMIT_REACHED"
+          | "INVALID_PROMOTION";
+        itemName?: string;
+      }
+  > {
+    const requestedItems = input.items.filter((item) => item.qty > 0);
+    if (requestedItems.length === 0) {
+      return { ok: false, code: "EMPTY_ORDER" };
+    }
+
+    const orderItems: OrderItem[] = [];
+    for (const requestedItem of requestedItems) {
+      const menuItem = this.menu.find((item) => item.id === requestedItem.itemId);
+      if (!menuItem) {
+        return { ok: false, code: "MENU_ITEM_NOT_FOUND" };
+      }
+      if (
+        !menuItem.is_current_version ||
+        (requestedItem.menuItemVersion !== undefined &&
+          requestedItem.menuItemVersion !== menuItem.version)
+      ) {
+        return {
+          ok: false,
+          code: "MENU_VERSION_CHANGED",
+          itemName: menuItem.name,
+        };
+      }
+      if (!menuItem.is_available) {
+        return { ok: false, code: "MENU_ITEM_UNAVAILABLE" };
+      }
+      orderItems.push({
+        item: { ...menuItem },
+        qty: requestedItem.qty,
+        menu_item_version: menuItem.version,
+        menu_item_version_major: menuItem.version_major,
+        menu_item_version_minor: menuItem.version_minor,
+        menu_item_group_id: menuItem.menu_item_group_id,
+        ab_test_group: menuItem.ab_test_group,
+      });
+    }
+
+    const now = new Date();
+    const submittedAt = now.toISOString();
+    const pickupTime = input.pickupTime ? new Date(input.pickupTime) : null;
+    const subtotal = calculateTotal(orderItems);
+    const discount = this.calculateDiscountForPromoCode(
+      subtotal,
+      input.promoCode,
+    );
+    if (!discount.ok) return { ok: false, code: discount.code };
+    const { discountAmount, promoCode, total } = discount.preview;
+
+    const [inserted] = await db
+      .insert(ordersTable)
+      .values({
+        userId: null,
+        subtotal,
+        discountAmount,
+        promoCode,
+        total,
+        abTestGroup: "control",
+        status: "submitted",
+        orderSource: "guest",
+        guestName: input.guestName.trim(),
+        guestPhone: input.guestPhone.trim(),
+        createdByStaffId: null,
+        fulfillmentType: input.fulfillmentType,
+        customerNote: input.customerNote?.trim() || null,
+        pickupTime,
+        paymentMethod: input.paymentMethod,
+        paymentStatus: "unpaid",
+        createdAt: now,
+        submittedAt: now,
+      })
+      .returning();
+
+    if (!inserted) throw new Error("Failed to create guest order");
+
+    await db.insert(orderItemsTable).values(
+      orderItems.map((orderItem) => ({
+        orderId: inserted.id,
+        itemId: orderItem.item.id,
+        menuItemVersion: orderItem.menu_item_version,
+        menuItemVersionMajor: orderItem.menu_item_version_major,
+        menuItemVersionMinor: orderItem.menu_item_version_minor,
+        menuItemGroupId: orderItem.menu_item_group_id,
+        abTestGroup: orderItem.ab_test_group,
+        name: orderItem.item.name,
+        price: orderItem.item.price,
+        category: orderItem.item.category,
+        description: orderItem.item.description,
+        imageUrl: orderItem.item.image_url,
+        qty: orderItem.qty,
+      })),
+    );
+
+    const order: Order = {
+      id: inserted.id,
+      userId: null,
+      items: orderItems,
+      subtotal,
+      discountAmount,
+      promoCode,
+      total,
+      abTestGroup: "control",
+      status: "submitted",
+      orderSource: "guest",
+      guestName: input.guestName.trim(),
+      guestPhone: input.guestPhone.trim(),
+      createdByStaffId: null,
+      fulfillmentType: input.fulfillmentType,
+      customerNote: input.customerNote?.trim() || null,
+      pickupTime: pickupTime ? pickupTime.toISOString() : null,
+      paymentMethod: input.paymentMethod,
+      paymentStatus: "unpaid",
+      issueType: null,
+      issueNote: null,
+      issueReportedBy: null,
+      issueReportedAt: null,
+      rating: null,
+      ratingComment: null,
+      ratedAt: null,
+      createdAt: submittedAt,
+      submittedAt,
+    };
+
+    this.orders.unshift(order);
+    return { ok: true, order };
+  }
+
   async updateOrderItem(
     orderId: number,
     input: { userId: string; itemId: number; qty: number },
@@ -1782,7 +1935,7 @@ export class PgStore implements Store {
         completed: 0,
         cancelled: 0,
       },
-      orderSources: { customer: 0, walk_in: 0, phone: 0 },
+      orderSources: { customer: 0, walk_in: 0, phone: 0, guest: 0 },
     };
 
     for (const order of formalOrders) {
@@ -1878,6 +2031,7 @@ export class PgStore implements Store {
       { source: "customer", orderCount: 0, revenue: 0 },
       { source: "walk_in", orderCount: 0, revenue: 0 },
       { source: "phone", orderCount: 0, revenue: 0 },
+      { source: "guest", orderCount: 0, revenue: 0 },
     ];
     const paymentMethodComparison: AnalyticsInsights["paymentMethodComparison"] = [
       { paymentMethod: "cash", orderCount: 0, revenue: 0 },
@@ -2370,7 +2524,7 @@ export class PgStore implements Store {
 
     this.orders = orderRows.map((row) => ({
       id: row.id,
-      userId: row.userId,
+      userId: row.userId ?? null,
       items: itemsByOrderId.get(row.id) ?? [],
       subtotal: row.subtotal > 0 ? row.subtotal : row.total,
       discountAmount: row.discountAmount ?? 0,
@@ -2381,6 +2535,8 @@ export class PgStore implements Store {
       orderSource:
         row.orderSource === "phone"
           ? "phone"
+          : row.orderSource === "guest"
+            ? "guest"
           : row.orderSource === "walk_in"
             ? "walk_in"
             : "customer",

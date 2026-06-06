@@ -189,6 +189,10 @@ const emptyCheckoutForm = {
   paymentMethod: "cash" as PaymentMethod,
   promoCode: "",
 };
+const emptyGuestCheckoutForm = {
+  guestName: "",
+  guestPhone: "",
+};
 const emptyWalkInOrderForm = {
   orderSource: "walk_in" as "walk_in" | "phone",
   guestName: "",
@@ -220,6 +224,7 @@ const maxTastePreferenceChipLength = 30;
 type MenuForm = typeof emptyMenuForm;
 type CategoryForm = typeof emptyCategoryForm;
 type CheckoutForm = typeof emptyCheckoutForm;
+type GuestCheckoutForm = typeof emptyGuestCheckoutForm;
 type WalkInOrderForm = typeof emptyWalkInOrderForm;
 type WalkInOrderItem = { itemId: number; qty: number; menuItemVersion?: number };
 type OrderIssueDraft = { issueType: OrderIssueType; issueNote: string };
@@ -364,7 +369,13 @@ function formatAbTestGroup(group?: AbTestGroup | null) {
 function formatOrderSource(source: Order["orderSource"]) {
   if (source === "walk_in") return "Walk-in";
   if (source === "phone") return "Phone";
+  if (source === "guest") return "Guest";
   return "Customer";
+}
+
+function getPhoneLastFour(phone?: string | null) {
+  const digits = phone?.replace(/\D/g, "") ?? "";
+  return digits ? digits.slice(-4) : "";
 }
 
 export default function App() {
@@ -461,6 +472,9 @@ export default function App() {
   const [reorderMessage, setReorderMessage] = useState("");
   const [checkoutForm, setCheckoutForm] =
     useState<CheckoutForm>(emptyCheckoutForm);
+  const [guestCheckoutForm, setGuestCheckoutForm] =
+    useState<GuestCheckoutForm>(emptyGuestCheckoutForm);
+  const [lastGuestOrder, setLastGuestOrder] = useState<Order | null>(null);
   const [walkInOrderForm, setWalkInOrderForm] =
     useState<WalkInOrderForm>(emptyWalkInOrderForm);
   const [tastePreferenceChips, setTastePreferenceChips] = useState<string[]>(
@@ -1086,7 +1100,12 @@ export default function App() {
       };
     })
     .filter((row) => row.count > 0);
-  const issueSourceRows = (["customer", "walk_in", "phone"] as OrderSource[])
+  const issueSourceRows = ([
+    "customer",
+    "walk_in",
+    "phone",
+    "guest",
+  ] as OrderSource[])
     .map((source) => {
       const sourceOrders = formalAnalyticsOrders.filter(
         (order) => order.orderSource === source,
@@ -2497,8 +2516,7 @@ export default function App() {
   useEffect(() => {
     if (!user) {
       setHistoryOrders([]);
-      setIsCartOpen(false);
-      resetCartState();
+      setOrderId(null);
       return;
     }
 
@@ -3133,7 +3151,11 @@ export default function App() {
   async function refreshCartVersionState(): Promise<void> {
     setIsRefreshingCartVersion(true);
     try {
-      await Promise.all([loadMenu(), loadCurrentOrder()]);
+      if (user) {
+        await Promise.all([loadMenu(), loadCurrentOrder()]);
+      } else {
+        await loadMenu();
+      }
     } finally {
       setIsRefreshingCartVersion(false);
     }
@@ -3284,7 +3306,30 @@ export default function App() {
 
     try {
       if (!user) {
-        throw new Error("Please sign in first.");
+        if (!item.is_available) {
+          throw new Error("This item is sold out.");
+        }
+
+        const currentQty = cartQtyByItemId[item.id] ?? 0;
+        const nextQty = Math.min(99, currentQty + 1);
+        if (nextQty === currentQty) {
+          throw new Error("Cart quantity is already at the maximum.");
+        }
+
+        setCartQtyByItemId((current) => ({
+          ...current,
+          [item.id]: nextQty,
+        }));
+        setCartItemSnapshotsById((current) => ({
+          ...current,
+          [item.id]: item,
+        }));
+        setLastGuestOrder(null);
+        setIsCartOpen(true);
+        notifySuccess(
+          successMessage ?? `Added ${item.name} to cart. Cart quantity: ${nextQty}.`,
+        );
+        return;
       }
       if (!item.is_available) {
         throw new Error("This item is sold out.");
@@ -3362,11 +3407,51 @@ export default function App() {
   }
 
   async function updateCartItemQty(itemId: number, qty: number): Promise<void> {
-    if (!user) return;
-
     setActionError("");
     setCartBusyItemId(itemId);
     try {
+      if (!user) {
+        const currentQty = cartQtyByItemId[itemId] ?? 0;
+        const nextQty = Math.max(0, Math.min(99, qty));
+        const currentItem =
+          items.find((item) => item.id === itemId) ??
+          cartItemSnapshotsById[itemId];
+
+        if (!currentItem) {
+          throw new Error("Menu item not found.");
+        }
+
+        if (!currentItem.is_available && nextQty > currentQty) {
+          throw new Error("This item is sold out.");
+        }
+
+        if (nextQty === 0) {
+          setCartQtyByItemId((current) => {
+            const next = { ...current };
+            delete next[itemId];
+            return next;
+          });
+          setCartItemSnapshotsById((current) => {
+            const next = { ...current };
+            delete next[itemId];
+            return next;
+          });
+          notifySuccess("Item removed from cart.");
+          return;
+        }
+
+        setCartQtyByItemId((current) => ({
+          ...current,
+          [itemId]: nextQty,
+        }));
+        setCartItemSnapshotsById((current) => ({
+          ...current,
+          [itemId]: currentItem,
+        }));
+        notifySuccess("Cart quantity updated.");
+        return;
+      }
+
       const targetOrderId = await ensureOrder();
       const updatedOrder = await patchOrderItemQty(
         targetOrderId,
@@ -3544,13 +3629,23 @@ export default function App() {
   }
 
   async function clearCart(): Promise<void> {
-    if (!user || orderId === null || cartDetails.length === 0) return;
+    if (cartDetails.length === 0) return;
     if (!window.confirm("Clear all items from cart?")) return;
 
     setActionError("");
     setIsClearingCart(true);
 
     try {
+      if (!user) {
+        setCartQtyByItemId({});
+        setCartItemSnapshotsById({});
+        setCartTotal(0);
+        notifySuccess("Cart cleared.");
+        return;
+      }
+
+      if (orderId === null) return;
+
       for (const detail of cartDetails) {
         const response = await fetch(buildApiUrl(`/api/orders/${orderId}`), {
           method: "PATCH",
@@ -3581,8 +3676,97 @@ export default function App() {
     }
   }
 
+  async function submitGuestOrder(): Promise<void> {
+    if (cartDetails.length === 0) return;
+
+    const guestName = guestCheckoutForm.guestName.trim();
+    const guestPhone = guestCheckoutForm.guestPhone.trim();
+    if (!guestName) {
+      setActionError("Guest name is required.");
+      notifyWarning("Enter a guest name before checkout.");
+      return;
+    }
+    if (!guestPhone) {
+      setActionError("Guest phone is required.");
+      notifyWarning("Enter a guest phone number before checkout.");
+      return;
+    }
+
+    setActionError("");
+    setIsSubmittingOrder(true);
+
+    try {
+      const response = await fetch(buildApiUrl("/api/orders/guest"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guestName,
+          guestPhone,
+          items: cartDetails.map((detail) => ({
+            itemId: detail.itemId,
+            qty: detail.qty,
+            menuItemVersion: detail.item.version,
+          })),
+          fulfillmentType: checkoutForm.fulfillmentType,
+          customerNote: checkoutForm.customerNote.trim() || null,
+          pickupTime: checkoutForm.pickupTime
+            ? new Date(checkoutForm.pickupTime).toISOString()
+            : null,
+          paymentMethod: checkoutForm.paymentMethod,
+          promoCode: checkoutForm.promoCode.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const details = await readApiErrorDetails(response);
+        throw new Error(`Submit guest order failed: ${formatApiErrorDetails(details)}`);
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<Order>;
+      const submittedOrder = payload?.data;
+      if (!submittedOrder) {
+        throw new Error("Submit guest order failed: invalid payload");
+      }
+
+      resetCartState();
+      setCheckoutForm(emptyCheckoutForm);
+      setGuestCheckoutForm(emptyGuestCheckoutForm);
+      setLastGuestOrder(submittedOrder);
+      setStatusMessage(
+        `Guest order submitted. Pickup number: ${formatPickupNumber(
+          submittedOrder.id,
+        )}.`,
+      );
+      notifySuccess(
+        `Guest order submitted. Pickup number: ${formatPickupNumber(
+          submittedOrder.id,
+        )}.`,
+      );
+    } catch (submitError) {
+      const message =
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to submit guest order.";
+      if (isMenuVersionChangedMessage(message)) {
+        await refreshMenuAndCurrentOrderAfterVersionConflict(message);
+        notifyWarning("Menu changed. Please refresh your cart.");
+      } else {
+        setActionError(message);
+        notifyError(getCheckoutErrorToastMessage(message));
+      }
+      console.error(submitError);
+    } finally {
+      setIsSubmittingOrder(false);
+    }
+  }
+
   async function submitOrder(): Promise<void> {
-    if (!user || orderId === null || cartDetails.length === 0) return;
+    if (cartDetails.length === 0) return;
+    if (!user) {
+      await submitGuestOrder();
+      return;
+    }
+    if (orderId === null) return;
 
     setActionError("");
     setIsSubmittingOrder(true);
@@ -5000,11 +5184,9 @@ export default function App() {
                   Menu
                 </button>
               </li>
-              {user ? (
-                <li>
-                  <button onClick={() => setIsCartOpen(true)}>Cart</button>
-                </li>
-              ) : null}
+              <li>
+                <button onClick={() => setIsCartOpen(true)}>Cart</button>
+              </li>
               {user && !canViewAllOrders ? (
                 <li>
                   <button onClick={() => scrollToSection(ordersSectionRef)}>
@@ -5042,14 +5224,12 @@ export default function App() {
             >
               Menu
             </button>
-            {user ? (
-              <button
-                className="btn btn-sm join-item"
-                onClick={() => setIsCartOpen(true)}
-              >
-                Cart
-              </button>
-            ) : null}
+            <button
+              className="btn btn-sm join-item"
+              onClick={() => setIsCartOpen(true)}
+            >
+              Cart
+            </button>
             {user && !canViewAllOrders ? (
               <button
                 className="btn btn-sm join-item"
@@ -5080,12 +5260,8 @@ export default function App() {
             <span className="badge badge-primary">
               {items.length} items / {grouped.categories.length} categories
             </span>
-            {user ? (
-              <>
-                <span className="badge badge-secondary">Cart {cartItemCount}</span>
-                <span className="badge badge-accent">${cartTotal}</span>
-              </>
-            ) : null}
+            <span className="badge badge-secondary">Cart {cartItemCount}</span>
+            <span className="badge badge-accent">${cartSubtotal}</span>
           </div>
           {user ? (
             <div className="dropdown dropdown-end">
@@ -5128,8 +5304,8 @@ export default function App() {
             <div className="card-body">
               <h2 className="card-title">Sign in with Google</h2>
               <p className="text-sm opacity-70">
-                Sign in to create orders, manage your cart, or request staff
-                access.
+                You can order as a guest, or sign in to save order history and
+                request staff access.
               </p>
               {authError ? (
                 <div className="alert alert-error">
@@ -5208,6 +5384,29 @@ export default function App() {
               ) : null}
             </div>
           </div>
+        ) : null}
+
+        {!user && lastGuestOrder ? (
+          <section className="mb-8 rounded-box border border-success/40 bg-success/10 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold">Guest order submitted</h2>
+                <p className="text-2xl font-bold text-success">
+                  Pickup number: {formatPickupNumber(lastGuestOrder.id)}
+                </p>
+                <p className="text-sm opacity-75">
+                  Save this pickup number. Staff may use the phone number ending
+                  in {getPhoneLastFour(lastGuestOrder.guestPhone) || "your record"} to
+                  identify the order.
+                </p>
+              </div>
+              <div className="text-sm">
+                <p>Status: {lastGuestOrder.status}</p>
+                <p>Payment: {lastGuestOrder.paymentMethod} / {lastGuestOrder.paymentStatus}</p>
+                <p>Total: ${lastGuestOrder.total}</p>
+              </div>
+            </div>
+          </section>
         ) : null}
 
         {user ? (
@@ -5648,6 +5847,7 @@ export default function App() {
                         <option value="customer">Customer</option>
                         <option value="walk_in">Walk-in</option>
                         <option value="phone">Phone</option>
+                        <option value="guest">Guest</option>
                       </select>
                     </label>
                     <label className="form-control">
@@ -7188,6 +7388,7 @@ export default function App() {
                       <p>Customer: {analyticsSummary.orderSources.customer}</p>
                       <p>Walk-in: {analyticsSummary.orderSources.walk_in}</p>
                       <p>Phone: {analyticsSummary.orderSources.phone}</p>
+                      <p>Guest: {analyticsSummary.orderSources.guest}</p>
                     </div>
                   </div>
                 </div>
@@ -8885,7 +9086,7 @@ export default function App() {
                             void addToCart(item);
                           }}
                           disabled={
-                            !user || !item.is_available || activeItemId === item.id
+                            !item.is_available || activeItemId === item.id
                           }
                         >
                           {!item.is_available
@@ -9374,7 +9575,7 @@ export default function App() {
         ) : null}
       </main>
 
-      {user && isCartOpen ? (
+      {isCartOpen ? (
         <>
           <button
             className="fixed inset-0 bg-black/35"
@@ -9461,7 +9662,19 @@ export default function App() {
 
             <div className="p-4 border-t border-base-300 space-y-3">
               <div className="rounded-box border border-base-300 bg-base-100 p-3 space-y-3">
-                <h3 className="font-semibold">Checkout details</h3>
+                <h3 className="font-semibold">
+                  {user ? "Checkout details" : "Guest checkout"}
+                </h3>
+                {!user ? (
+                  <div className="rounded-box border border-info/40 bg-info/10 p-2 text-xs">
+                    <p className="font-medium">Guest checkout</p>
+                    <p className="opacity-75">
+                      Enter a name and phone number so staff can identify your
+                      pickup order. Sign in later if you want saved order
+                      history.
+                    </p>
+                  </div>
+                ) : null}
                 <div
                   className={`alert ${
                     busyLevel === "normal" ? "alert-info" : "alert-warning"
@@ -9475,6 +9688,40 @@ export default function App() {
                       : " The kitchen is busy. Please review your pickup time before submitting."}
                   </span>
                 </div>
+                {!user ? (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="form-control">
+                      <span className="label-text mb-1">Guest name</span>
+                      <input
+                        className="input input-bordered input-sm"
+                        value={guestCheckoutForm.guestName}
+                        onChange={(event) =>
+                          setGuestCheckoutForm((current) => ({
+                            ...current,
+                            guestName: event.target.value,
+                          }))
+                        }
+                        maxLength={80}
+                        placeholder="Required"
+                      />
+                    </label>
+                    <label className="form-control">
+                      <span className="label-text mb-1">Phone number</span>
+                      <input
+                        className="input input-bordered input-sm"
+                        value={guestCheckoutForm.guestPhone}
+                        onChange={(event) =>
+                          setGuestCheckoutForm((current) => ({
+                            ...current,
+                            guestPhone: event.target.value,
+                          }))
+                        }
+                        maxLength={30}
+                        placeholder="Required"
+                      />
+                    </label>
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="form-control">
                     <span className="label-text mb-1">Fulfillment</span>
@@ -9568,7 +9815,7 @@ export default function App() {
               </div>
               <div className="flex items-center justify-between text-lg font-bold">
                 <span>Total</span>
-                <span>${cartTotal}</span>
+                <span>${cartSubtotal}</span>
               </div>
               <button
                 className="btn btn-error btn-outline w-full"
@@ -9582,7 +9829,11 @@ export default function App() {
                 onClick={() => void submitOrder()}
                 disabled={cartDetails.length === 0 || isSubmittingOrder}
               >
-                {isSubmittingOrder ? "Submitting..." : "Submit order"}
+                {isSubmittingOrder
+                  ? "Submitting..."
+                  : user
+                    ? "Submit order"
+                    : "Submit guest order"}
               </button>
             </div>
           </aside>

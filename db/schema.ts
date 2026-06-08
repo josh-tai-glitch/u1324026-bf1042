@@ -1,5 +1,6 @@
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgSchema,
@@ -102,34 +103,72 @@ export const menuItemCategoriesTable = appSchema.table(
   }),
 );
 
-export const ordersTable = appSchema.table("orders", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  userId: text("user_id")
-    .references(() => user.id),
-  subtotal: integer("subtotal").notNull().default(0),
-  discountAmount: integer("discount_amount").notNull().default(0),
-  promoCode: text("promo_code"),
-  total: integer("total").notNull().default(0),
-  abTestGroup: text("ab_test_group"),
-  status: text("status").notNull().default("pending"),
-  orderSource: text("order_source").notNull().default("customer"),
-  guestName: text("guest_name"),
-  guestPhone: text("guest_phone"),
-  createdByStaffId: text("created_by_staff_id").references(() => user.id),
-  fulfillmentType: text("fulfillment_type").notNull().default("takeout"),
-  customerNote: text("customer_note"),
-  pickupTime: timestamp("pickup_time", { withTimezone: true }),
-  paymentMethod: text("payment_method").notNull().default("cash"),
-  paymentStatus: text("payment_status").notNull().default("unpaid"),
-  issueType: text("issue_type"),
-  issueNote: text("issue_note"),
-  issueReportedBy: text("issue_reported_by").references(() => user.id),
-  issueReportedAt: timestamp("issue_reported_at", { withTimezone: true }),
-  rating: integer("rating"),
-  ratingComment: text("rating_comment"),
-  ratedAt: timestamp("rated_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
-  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+export const ordersTable = appSchema.table(
+  "orders",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    userId: text("user_id").references(() => user.id),
+    subtotal: integer("subtotal").notNull().default(0),
+    discountAmount: integer("discount_amount").notNull().default(0),
+    promoCode: text("promo_code"),
+    total: integer("total").notNull().default(0),
+    abTestGroup: text("ab_test_group"),
+    status: text("status").notNull().default("pending"),
+    orderSource: text("order_source").notNull().default("customer"),
+    guestName: text("guest_name"),
+    guestPhone: text("guest_phone"),
+    createdByStaffId: text("created_by_staff_id").references(() => user.id),
+    isGroupOrder: boolean("is_group_order").notNull().default(false),
+    groupName: text("group_name"),
+    contactName: text("contact_name"),
+    contactPhone: text("contact_phone"),
+    fulfillmentType: text("fulfillment_type").notNull().default("takeout"),
+    customerNote: text("customer_note"),
+    pickupTime: timestamp("pickup_time", { withTimezone: true }),
+    paymentMethod: text("payment_method").notNull().default("cash"),
+    paymentStatus: text("payment_status").notNull().default("unpaid"),
+    issueType: text("issue_type"),
+    issueNote: text("issue_note"),
+    issueReportedBy: text("issue_reported_by").references(() => user.id),
+    issueReportedAt: timestamp("issue_reported_at", { withTimezone: true }),
+    rating: integer("rating"),
+    ratingComment: text("rating_comment"),
+    ratedAt: timestamp("rated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    isGroupOrderIdx: index("orders_is_group_order_idx").on(table.isGroupOrder),
+  }),
+);
+
+export const menuBundlesTable = appSchema.table(
+  "menu_bundles",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    price: integer("price").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    displayOrder: integer("display_order").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    isActiveIdx: index("menu_bundles_is_active_idx").on(table.isActive),
+  }),
+);
+
+export const menuBundleItemsTable = appSchema.table("menu_bundle_items", {
+  id: serial("id").primaryKey(),
+  bundleId: integer("bundle_id")
+    .notNull()
+    .references(() => menuBundlesTable.id, { onDelete: "cascade" }),
+  menuItemId: integer("menu_item_id")
+    .notNull()
+    .references(() => menuItemsTable.id),
+  qty: integer("qty").notNull().default(1),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const roleRequests = appSchema.table("role_requests", {
@@ -180,11 +219,15 @@ export const orderItemsTable = appSchema.table(
     description: text("description").notNull(),
     imageUrl: text("image_url").notNull(),
     qty: integer("qty").notNull(),
+    memberName: text("member_name"),
+    bundleId: integer("bundle_id"),
+    bundleName: text("bundle_name"),
   },
   (table) => ({
     orderItemUniqueIdx: uniqueIndex("order_items_order_item_idx").on(
       table.orderId,
       table.itemId,
     ),
+    bundleIdIdx: index("order_items_bundle_id_idx").on(table.bundleId),
   }),
 );

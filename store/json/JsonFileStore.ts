@@ -13,6 +13,7 @@ import type {
   CategorySales,
   DiscountType,
   FulfillmentType,
+  MenuBundle,
   MenuItem,
   Order,
   OrderIssueType,
@@ -57,6 +58,7 @@ interface DataStore {
   menu: MenuItem[];
   categories?: Category[];
   promotions?: Promotion[];
+  menuBundles?: MenuBundle[];
   orders: Order[];
   auditLogs?: AuditLog[];
   userIdCounter: number;
@@ -359,6 +361,7 @@ export class JsonFileStore implements Store {
   private menu: MenuItem[] = [];
   private categories: Category[] = [];
   private promotions: Promotion[] = [];
+  private menuBundles: MenuBundle[] = [];
   private orders: Order[] = [];
   private auditLogs: AuditLog[] = [];
   private userIdCounter = 0;
@@ -404,6 +407,17 @@ export class JsonFileStore implements Store {
           ? parsed.promotions.map((promotion) => normalizePromotion(promotion))
           : [],
         menu: parsed.menu.map((item) => normalizeMenuItem(item)),
+        menuBundles: Array.isArray(parsed.menuBundles)
+          ? parsed.menuBundles.map((bundle) => ({
+              ...bundle,
+              description: bundle.description ?? "",
+              isActive: bundle.isActive ?? true,
+              displayOrder: bundle.displayOrder ?? 0,
+              items: Array.isArray(bundle.items) ? bundle.items : [],
+              createdAt: bundle.createdAt ?? new Date().toISOString(),
+              updatedAt: bundle.updatedAt ?? new Date().toISOString(),
+            }))
+          : [],
         orders: parsed.orders.map((order) => ({
           ...order,
           userId:
@@ -430,6 +444,9 @@ export class JsonFileStore implements Store {
             ab_test_group: toAbTestGroup(
               orderItem.ab_test_group ?? orderItem.item.ab_test_group,
             ),
+            memberName: orderItem.memberName ?? null,
+            bundleId: orderItem.bundleId ?? null,
+            bundleName: orderItem.bundleName ?? null,
           })),
           subtotal:
             typeof order.subtotal === "number" && order.subtotal > 0
@@ -454,6 +471,10 @@ export class JsonFileStore implements Store {
           guestName: order.guestName ?? null,
           guestPhone: order.guestPhone ?? null,
           createdByStaffId: order.createdByStaffId ?? null,
+          isGroupOrder: order.isGroupOrder ?? false,
+          groupName: order.groupName ?? null,
+          contactName: order.contactName ?? null,
+          contactPhone: order.contactPhone ?? null,
           fulfillmentType: toFulfillmentType(order.fulfillmentType),
           customerNote: order.customerNote ?? null,
           pickupTime: order.pickupTime ?? null,
@@ -509,6 +530,93 @@ export class JsonFileStore implements Store {
     return this.promotions.filter((promotion) =>
       status === "active" ? promotion.isActive : !promotion.isActive,
     );
+  }
+
+  getMenuBundles(): ReadonlyArray<MenuBundle> {
+    return this.menuBundles.map((bundle) => this.expandMenuBundle(bundle));
+  }
+
+  getActiveMenuBundles(): ReadonlyArray<MenuBundle> {
+    return this.getMenuBundles().filter((bundle) => bundle.isActive);
+  }
+
+  async createMenuBundle(input: {
+    name: string;
+    description?: string;
+    price: number;
+    displayOrder?: number;
+    isActive?: boolean;
+    items: Array<{ menuItemId: number; qty: number }>;
+  }): Promise<MenuBundle> {
+    const now = new Date().toISOString();
+    const bundle: MenuBundle = {
+      id: this.nextMenuBundleId(),
+      name: input.name.trim(),
+      description: input.description?.trim() ?? "",
+      price: input.price,
+      isActive: input.isActive ?? true,
+      displayOrder: input.displayOrder ?? 0,
+      items: input.items.map((item, index) => ({
+        id: index + 1,
+        bundleId: 0,
+        menuItemId: item.menuItemId,
+        qty: item.qty,
+      })),
+      createdAt: now,
+      updatedAt: now,
+    };
+    bundle.items = bundle.items.map((item, index) => ({
+      ...item,
+      id: index + 1,
+      bundleId: bundle.id,
+    }));
+    this.menuBundles.push(bundle);
+    await this.persist();
+    return this.expandMenuBundle(bundle);
+  }
+
+  async updateMenuBundle(
+    bundleId: number,
+    patch: {
+      name?: string;
+      description?: string;
+      price?: number;
+      displayOrder?: number;
+      isActive?: boolean;
+      items?: Array<{ menuItemId: number; qty: number }>;
+    },
+  ): Promise<MenuBundle | null> {
+    const index = this.menuBundles.findIndex((bundle) => bundle.id === bundleId);
+    if (index === -1) return null;
+    const current = this.menuBundles[index];
+    if (!current) return null;
+    const updated: MenuBundle = {
+      ...current,
+      name: patch.name?.trim() ?? current.name,
+      description:
+        patch.description !== undefined
+          ? patch.description.trim()
+          : current.description,
+      price: patch.price ?? current.price,
+      displayOrder: patch.displayOrder ?? current.displayOrder,
+      isActive: patch.isActive ?? current.isActive,
+      items: patch.items
+        ? patch.items.map((item, itemIndex) => ({
+            id: itemIndex + 1,
+            bundleId,
+            menuItemId: item.menuItemId,
+            qty: item.qty,
+          }))
+        : current.items,
+      updatedAt: new Date().toISOString(),
+    };
+    this.menuBundles[index] = updated;
+    await this.persist();
+    return this.expandMenuBundle(updated);
+  }
+
+  async deleteMenuBundle(bundleId: number): Promise<MenuBundle | null> {
+    return this.updateMenuBundle(bundleId, { isActive: false });
   }
 
   async createPromotion(input: {
@@ -943,6 +1051,10 @@ export class JsonFileStore implements Store {
       guestName: null,
       guestPhone: null,
       createdByStaffId: null,
+      isGroupOrder: false,
+      groupName: null,
+      contactName: null,
+      contactPhone: null,
       fulfillmentType: "takeout",
       customerNote: null,
       pickupTime: null,
@@ -969,7 +1081,14 @@ export class JsonFileStore implements Store {
     orderSource?: "walk_in" | "phone";
     guestName?: string | null;
     guestPhone?: string | null;
-    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+    items: Array<{
+      itemId: number;
+      qty: number;
+      menuItemVersion?: number;
+      memberName?: string | null;
+      bundleId?: number | null;
+      bundleName?: string | null;
+    }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;
     pickupTime?: string | null;
@@ -977,6 +1096,10 @@ export class JsonFileStore implements Store {
     paymentStatus?: PaymentStatus;
     promoCode?: string | null;
     abTestGroup?: AbTestGroup;
+    isGroupOrder?: boolean;
+    groupName?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
   }): Promise<
     | { ok: true; order: Order }
     | {
@@ -1029,6 +1152,9 @@ export class JsonFileStore implements Store {
         menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
         ab_test_group: menuItem.ab_test_group,
+        memberName: requestedItem.memberName?.trim() || null,
+        bundleId: requestedItem.bundleId ?? null,
+        bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
 
@@ -1056,6 +1182,10 @@ export class JsonFileStore implements Store {
       guestName: input.guestName?.trim() || null,
       guestPhone,
       createdByStaffId: input.staffUserId,
+      isGroupOrder: input.isGroupOrder ?? false,
+      groupName: input.groupName?.trim() || null,
+      contactName: input.contactName?.trim() || null,
+      contactPhone: input.contactPhone?.trim() || null,
       fulfillmentType: input.fulfillmentType,
       customerNote: input.customerNote?.trim() || null,
       pickupTime: input.pickupTime || null,
@@ -1080,12 +1210,23 @@ export class JsonFileStore implements Store {
   async createGuestOrder(input: {
     guestName: string;
     guestPhone: string;
-    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+    items: Array<{
+      itemId: number;
+      qty: number;
+      menuItemVersion?: number;
+      memberName?: string | null;
+      bundleId?: number | null;
+      bundleName?: string | null;
+    }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;
     pickupTime?: string | null;
     paymentMethod: PaymentMethod;
     promoCode?: string | null;
+    isGroupOrder?: boolean;
+    groupName?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
   }): Promise<
     | { ok: true; order: Order }
     | {
@@ -1138,6 +1279,9 @@ export class JsonFileStore implements Store {
         menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
         ab_test_group: menuItem.ab_test_group,
+        memberName: requestedItem.memberName?.trim() || null,
+        bundleId: requestedItem.bundleId ?? null,
+        bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
 
@@ -1163,6 +1307,10 @@ export class JsonFileStore implements Store {
       guestName: input.guestName.trim(),
       guestPhone: input.guestPhone.trim(),
       createdByStaffId: null,
+      isGroupOrder: input.isGroupOrder ?? false,
+      groupName: input.groupName?.trim() || null,
+      contactName: input.contactName?.trim() || null,
+      contactPhone: input.contactPhone?.trim() || null,
       fulfillmentType: input.fulfillmentType,
       customerNote: input.customerNote?.trim() || null,
       pickupTime: input.pickupTime || null,
@@ -1275,6 +1423,9 @@ export class JsonFileStore implements Store {
         menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
         ab_test_group: menuItem.ab_test_group,
+        memberName: null,
+        bundleId: null,
+        bundleName: null,
       });
     }
 
@@ -1319,6 +1470,16 @@ export class JsonFileStore implements Store {
       paymentStatus?: PaymentStatus;
       promoCode?: string | null;
       abTestGroup?: AbTestGroup;
+      isGroupOrder?: boolean;
+      groupName?: string | null;
+      contactName?: string | null;
+      contactPhone?: string | null;
+      itemCustomizations?: Array<{
+        itemId: number;
+        memberName?: string | null;
+        bundleId?: number | null;
+        bundleName?: string | null;
+      }>;
     },
   ): Promise<
     | { ok: true; order: Order }
@@ -1371,6 +1532,20 @@ export class JsonFileStore implements Store {
     );
     if (!discount.ok) return { ok: false, code: discount.code };
     const { discountAmount, promoCode, total } = discount.preview;
+    const customizationsByItemId = new Map(
+      (input.itemCustomizations ?? []).map((customization) => [
+        customization.itemId,
+        customization,
+      ]),
+    );
+
+    for (const orderItem of order.items) {
+      const customization = customizationsByItemId.get(orderItem.item.id);
+      if (!customization) continue;
+      orderItem.memberName = customization.memberName?.trim() || null;
+      orderItem.bundleId = customization.bundleId ?? null;
+      orderItem.bundleName = customization.bundleName?.trim() || null;
+    }
 
     order.status = "submitted";
     order.subtotal = subtotal;
@@ -1384,6 +1559,10 @@ export class JsonFileStore implements Store {
     order.pickupTime = input.pickupTime || null;
     order.paymentMethod = input.paymentMethod;
     order.paymentStatus = input.paymentStatus ?? "unpaid";
+    order.isGroupOrder = input.isGroupOrder ?? false;
+    order.groupName = input.groupName?.trim() || null;
+    order.contactName = input.contactName?.trim() || null;
+    order.contactPhone = input.contactPhone?.trim() || null;
     await this.persist();
 
     return { ok: true, order };
@@ -1841,6 +2020,10 @@ export class JsonFileStore implements Store {
         cancelled: 0,
       },
       orderSources: { customer: 0, walk_in: 0, phone: 0, guest: 0 },
+      groupOrders: 0,
+      groupRevenue: 0,
+      bundleOrders: 0,
+      bundleRevenue: 0,
     };
 
     for (const order of formalOrders) {
@@ -1850,6 +2033,19 @@ export class JsonFileStore implements Store {
         summary.orderStatuses[order.status] += 1;
       }
       summary.orderSources[order.orderSource] += 1;
+      if (revenueOrderStatuses.includes(order.status) && order.isGroupOrder) {
+        summary.groupOrders += 1;
+        summary.groupRevenue += order.total;
+      }
+      const bundleRevenue = order.items.reduce(
+        (sum, item) =>
+          item.bundleId ? sum + item.item.price * item.qty : sum,
+        0,
+      );
+      if (bundleRevenue > 0 && revenueOrderStatuses.includes(order.status)) {
+        summary.bundleOrders += 1;
+        summary.bundleRevenue += bundleRevenue;
+      }
     }
 
     return summary;
@@ -2259,11 +2455,34 @@ export class JsonFileStore implements Store {
     }).length;
   }
 
+  private nextMenuBundleId(): number {
+    return this.menuBundles.reduce(
+      (max, bundle) => Math.max(max, bundle.id),
+      0,
+    ) + 1;
+  }
+
+  private expandMenuBundle(bundle: MenuBundle): MenuBundle {
+    const currentMenuById = new Map(
+      this.menu
+        .filter((item) => item.is_current_version)
+        .map((item) => [item.id, item]),
+    );
+    return {
+      ...bundle,
+      items: bundle.items.map((item) => ({
+        ...item,
+        item: currentMenuById.get(item.menuItemId),
+      })),
+    };
+  }
+
   private createInitialStore(): DataStore {
     return {
       users: cloneDefaultUsers(),
       categories: [],
       promotions: [],
+      menuBundles: [],
       menu: cloneDefaultMenu(),
       orders: [],
       auditLogs: [],
@@ -2278,6 +2497,7 @@ export class JsonFileStore implements Store {
     this.users = store.users;
     this.categories = Array.isArray(store.categories) ? store.categories : [];
     this.promotions = Array.isArray(store.promotions) ? store.promotions : [];
+    this.menuBundles = Array.isArray(store.menuBundles) ? store.menuBundles : [];
     this.menu = store.menu;
     this.orders = store.orders;
     this.auditLogs = Array.isArray(store.auditLogs) ? store.auditLogs : [];
@@ -2314,6 +2534,7 @@ export class JsonFileStore implements Store {
       users: this.users,
       categories: this.categories,
       promotions: this.promotions,
+      menuBundles: this.menuBundles,
       menu: this.menu,
       orders: this.orders,
       auditLogs: this.auditLogs,

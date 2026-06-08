@@ -11,6 +11,7 @@ import type {
   AnalyticsTrends,
   DiscountType,
   FulfillmentType,
+  MenuBundle,
   MenuItem,
   Order,
   OrderIssueType,
@@ -230,6 +231,29 @@ export interface Store {
     promoCode?: string | null;
   }): PromotionDiscountPreview | null;
 
+  getMenuBundles(): ReadonlyArray<MenuBundle>;
+  getActiveMenuBundles(): ReadonlyArray<MenuBundle>;
+  createMenuBundle(input: {
+    name: string;
+    description?: string;
+    price: number;
+    displayOrder?: number;
+    isActive?: boolean;
+    items: Array<{ menuItemId: number; qty: number }>;
+  }): Promise<MenuBundle>;
+  updateMenuBundle(
+    bundleId: number,
+    patch: {
+      name?: string;
+      description?: string;
+      price?: number;
+      displayOrder?: number;
+      isActive?: boolean;
+      items?: Array<{ menuItemId: number; qty: number }>;
+    },
+  ): Promise<MenuBundle | null>;
+  deleteMenuBundle(bundleId: number): Promise<MenuBundle | null>;
+
   // Orders
   getOrders(): ReadonlyArray<Order>;
   getCurrentOrderByUserId(userId: string): Order | undefined;
@@ -241,7 +265,14 @@ export interface Store {
     orderSource?: "walk_in" | "phone";
     guestName?: string | null;
     guestPhone?: string | null;
-    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+    items: Array<{
+      itemId: number;
+      qty: number;
+      menuItemVersion?: number;
+      memberName?: string | null;
+      bundleId?: number | null;
+      bundleName?: string | null;
+    }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;
     pickupTime?: string | null;
@@ -249,6 +280,10 @@ export interface Store {
     paymentStatus?: PaymentStatus;
     promoCode?: string | null;
     abTestGroup?: AbTestGroup;
+    isGroupOrder?: boolean;
+    groupName?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
   }): Promise<
     | { ok: true; order: Order }
     | { ok: false; code: CreateWalkInOrderErrorCode; itemName?: string }
@@ -256,12 +291,23 @@ export interface Store {
   createGuestOrder(input: {
     guestName: string;
     guestPhone: string;
-    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+    items: Array<{
+      itemId: number;
+      qty: number;
+      menuItemVersion?: number;
+      memberName?: string | null;
+      bundleId?: number | null;
+      bundleName?: string | null;
+    }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;
     pickupTime?: string | null;
     paymentMethod: PaymentMethod;
     promoCode?: string | null;
+    isGroupOrder?: boolean;
+    groupName?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
   }): Promise<
     | { ok: true; order: Order }
     | { ok: false; code: CreateGuestOrderErrorCode; itemName?: string }
@@ -293,6 +339,16 @@ export interface Store {
       paymentStatus?: PaymentStatus;
       promoCode?: string | null;
       abTestGroup?: AbTestGroup;
+      isGroupOrder?: boolean;
+      groupName?: string | null;
+      contactName?: string | null;
+      contactPhone?: string | null;
+      itemCustomizations?: Array<{
+        itemId: number;
+        memberName?: string | null;
+        bundleId?: number | null;
+        bundleName?: string | null;
+      }>;
     },
   ): Promise<
     | { ok: true; order: Order }

@@ -14,6 +14,7 @@ import type {
   CategorySales,
   DiscountType,
   FulfillmentType,
+  MenuBundle,
   MenuItem,
   Order,
   OrderIssueType,
@@ -188,6 +189,10 @@ const emptyCheckoutForm = {
   pickupTime: "",
   paymentMethod: "cash" as PaymentMethod,
   promoCode: "",
+  isGroupOrder: false,
+  groupName: "",
+  contactName: "",
+  contactPhone: "",
 };
 const emptyGuestCheckoutForm = {
   guestName: "",
@@ -202,6 +207,17 @@ const emptyWalkInOrderForm = {
   pickupTime: "",
   paymentMethod: "cash" as PaymentMethod,
   promoCode: "",
+  isGroupOrder: false,
+  groupName: "",
+  contactName: "",
+  contactPhone: "",
+};
+const emptyMenuBundleForm = {
+  name: "",
+  description: "",
+  price: "",
+  displayOrder: "0",
+  isActive: true,
 };
 const defaultTastePreferenceChips = [
   "少冰",
@@ -226,7 +242,15 @@ type CategoryForm = typeof emptyCategoryForm;
 type CheckoutForm = typeof emptyCheckoutForm;
 type GuestCheckoutForm = typeof emptyGuestCheckoutForm;
 type WalkInOrderForm = typeof emptyWalkInOrderForm;
-type WalkInOrderItem = { itemId: number; qty: number; menuItemVersion?: number };
+type MenuBundleForm = typeof emptyMenuBundleForm;
+type WalkInOrderItem = {
+  itemId: number;
+  qty: number;
+  menuItemVersion?: number;
+  memberName?: string | null;
+  bundleId?: number | null;
+  bundleName?: string | null;
+};
 type OrderIssueDraft = { issueType: OrderIssueType; issueNote: string };
 type OrderRatingDraft = { rating: string; ratingComment: string };
 type FrequentMenuItem = {
@@ -395,6 +419,22 @@ export default function App() {
   // Menu / category state
   const [items, setItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [menuBundles, setMenuBundles] = useState<MenuBundle[]>([]);
+  const [menuBundleManagementItems, setMenuBundleManagementItems] = useState<
+    MenuBundle[]
+  >([]);
+  const [menuBundleForm, setMenuBundleForm] =
+    useState<MenuBundleForm>(emptyMenuBundleForm);
+  const [editingMenuBundleId, setEditingMenuBundleId] = useState<number | null>(
+    null,
+  );
+  const [menuBundleMessage, setMenuBundleMessage] = useState("");
+  const [menuBundleBusy, setMenuBundleBusy] = useState(false);
+  const [menuBundleSelectedItemId, setMenuBundleSelectedItemId] = useState("");
+  const [menuBundleSelectedQty, setMenuBundleSelectedQty] = useState("1");
+  const [menuBundleDraftItems, setMenuBundleDraftItems] = useState<
+    Array<{ menuItemId: number; qty: number }>
+  >([]);
   const [menuForm, setMenuForm] = useState<MenuForm>(emptyMenuForm);
   const [editingMenuId, setEditingMenuId] = useState<number | null>(null);
   const [menuMessage, setMenuMessage] = useState("");
@@ -457,6 +497,12 @@ export default function App() {
   );
   const [cartItemSnapshotsById, setCartItemSnapshotsById] = useState<
     Record<number, MenuItem>
+  >({});
+  const [cartMemberNameByItemId, setCartMemberNameByItemId] = useState<
+    Record<number, string>
+  >({});
+  const [cartBundleByItemId, setCartBundleByItemId] = useState<
+    Record<number, { bundleId: number; bundleName: string }>
   >({});
   const [cartTotal, setCartTotal] = useState(0);
   const [activeItemId, setActiveItemId] = useState<number | null>(null);
@@ -1709,6 +1755,11 @@ export default function App() {
     if (order.guestPhone) {
       lines.push(`Phone: ${order.guestPhone}`);
     }
+    if (order.isGroupOrder) {
+      lines.push(`Group order: ${order.groupName || "Yes"}`);
+      if (order.contactName) lines.push(`Contact: ${order.contactName}`);
+      if (order.contactPhone) lines.push(`Contact phone: ${order.contactPhone}`);
+    }
 
     lines.push(
       `Status: ${order.status}`,
@@ -1729,10 +1780,11 @@ export default function App() {
 
     lines.push("", "Items:");
     for (const detail of order.items) {
+      const itemLineParts = [`${detail.item.name} x ${detail.qty}`];
+      if (detail.memberName) itemLineParts.push(`member: ${detail.memberName}`);
+      if (detail.bundleName) itemLineParts.push(`bundle: ${detail.bundleName}`);
       lines.push(
-        `${detail.item.name} x ${detail.qty} = $${
-          detail.item.price * detail.qty
-        }`,
+        `${itemLineParts.join(" / ")} = $${detail.item.price * detail.qty}`,
       );
     }
 
@@ -2002,6 +2054,29 @@ export default function App() {
     setPromotions(Array.isArray(payload?.data) ? payload.data : []);
   }, []);
 
+  const loadMenuBundles = useCallback(
+    async (options: { includeInactive?: boolean } = {}) => {
+      const response = await fetch(
+        buildApiUrl(
+          options.includeInactive ? "/api/admin/menu-bundles" : "/api/menu-bundles",
+        ),
+        options.includeInactive ? { credentials: "include" } : undefined,
+      );
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const payload = (await response.json()) as ApiDataResponse<MenuBundle[]>;
+      const bundles = Array.isArray(payload?.data) ? payload.data : [];
+      if (options.includeInactive) {
+        setMenuBundleManagementItems(bundles);
+      } else {
+        setMenuBundles(bundles);
+      }
+    },
+    [],
+  );
+
   function syncCartFromOrder(order: Order) {
     const nextQtyByItemId = order.items.reduce(
       (acc, orderItem) => {
@@ -2021,6 +2096,31 @@ export default function App() {
         {} as Record<number, MenuItem>,
       ),
     );
+    setCartMemberNameByItemId(
+      order.items.reduce(
+        (acc, orderItem) => {
+          if (orderItem.memberName) {
+            acc[orderItem.item.id] = orderItem.memberName;
+          }
+          return acc;
+        },
+        {} as Record<number, string>,
+      ),
+    );
+    setCartBundleByItemId(
+      order.items.reduce(
+        (acc, orderItem) => {
+          if (orderItem.bundleId && orderItem.bundleName) {
+            acc[orderItem.item.id] = {
+              bundleId: orderItem.bundleId,
+              bundleName: orderItem.bundleName,
+            };
+          }
+          return acc;
+        },
+        {} as Record<number, { bundleId: number; bundleName: string }>,
+      ),
+    );
     setCartTotal(order.total);
   }
 
@@ -2028,6 +2128,8 @@ export default function App() {
     setOrderId(null);
     setCartQtyByItemId({});
     setCartItemSnapshotsById({});
+    setCartMemberNameByItemId({});
+    setCartBundleByItemId({});
     setCartTotal(0);
     setIsCartOpen(false);
   }
@@ -2498,7 +2600,7 @@ export default function App() {
 
     async function loadInitialMenu() {
       try {
-        await Promise.all([loadMenu(), loadCategories()]);
+        await Promise.all([loadMenu(), loadCategories(), loadMenuBundles()]);
       } catch (fetchError) {
         if (mounted) {
           setError("Unable to load menu.");
@@ -2518,7 +2620,7 @@ export default function App() {
     return () => {
       mounted = false;
     };
-  }, [loadCategories, loadMenu]);
+  }, [loadCategories, loadMenu, loadMenuBundles]);
 
   useEffect(() => {
     if (!user) {
@@ -2598,6 +2700,20 @@ export default function App() {
       setPromotions([]);
     }
   }, [canManageMenu, managerTab, promotionStatusFilter, loadPromotions]);
+
+  useEffect(() => {
+    if (canManageMenu && managerTab === "menu") {
+      void loadMenuBundles({ includeInactive: true }).catch((bundleError) => {
+        setMenuBundleMessage(
+          bundleError instanceof Error
+            ? bundleError.message
+            : "Unable to load bundles.",
+        );
+      });
+    } else if (!canManageMenu) {
+      setMenuBundleManagementItems([]);
+    }
+  }, [canManageMenu, managerTab, loadMenuBundles]);
 
   useEffect(() => {
     if (!hasManagerTools) return;
@@ -2740,11 +2856,19 @@ export default function App() {
           item,
           currentItem,
           hasPriceChanged,
+          memberName: cartMemberNameByItemId[itemId] ?? "",
+          bundle: cartBundleByItemId[itemId] ?? null,
           subtotal: item.price * qty,
         };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-  }, [cartItemSnapshotsById, cartQtyByItemId, items]);
+  }, [
+    cartBundleByItemId,
+    cartItemSnapshotsById,
+    cartMemberNameByItemId,
+    cartQtyByItemId,
+    items,
+  ]);
 
   const cartSubtotal = useMemo(
     () => cartDetails.reduce((sum, detail) => sum + detail.subtotal, 0),
@@ -3443,6 +3567,16 @@ export default function App() {
             delete next[itemId];
             return next;
           });
+          setCartMemberNameByItemId((current) => {
+            const next = { ...current };
+            delete next[itemId];
+            return next;
+          });
+          setCartBundleByItemId((current) => {
+            const next = { ...current };
+            delete next[itemId];
+            return next;
+          });
           notifySuccess("Item removed from cart.");
           return;
         }
@@ -3646,6 +3780,8 @@ export default function App() {
       if (!user) {
         setCartQtyByItemId({});
         setCartItemSnapshotsById({});
+        setCartMemberNameByItemId({});
+        setCartBundleByItemId({});
         setCartTotal(0);
         notifySuccess("Cart cleared.");
         return;
@@ -3670,6 +3806,8 @@ export default function App() {
       }
 
       setCartQtyByItemId({});
+      setCartMemberNameByItemId({});
+      setCartBundleByItemId({});
       setCartTotal(0);
       notifySuccess("Cart cleared.");
     } catch (clearError) {
@@ -3713,6 +3851,9 @@ export default function App() {
             itemId: detail.itemId,
             qty: detail.qty,
             menuItemVersion: detail.item.version,
+            memberName: detail.memberName.trim() || null,
+            bundleId: detail.bundle?.bundleId ?? null,
+            bundleName: detail.bundle?.bundleName ?? null,
           })),
           fulfillmentType: checkoutForm.fulfillmentType,
           customerNote: checkoutForm.customerNote.trim() || null,
@@ -3721,6 +3862,10 @@ export default function App() {
             : null,
           paymentMethod: checkoutForm.paymentMethod,
           promoCode: checkoutForm.promoCode.trim() || null,
+          isGroupOrder: checkoutForm.isGroupOrder,
+          groupName: checkoutForm.groupName.trim() || null,
+          contactName: checkoutForm.contactName.trim() || null,
+          contactPhone: checkoutForm.contactPhone.trim() || null,
         }),
       });
 
@@ -3841,6 +3986,16 @@ export default function App() {
             paymentMethod: checkoutForm.paymentMethod,
             paymentStatus: "unpaid",
             promoCode: checkoutForm.promoCode.trim() || null,
+            isGroupOrder: checkoutForm.isGroupOrder,
+            groupName: checkoutForm.groupName.trim() || null,
+            contactName: checkoutForm.contactName.trim() || null,
+            contactPhone: checkoutForm.contactPhone.trim() || null,
+            itemCustomizations: cartDetails.map((detail) => ({
+              itemId: detail.itemId,
+              memberName: detail.memberName.trim() || null,
+              bundleId: detail.bundle?.bundleId ?? null,
+              bundleName: detail.bundle?.bundleName ?? null,
+            })),
           }),
         },
       );
@@ -4249,7 +4404,10 @@ export default function App() {
           item.itemId === itemId ? { ...item, qty: item.qty + qty } : item,
         );
       }
-      return [...currentItems, { itemId, qty, menuItemVersion: selectedItem.version }];
+      return [
+        ...currentItems,
+        { itemId, qty, menuItemVersion: selectedItem.version },
+      ];
     });
     notifyInfo(
       existingItem
@@ -4265,6 +4423,43 @@ export default function App() {
       currentItems.filter((item) => item.itemId !== itemId),
     );
     notifyInfo("Removed item from staff order.");
+  }
+
+  function addWalkInBundle(bundle: MenuBundle) {
+    const availableItems = bundle.items.filter((entry) => entry.item?.is_available);
+    if (availableItems.length === 0) {
+      setStatusMessage("This bundle has no available items.");
+      notifyWarning("This bundle has no available items.");
+      return;
+    }
+
+    setWalkInOrderItems((currentItems) => {
+      const nextItems = [...currentItems];
+      for (const entry of availableItems) {
+        if (!entry.item) continue;
+        const existingIndex = nextItems.findIndex(
+          (item) => item.itemId === entry.menuItemId,
+        );
+        if (existingIndex >= 0) {
+          nextItems[existingIndex] = {
+            ...nextItems[existingIndex],
+            qty: Math.min(99, nextItems[existingIndex].qty + entry.qty),
+            bundleId: bundle.id,
+            bundleName: bundle.name,
+          };
+        } else {
+          nextItems.push({
+            itemId: entry.menuItemId,
+            qty: entry.qty,
+            menuItemVersion: entry.item.version,
+            bundleId: bundle.id,
+            bundleName: bundle.name,
+          });
+        }
+      }
+      return nextItems;
+    });
+    notifyInfo(`Added ${bundle.name} to staff order.`);
   }
 
   async function submitWalkInOrder(): Promise<void> {
@@ -4290,6 +4485,10 @@ export default function App() {
           paymentMethod: walkInOrderForm.paymentMethod,
           paymentStatus: "unpaid",
           promoCode: walkInOrderForm.promoCode.trim() || null,
+          isGroupOrder: walkInOrderForm.isGroupOrder,
+          groupName: walkInOrderForm.groupName.trim() || null,
+          contactName: walkInOrderForm.contactName.trim() || null,
+          contactPhone: walkInOrderForm.contactPhone.trim() || null,
         }),
       });
 
@@ -4626,6 +4825,187 @@ export default function App() {
     } finally {
       setMenuBusy(false);
     }
+  }
+
+  function resetMenuBundleForm() {
+    setEditingMenuBundleId(null);
+    setMenuBundleForm(emptyMenuBundleForm);
+    setMenuBundleDraftItems([]);
+    setMenuBundleSelectedItemId("");
+    setMenuBundleSelectedQty("1");
+  }
+
+  function startEditMenuBundle(bundle: MenuBundle) {
+    setEditingMenuBundleId(bundle.id);
+    setMenuBundleMessage("");
+    setMenuBundleForm({
+      name: bundle.name,
+      description: bundle.description,
+      price: String(bundle.price),
+      displayOrder: String(bundle.displayOrder),
+      isActive: bundle.isActive,
+    });
+    setMenuBundleDraftItems(
+      bundle.items.map((entry) => ({
+        menuItemId: entry.menuItemId,
+        qty: entry.qty,
+      })),
+    );
+  }
+
+  function addMenuBundleDraftItem() {
+    const menuItemId = Number(menuBundleSelectedItemId);
+    const qty = Number(menuBundleSelectedQty);
+    if (!menuItemId || !Number.isInteger(qty) || qty <= 0) {
+      setMenuBundleMessage("Select a menu item and quantity first.");
+      return;
+    }
+
+    setMenuBundleDraftItems((currentItems) => {
+      const existing = currentItems.find((item) => item.menuItemId === menuItemId);
+      if (existing) {
+        return currentItems.map((item) =>
+          item.menuItemId === menuItemId
+            ? { ...item, qty: Math.min(99, item.qty + qty) }
+            : item,
+        );
+      }
+      return [...currentItems, { menuItemId, qty: Math.min(99, qty) }];
+    });
+    setMenuBundleSelectedItemId("");
+    setMenuBundleSelectedQty("1");
+  }
+
+  function removeMenuBundleDraftItem(menuItemId: number) {
+    setMenuBundleDraftItems((currentItems) =>
+      currentItems.filter((item) => item.menuItemId !== menuItemId),
+    );
+  }
+
+  async function submitMenuBundleForm(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageMenu) return;
+    if (menuBundleDraftItems.length === 0) {
+      setMenuBundleMessage("Add at least one menu item to the bundle.");
+      notifyWarning("Add at least one menu item to the bundle.");
+      return;
+    }
+
+    setMenuBundleBusy(true);
+    setMenuBundleMessage("");
+    try {
+      const body = {
+        name: menuBundleForm.name.trim(),
+        description: menuBundleForm.description.trim(),
+        price: Number(menuBundleForm.price),
+        displayOrder: Number(menuBundleForm.displayOrder),
+        isActive: menuBundleForm.isActive,
+        items: menuBundleDraftItems,
+      };
+      const response = await fetch(
+        buildApiUrl(
+          editingMenuBundleId
+            ? `/api/admin/menu-bundles/${editingMenuBundleId}`
+            : "/api/admin/menu-bundles",
+        ),
+        {
+          method: editingMenuBundleId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await Promise.all([
+        loadMenuBundles(),
+        loadMenuBundles({ includeInactive: true }),
+      ]);
+      setMenuBundleMessage(
+        editingMenuBundleId ? "Bundle updated." : "Bundle created.",
+      );
+      notifySuccess(
+        editingMenuBundleId
+          ? `Bundle ${body.name} updated.`
+          : `Bundle ${body.name} created.`,
+      );
+      resetMenuBundleForm();
+    } catch (bundleError) {
+      const message =
+        bundleError instanceof Error ? bundleError.message : "Bundle update failed.";
+      setMenuBundleMessage(message);
+      notifyError(message);
+    } finally {
+      setMenuBundleBusy(false);
+    }
+  }
+
+  async function setMenuBundleActive(bundle: MenuBundle, isActive: boolean) {
+    if (!canManageMenu) return;
+
+    setMenuBundleBusy(true);
+    setMenuBundleMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/admin/menu-bundles/${bundle.id}`),
+        {
+          method: isActive ? "PATCH" : "DELETE",
+          headers: isActive ? { "Content-Type": "application/json" } : undefined,
+          credentials: "include",
+          body: isActive ? JSON.stringify({ isActive: true }) : undefined,
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await Promise.all([
+        loadMenuBundles(),
+        loadMenuBundles({ includeInactive: true }),
+      ]);
+      setMenuBundleMessage(
+        isActive ? "Bundle reactivated." : "Bundle deactivated.",
+      );
+      notifySuccess(
+        isActive
+          ? `Bundle ${bundle.name} reactivated.`
+          : `Bundle ${bundle.name} deactivated.`,
+      );
+    } catch (bundleError) {
+      const message =
+        bundleError instanceof Error
+          ? bundleError.message
+          : "Bundle status update failed.";
+      setMenuBundleMessage(message);
+      notifyError(message);
+    } finally {
+      setMenuBundleBusy(false);
+    }
+  }
+
+  async function addBundleToCart(bundle: MenuBundle): Promise<void> {
+    const availableItems = bundle.items.filter((entry) => entry.item?.is_available);
+    if (availableItems.length === 0) {
+      setActionError("This bundle has no available items.");
+      notifyWarning("This bundle has no available items.");
+      return;
+    }
+
+    for (const entry of availableItems) {
+      if (!entry.item) continue;
+      for (let count = 0; count < entry.qty; count += 1) {
+        await addToCart(entry.item, `Added ${bundle.name} to cart.`);
+      }
+      setCartBundleByItemId((current) => ({
+        ...current,
+        [entry.menuItemId]: { bundleId: bundle.id, bundleName: bundle.name },
+      }));
+    }
+    setIsCartOpen(true);
   }
 
   function updateCategoryForm(field: keyof CategoryForm, value: string | boolean) {
@@ -5530,6 +5910,11 @@ export default function App() {
                           : "ASAP"}
                       </p>
                       <p>Total: ${guestLookupOrder.total}</p>
+                      {guestLookupOrder.isGroupOrder ? (
+                        <p>
+                          Group: {guestLookupOrder.groupName || "Group order"}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="mt-3 rounded-box bg-base-100 p-2">
                       <p className="mb-1 font-semibold">Items</p>
@@ -5541,6 +5926,12 @@ export default function App() {
                           >
                             <span>
                               {detail.item.name} x {detail.qty}
+                              {detail.memberName
+                                ? ` / ${detail.memberName}`
+                                : ""}
+                              {detail.bundleName
+                                ? ` / Bundle: ${detail.bundleName}`
+                                : ""}
                             </span>
                             <span>${detail.item.price * detail.qty}</span>
                           </li>
@@ -5935,6 +6326,62 @@ export default function App() {
                         )}
                       </div>
                     </div>
+                    <div className="mt-3 rounded-box border border-base-300 bg-base-100 p-3">
+                      <label className="label cursor-pointer justify-start gap-2 p-0">
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-sm"
+                          checked={walkInOrderForm.isGroupOrder}
+                          onChange={(event) =>
+                            setWalkInOrderForm((current) => ({
+                              ...current,
+                              isGroupOrder: event.target.checked,
+                            }))
+                          }
+                        />
+                        <span className="label-text">Group order</span>
+                      </label>
+                      {walkInOrderForm.isGroupOrder ? (
+                        <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
+                          <input
+                            className="input input-bordered input-sm"
+                            placeholder="Group name"
+                            maxLength={80}
+                            value={walkInOrderForm.groupName}
+                            onChange={(event) =>
+                              setWalkInOrderForm((current) => ({
+                                ...current,
+                                groupName: event.target.value,
+                              }))
+                            }
+                          />
+                          <input
+                            className="input input-bordered input-sm"
+                            placeholder="Contact name"
+                            maxLength={80}
+                            value={walkInOrderForm.contactName}
+                            onChange={(event) =>
+                              setWalkInOrderForm((current) => ({
+                                ...current,
+                                contactName: event.target.value,
+                              }))
+                            }
+                          />
+                          <input
+                            className="input input-bordered input-sm"
+                            placeholder="Contact phone"
+                            maxLength={30}
+                            value={walkInOrderForm.contactPhone}
+                            onChange={(event) =>
+                              setWalkInOrderForm((current) => ({
+                                ...current,
+                                contactPhone: event.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      ) : null}
+                    </div>
                     <textarea
                       className="textarea textarea-bordered mt-3 min-h-20 w-full"
                       placeholder="Guest note"
@@ -5984,13 +6431,55 @@ export default function App() {
                         Add item
                       </button>
                     </div>
+                    {menuBundles.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {menuBundles.map((bundle) => (
+                          <button
+                            key={bundle.id}
+                            className="btn btn-xs btn-outline"
+                            type="button"
+                            onClick={() => addWalkInBundle(bundle)}
+                          >
+                            Add combo: {bundle.name}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                     {walkInOrderDetails.length > 0 ? (
                       <div className="mt-3 overflow-x-auto">
                         <table className="table table-sm">
                           <tbody>
                             {walkInOrderDetails.map((detail) => (
                               <tr key={detail.itemId}>
-                                <td>{detail.item.name}</td>
+                                <td>
+                                  <div>{detail.item.name}</div>
+                                  {detail.bundleName ? (
+                                    <span className="badge badge-secondary badge-xs">
+                                      Bundle: {detail.bundleName}
+                                    </span>
+                                  ) : null}
+                                  {walkInOrderForm.isGroupOrder ? (
+                                    <input
+                                      className="input input-bordered input-xs mt-1 w-full"
+                                      placeholder="Member name"
+                                      maxLength={80}
+                                      value={detail.memberName ?? ""}
+                                      onChange={(event) => {
+                                        setWalkInOrderItems((currentItems) =>
+                                          currentItems.map((item) =>
+                                            item.itemId === detail.itemId
+                                              ? {
+                                                  ...item,
+                                                  memberName:
+                                                    event.target.value,
+                                                }
+                                              : item,
+                                          ),
+                                        );
+                                      }}
+                                    />
+                                  ) : null}
+                                </td>
                                 <td>x {detail.qty}</td>
                                 <td>${detail.subtotal}</td>
                                 <td className="text-right">
@@ -6343,6 +6832,11 @@ export default function App() {
                                 <span>
                                   Source: {formatOrderSource(order.orderSource)}
                                 </span>
+                                {order.isGroupOrder ? (
+                                  <span>
+                                    Group: {order.groupName || "Group order"}
+                                  </span>
+                                ) : null}
                                 <span>Payment: {order.paymentStatus}</span>
                                 {order.pickupTime ? (
                                   <span>
@@ -6564,6 +7058,12 @@ export default function App() {
                                           key={`${order.id}-${detail.item.id}`}
                                         >
                                           {detail.item.name} x {detail.qty}
+                                          {detail.memberName
+                                            ? ` / ${detail.memberName}`
+                                            : ""}
+                                          {detail.bundleName
+                                            ? ` / Bundle: ${detail.bundleName}`
+                                            : ""}
                                         </li>
                                       ))}
                                       {order.items.length > 3 ? (
@@ -6822,6 +7322,11 @@ export default function App() {
                             <span>
                               Source: {formatOrderSource(order.orderSource)}
                             </span>
+                            {order.isGroupOrder ? (
+                              <span>
+                                Group: {order.groupName || "Group order"}
+                              </span>
+                            ) : null}
                             {(order.orderSource === "walk_in" ||
                               order.orderSource === "phone") &&
                             order.guestName ? (
@@ -7025,6 +7530,12 @@ export default function App() {
                             {order.items.map((detail) => (
                               <li key={`${order.id}-${detail.item.id}`}>
                                 {detail.item.name} x {detail.qty}
+                                {detail.memberName
+                                  ? ` / ${detail.memberName}`
+                                  : ""}
+                                {detail.bundleName
+                                  ? ` / Bundle: ${detail.bundleName}`
+                                  : ""}
                               </li>
                             ))}
                           </ul>
@@ -7591,6 +8102,24 @@ export default function App() {
                       <div className="stat-title">Cancelled orders</div>
                       <div className="stat-value text-error">
                         {analyticsSummary.cancellationCount}
+                      </div>
+                    </div>
+                    <div className="stat rounded-box border border-base-300 bg-base-200">
+                      <div className="stat-title">Group orders</div>
+                      <div className="stat-value text-info">
+                        {analyticsSummary.groupOrders}
+                      </div>
+                      <div className="stat-desc">
+                        ${analyticsSummary.groupRevenue} revenue
+                      </div>
+                    </div>
+                    <div className="stat rounded-box border border-base-300 bg-base-200">
+                      <div className="stat-title">Bundle orders</div>
+                      <div className="stat-value text-secondary">
+                        {analyticsSummary.bundleOrders}
+                      </div>
+                      <div className="stat-desc">
+                        ${analyticsSummary.bundleRevenue} bundle items
                       </div>
                     </div>
                   </div>
@@ -8489,13 +9018,14 @@ export default function App() {
         ) : null}
 
         {hasManagerTools && managerTab === "menu" && canManageMenu ? (
-          <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
+          <section className="mb-8 space-y-4">
             <form
-              className="card-body"
+              className="card bg-base-100 shadow-sm border border-base-300"
               onSubmit={(event) => {
                 void submitMenuForm(event);
               }}
             >
+            <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="card-title">Menu item editor</h2>
@@ -8609,6 +9139,255 @@ export default function App() {
                     ? "Save changes"
                     : "Add item"}
               </button>
+              </div>
+            </form>
+            <form
+              className="card bg-base-100 shadow-sm border border-base-300"
+              onSubmit={(event) => {
+                void submitMenuBundleForm(event);
+              }}
+            >
+              <div className="card-body">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="card-title">Bundle editor</h2>
+                    <p className="text-sm opacity-70">
+                      Create combo bundles from current menu items. Bundles
+                      expand into item snapshots when ordered.
+                    </p>
+                  </div>
+                  {editingMenuBundleId ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={resetMenuBundleForm}
+                    >
+                      Cancel edit
+                    </button>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                  <input
+                    className="input input-bordered input-sm"
+                    placeholder="Bundle name"
+                    value={menuBundleForm.name}
+                    onChange={(event) =>
+                      setMenuBundleForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                  <input
+                    className="input input-bordered input-sm"
+                    min={0}
+                    step={1}
+                    type="number"
+                    placeholder="Bundle price"
+                    value={menuBundleForm.price}
+                    onChange={(event) =>
+                      setMenuBundleForm((current) => ({
+                        ...current,
+                        price: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                  <input
+                    className="input input-bordered input-sm"
+                    min={0}
+                    step={1}
+                    type="number"
+                    placeholder="Display order"
+                    value={menuBundleForm.displayOrder}
+                    onChange={(event) =>
+                      setMenuBundleForm((current) => ({
+                        ...current,
+                        displayOrder: event.target.value,
+                      }))
+                    }
+                  />
+                  <label className="label cursor-pointer justify-start gap-2 p-0">
+                    <input
+                      type="checkbox"
+                      className="checkbox checkbox-sm"
+                      checked={menuBundleForm.isActive}
+                      onChange={(event) =>
+                        setMenuBundleForm((current) => ({
+                          ...current,
+                          isActive: event.target.checked,
+                        }))
+                      }
+                    />
+                    <span className="label-text">Active</span>
+                  </label>
+                  <input
+                    className="input input-bordered input-sm md:col-span-2 lg:col-span-4"
+                    placeholder="Description"
+                    value={menuBundleForm.description}
+                    onChange={(event) =>
+                      setMenuBundleForm((current) => ({
+                        ...current,
+                        description: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    className="select select-bordered select-sm min-w-52 flex-1"
+                    value={menuBundleSelectedItemId}
+                    onChange={(event) =>
+                      setMenuBundleSelectedItemId(event.target.value)
+                    }
+                  >
+                    <option value="">Select menu item</option>
+                    {items.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} - ${item.price}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="input input-bordered input-sm w-24"
+                    min={1}
+                    max={99}
+                    step={1}
+                    type="number"
+                    value={menuBundleSelectedQty}
+                    onChange={(event) =>
+                      setMenuBundleSelectedQty(event.target.value)
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline"
+                    onClick={addMenuBundleDraftItem}
+                  >
+                    Add item
+                  </button>
+                </div>
+                {menuBundleDraftItems.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="table table-sm">
+                      <tbody>
+                        {menuBundleDraftItems.map((entry) => {
+                          const item = items.find(
+                            (menuItem) => menuItem.id === entry.menuItemId,
+                          );
+                          return (
+                            <tr key={entry.menuItemId}>
+                              <td>{item?.name ?? `Item #${entry.menuItemId}`}</td>
+                              <td>x {entry.qty}</td>
+                              <td className="text-right">
+                                <button
+                                  type="button"
+                                  className="btn btn-xs btn-ghost"
+                                  onClick={() =>
+                                    removeMenuBundleDraftItem(entry.menuItemId)
+                                  }
+                                >
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+                {menuBundleMessage ? (
+                  <div className="alert">
+                    <span>{menuBundleMessage}</span>
+                  </div>
+                ) : null}
+                <button
+                  className="btn btn-sm btn-primary w-fit"
+                  disabled={menuBundleBusy}
+                >
+                  {menuBundleBusy
+                    ? "Saving..."
+                    : editingMenuBundleId
+                      ? "Save bundle"
+                      : "Create bundle"}
+                </button>
+                {menuBundleManagementItems.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="table table-sm">
+                      <thead>
+                        <tr>
+                          <th>Bundle</th>
+                          <th>Items</th>
+                          <th>Price</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {menuBundleManagementItems.map((bundle) => (
+                          <tr key={bundle.id}>
+                            <td>
+                              <div className="font-semibold">{bundle.name}</div>
+                              <div className="text-xs opacity-70">
+                                {bundle.description}
+                              </div>
+                            </td>
+                            <td>
+                              {bundle.items
+                                .map(
+                                  (entry) =>
+                                    `${entry.item?.name ?? `#${entry.menuItemId}`} x ${entry.qty}`,
+                                )
+                                .join(", ")}
+                            </td>
+                            <td>${bundle.price}</td>
+                            <td>
+                              <span
+                                className={`badge ${
+                                  bundle.isActive
+                                    ? "badge-success"
+                                    : "badge-neutral"
+                                }`}
+                              >
+                                {bundle.isActive ? "active" : "inactive"}
+                              </span>
+                            </td>
+                            <td>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  className="btn btn-xs btn-outline"
+                                  disabled={menuBundleBusy}
+                                  onClick={() => startEditMenuBundle(bundle)}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`btn btn-xs btn-outline ${
+                                    bundle.isActive ? "btn-error" : "btn-success"
+                                  }`}
+                                  disabled={menuBundleBusy}
+                                  onClick={() => {
+                                    void setMenuBundleActive(
+                                      bundle,
+                                      !bundle.isActive,
+                                    );
+                                  }}
+                                >
+                                  {bundle.isActive ? "Deactivate" : "Reactivate"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </div>
             </form>
           </section>
         ) : null}
@@ -9175,6 +9954,61 @@ export default function App() {
                   {getBusyLevelMessage(busyLevel)}
                 </p>
               </section>
+              {menuBundles.length > 0 ? (
+                <section className="mb-8 rounded-box border border-base-300 bg-base-100 p-4 shadow-sm">
+                  <div className="mb-3">
+                    <h2 className="text-xl font-bold">Breakfast combos</h2>
+                    <p className="text-sm opacity-70">
+                      Add a bundle and each included menu item is added to your
+                      cart with a bundle label.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {menuBundles.map((bundle) => (
+                      <article
+                        key={bundle.id}
+                        className="rounded-box border border-base-300 bg-base-200 p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-semibold">{bundle.name}</h3>
+                            {bundle.description ? (
+                              <p className="text-sm opacity-70">
+                                {bundle.description}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className="font-bold text-success">
+                            ${bundle.price}
+                          </span>
+                        </div>
+                        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+                          {bundle.items.map((entry) => (
+                            <li key={`${bundle.id}-${entry.menuItemId}`}>
+                              {entry.item?.name ?? `Item #${entry.menuItemId}`} x{" "}
+                              {entry.qty}
+                              {entry.item && !entry.item.is_available
+                                ? " (sold out)"
+                                : ""}
+                            </li>
+                          ))}
+                        </ul>
+                        <button
+                          className="btn btn-sm btn-primary mt-3 w-full"
+                          disabled={
+                            bundle.items.every((entry) => !entry.item?.is_available)
+                          }
+                          onClick={() => {
+                            void addBundleToCart(bundle);
+                          }}
+                        >
+                          Add combo
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
               {user && frequentItems.length > 0 ? (
                 <section className="mb-8 rounded-box border border-base-300 bg-base-100 p-4 shadow-sm">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -9731,6 +10565,12 @@ export default function App() {
                           {order.items.map((detail) => (
                             <li key={`${order.id}-${detail.item.id}`}>
                               {detail.item.name} x {detail.qty}
+                              {detail.memberName
+                                ? ` / ${detail.memberName}`
+                                : ""}
+                              {detail.bundleName
+                                ? ` / Bundle: ${detail.bundleName}`
+                                : ""}
                             </li>
                           ))}
                         </ul>
@@ -9849,6 +10689,11 @@ export default function App() {
                         <p className="text-sm opacity-70">
                           ${detail.item.price} x {detail.qty}
                         </p>
+                        {detail.bundle ? (
+                          <span className="badge badge-secondary badge-sm mt-1">
+                            Bundle: {detail.bundle.bundleName}
+                          </span>
+                        ) : null}
                         {detail.hasPriceChanged && detail.currentItem ? (
                           <div className="mt-1 flex flex-wrap gap-2 text-xs">
                             <span className="badge badge-warning">
@@ -9857,6 +10702,20 @@ export default function App() {
                             <span>Snapshot: ${detail.item.price}</span>
                             <span>Current: ${detail.currentItem.price}</span>
                           </div>
+                        ) : null}
+                        {checkoutForm.isGroupOrder ? (
+                          <input
+                            className="input input-bordered input-xs mt-2 w-full"
+                            placeholder="Member name"
+                            value={detail.memberName}
+                            maxLength={80}
+                            onChange={(event) => {
+                              setCartMemberNameByItemId((current) => ({
+                                ...current,
+                                [detail.itemId]: event.target.value,
+                              }));
+                            }}
+                          />
                         ) : null}
                       </div>
                       <div className="flex flex-col items-end gap-2">
@@ -9926,6 +10785,62 @@ export default function App() {
                       ? ""
                       : " The kitchen is busy. Please review your pickup time before submitting."}
                   </span>
+                </div>
+                <div className="rounded-box border border-base-300 bg-base-200 p-2 text-sm">
+                  <label className="label cursor-pointer justify-start gap-2 p-0">
+                    <input
+                      type="checkbox"
+                      className="checkbox checkbox-sm"
+                      checked={checkoutForm.isGroupOrder}
+                      onChange={(event) =>
+                        setCheckoutForm((current) => ({
+                          ...current,
+                          isGroupOrder: event.target.checked,
+                        }))
+                      }
+                    />
+                    <span className="label-text">Group order</span>
+                  </label>
+                  {checkoutForm.isGroupOrder ? (
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <input
+                        className="input input-bordered input-sm"
+                        placeholder="Group name"
+                        value={checkoutForm.groupName}
+                        maxLength={80}
+                        onChange={(event) =>
+                          setCheckoutForm((current) => ({
+                            ...current,
+                            groupName: event.target.value,
+                          }))
+                        }
+                      />
+                      <input
+                        className="input input-bordered input-sm"
+                        placeholder="Contact name"
+                        value={checkoutForm.contactName}
+                        maxLength={80}
+                        onChange={(event) =>
+                          setCheckoutForm((current) => ({
+                            ...current,
+                            contactName: event.target.value,
+                          }))
+                        }
+                      />
+                      <input
+                        className="input input-bordered input-sm sm:col-span-2"
+                        placeholder="Contact phone"
+                        value={checkoutForm.contactPhone}
+                        maxLength={30}
+                        onChange={(event) =>
+                          setCheckoutForm((current) => ({
+                            ...current,
+                            contactPhone: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  ) : null}
                 </div>
                 {!user ? (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

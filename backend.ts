@@ -21,6 +21,7 @@ import {
   categoryResponseSchema,
   categorySalesListResponseSchema,
   createCategoryBodySchema,
+  createMenuBundleBodySchema,
   createMenuItemBodySchema,
   createPromotionBodySchema,
   createGuestOrderBodySchema,
@@ -42,6 +43,9 @@ import {
   healthResponseSchema,
   menuItemHistoryParamsSchema,
   menuItemHistoryResponseSchema,
+  menuBundleListResponseSchema,
+  menuBundleParamsSchema,
+  menuBundleResponseSchema,
   menuItemResponseSchema,
   menuListResponseSchema,
   nullableOrderResponseEnvelopeSchema,
@@ -66,6 +70,7 @@ import {
   updateCategoryBodySchema,
   updateMenuItemDisplayOrderBodySchema,
   updateMenuItemDisplayOrderParamsSchema,
+  updateMenuBundleBodySchema,
   updateMenuItemBodySchema,
   updateMenuItemParamsSchema,
   updateOrderBodySchema,
@@ -1090,6 +1095,139 @@ app.get("/api/menu", async ({ request }) => {
   },
 });
 
+app.get("/api/menu-bundles", () => ({
+  data: [...store.getActiveMenuBundles()],
+}), {
+  detail: {
+    tags: ["menu"],
+    summary: "List active menu bundles",
+    description: "Return active combo/bundle definitions for ordering.",
+  },
+  response: {
+    200: menuBundleListResponseSchema,
+  },
+});
+
+app.get(
+  "/api/admin/menu-bundles",
+  async ({ request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+    return { data: [...store.getMenuBundles()] };
+  },
+  {
+    detail: {
+      tags: ["menu"],
+      summary: "List all menu bundles",
+      description: "Return active and inactive menu bundles for managers.",
+    },
+    response: {
+      200: menuBundleListResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.post(
+  "/api/admin/menu-bundles",
+  async ({ body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+    const input = body as {
+      name: string;
+      description?: string;
+      price: number;
+      displayOrder?: number;
+      isActive?: boolean;
+      items: Array<{ menuItemId: number; qty: number }>;
+    };
+    const bundle = await store.createMenuBundle(input);
+    set.status = 201;
+    return { data: bundle };
+  },
+  {
+    body: createMenuBundleBodySchema,
+    detail: {
+      tags: ["menu"],
+      summary: "Create menu bundle",
+      description: "Create a combo/bundle from current menu items.",
+    },
+    response: {
+      201: menuBundleResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.patch(
+  "/api/admin/menu-bundles/:id",
+  async ({ params, body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+    const bundle = await store.updateMenuBundle(
+      Number.parseInt(params.id, 10),
+      body as {
+        name?: string;
+        description?: string;
+        price?: number;
+        displayOrder?: number;
+        isActive?: boolean;
+        items?: Array<{ menuItemId: number; qty: number }>;
+      },
+    );
+    if (!bundle) {
+      set.status = 404;
+      return { error: "Menu bundle not found" };
+    }
+    return { data: bundle };
+  },
+  {
+    params: menuBundleParamsSchema,
+    body: updateMenuBundleBodySchema,
+    detail: {
+      tags: ["menu"],
+      summary: "Update menu bundle",
+      description: "Update a combo/bundle definition.",
+    },
+    response: {
+      200: menuBundleResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.delete(
+  "/api/admin/menu-bundles/:id",
+  async ({ params, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+    const bundle = await store.deleteMenuBundle(Number.parseInt(params.id, 10));
+    if (!bundle) {
+      set.status = 404;
+      return { error: "Menu bundle not found" };
+    }
+    return { data: bundle };
+  },
+  {
+    params: menuBundleParamsSchema,
+    detail: {
+      tags: ["menu"],
+      summary: "Deactivate menu bundle",
+      description: "Soft deactivate a combo/bundle.",
+    },
+    response: {
+      200: menuBundleResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
 app.post(
   "/api/menu",
   async ({ body, request, set }) => {
@@ -1567,13 +1705,24 @@ app.post(
       orderSource?: "walk_in" | "phone";
       guestName?: string | null;
       guestPhone?: string | null;
-      items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+      items: Array<{
+        itemId: number;
+        qty: number;
+        menuItemVersion?: number;
+        memberName?: string | null;
+        bundleId?: number | null;
+        bundleName?: string | null;
+      }>;
       fulfillmentType: "dine_in" | "takeout";
       customerNote?: string | null;
       pickupTime?: string | null;
       paymentMethod: "cash" | "card" | "online";
       paymentStatus?: "unpaid" | "paid";
       promoCode?: string | null;
+      isGroupOrder?: boolean;
+      groupName?: string | null;
+      contactName?: string | null;
+      contactPhone?: string | null;
     };
 
     const result = await store.createWalkInOrder({
@@ -1589,6 +1738,10 @@ app.post(
       paymentStatus: input.paymentStatus ?? "unpaid",
       promoCode: input.promoCode ?? null,
       abTestGroup: "control",
+      isGroupOrder: input.isGroupOrder ?? false,
+      groupName: input.groupName ?? null,
+      contactName: input.contactName ?? null,
+      contactPhone: input.contactPhone ?? null,
     });
 
     if (result.ok === false) {
@@ -1673,12 +1826,23 @@ app.post(
     const input = body as {
       guestName: string;
       guestPhone: string;
-      items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+      items: Array<{
+        itemId: number;
+        qty: number;
+        menuItemVersion?: number;
+        memberName?: string | null;
+        bundleId?: number | null;
+        bundleName?: string | null;
+      }>;
       fulfillmentType: "dine_in" | "takeout";
       customerNote?: string | null;
       pickupTime?: string | null;
       paymentMethod: "cash" | "card" | "online";
       promoCode?: string | null;
+      isGroupOrder?: boolean;
+      groupName?: string | null;
+      contactName?: string | null;
+      contactPhone?: string | null;
     };
 
     const result = await store.createGuestOrder({
@@ -1690,6 +1854,10 @@ app.post(
       pickupTime: input.pickupTime ?? null,
       paymentMethod: input.paymentMethod,
       promoCode: input.promoCode ?? null,
+      isGroupOrder: input.isGroupOrder ?? false,
+      groupName: input.groupName ?? null,
+      contactName: input.contactName ?? null,
+      contactPhone: input.contactPhone ?? null,
     });
 
     if (result.ok === false) {
@@ -2310,6 +2478,16 @@ app.post(
       paymentMethod: "cash" | "card" | "online";
       paymentStatus?: "unpaid" | "paid";
       promoCode?: string | null;
+      isGroupOrder?: boolean;
+      groupName?: string | null;
+      contactName?: string | null;
+      contactPhone?: string | null;
+      itemCustomizations?: Array<{
+        itemId: number;
+        memberName?: string | null;
+        bundleId?: number | null;
+        bundleName?: string | null;
+      }>;
     };
     const abTestGroup = menuRepository.resolveAbTestGroupForUserId(user.id);
     const result = await store.submitOrder(orderId, {
@@ -2321,6 +2499,11 @@ app.post(
       paymentStatus: input.paymentStatus ?? "unpaid",
       promoCode: input.promoCode ?? null,
       abTestGroup,
+      isGroupOrder: input.isGroupOrder ?? false,
+      groupName: input.groupName ?? null,
+      contactName: input.contactName ?? null,
+      contactPhone: input.contactPhone ?? null,
+      itemCustomizations: input.itemCustomizations ?? [],
     });
 
     if (result.ok === false) {

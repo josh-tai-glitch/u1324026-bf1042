@@ -13,6 +13,7 @@ import {
   categorySalesSchema,
   discountTypeSchema,
   fulfillmentTypeSchema,
+  menuBundleSchema,
   menuItemSchema,
   orderSchema,
   orderIssueTypeSchema,
@@ -66,6 +67,19 @@ const optionalImageUrlSchema = z
       value.startsWith("https://")
     );
   }, "Image URL must start with /, http://, or https://");
+
+const groupOrderFieldsSchema = {
+  isGroupOrder: z.boolean().optional(),
+  groupName: z.string().trim().max(80).optional().nullable(),
+  contactName: z.string().trim().max(80).optional().nullable(),
+  contactPhone: optionalGuestPhoneSchema,
+};
+
+const orderItemCustomizationSchema = {
+  memberName: z.string().trim().max(80).optional().nullable(),
+  bundleId: z.number().int().min(1).optional().nullable(),
+  bundleName: z.string().trim().max(80).optional().nullable(),
+};
 
 // ─── API Layer Error Response（API 層錯誤格式定義）────────────────────────
 
@@ -159,6 +173,37 @@ export const updateMenuItemBodySchema = z.object({
   changeReason: z.string().trim().min(1).max(500).optional(),
 });
 
+const menuBundleItemsBodySchema = z
+  .array(
+    z.object({
+      menuItemId: z.number().int().min(1),
+      qty: z.number().int().min(1).max(99),
+    }),
+  )
+  .min(1);
+
+export const createMenuBundleBodySchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(300).optional().default(""),
+  price: z.number().int().min(0).max(99999),
+  displayOrder: z.number().int().min(0).max(9999).optional(),
+  isActive: z.boolean().optional(),
+  items: menuBundleItemsBodySchema,
+});
+
+export const updateMenuBundleBodySchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  description: z.string().trim().max(300).optional(),
+  price: z.number().int().min(0).max(99999).optional(),
+  displayOrder: z.number().int().min(0).max(9999).optional(),
+  isActive: z.boolean().optional(),
+  items: menuBundleItemsBodySchema.optional(),
+});
+
+export const menuBundleParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
 /** DELETE /api/menu/:id */
 export const deleteMenuItemParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),
@@ -239,6 +284,15 @@ export const submitOrderBodySchema = z.object({
   paymentMethod: paymentMethodSchema.default("cash"),
   paymentStatus: paymentStatusSchema.optional(),
   promoCode: z.string().trim().max(32).optional().nullable(),
+  ...groupOrderFieldsSchema,
+  itemCustomizations: z
+    .array(
+      z.object({
+        itemId: z.number().int().min(1),
+        ...orderItemCustomizationSchema,
+      }),
+    )
+    .optional(),
 });
 
 export const createWalkInOrderBodySchema = z.object({
@@ -251,6 +305,7 @@ export const createWalkInOrderBodySchema = z.object({
         itemId: z.number().int().min(1),
         qty: z.number().int().min(1).max(99),
         menuItemVersion: z.number().int().min(1).optional(),
+        ...orderItemCustomizationSchema,
       }),
     )
     .min(1),
@@ -260,6 +315,7 @@ export const createWalkInOrderBodySchema = z.object({
   paymentMethod: paymentMethodSchema.default("cash"),
   paymentStatus: paymentStatusSchema.optional(),
   promoCode: z.string().trim().max(32).optional().nullable(),
+  ...groupOrderFieldsSchema,
 });
 
 export const createGuestOrderBodySchema = z.object({
@@ -279,6 +335,7 @@ export const createGuestOrderBodySchema = z.object({
         itemId: z.number().int().min(1),
         qty: z.number().int().min(1).max(99),
         menuItemVersion: z.number().int().min(1).optional(),
+        ...orderItemCustomizationSchema,
       }),
     )
     .min(1),
@@ -287,6 +344,7 @@ export const createGuestOrderBodySchema = z.object({
   pickupTime: optionalIsoDateTimeSchema,
   paymentMethod: paymentMethodSchema.default("cash"),
   promoCode: z.string().trim().max(32).optional().nullable(),
+  ...groupOrderFieldsSchema,
 });
 
 export const guestOrderLookupBodySchema = z.object({
@@ -464,6 +522,14 @@ export const menuItemResponseSchema = z.object({
 
 export const menuItemHistoryResponseSchema = z.object({
   data: z.array(menuItemSchema),
+});
+
+export const menuBundleResponseSchema = z.object({
+  data: menuBundleSchema,
+});
+
+export const menuBundleListResponseSchema = z.object({
+  data: z.array(menuBundleSchema),
 });
 
 export const versionConflictResponseSchema = z.object({

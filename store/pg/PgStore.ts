@@ -13,6 +13,7 @@ import type {
   CategorySales,
   DiscountType,
   FulfillmentType,
+  MenuBundle,
   MenuItem,
   Order,
   OrderIssueType,
@@ -30,6 +31,8 @@ import { db } from "../../db/client.ts";
 import {
   auditLogsTable,
   categoriesTable,
+  menuBundleItemsTable,
+  menuBundlesTable,
   menuItemCategoriesTable,
   menuItemsTable,
   orderItemsTable,
@@ -189,6 +192,7 @@ export class PgStore implements Store {
   private categories: Category[] = [];
   private allCategories: Category[] = [];
   private promotions: Promotion[] = [];
+  private menuBundles: MenuBundle[] = [];
   private orders: Order[] = [];
   private auditLogs: AuditLog[] = [];
 
@@ -232,6 +236,103 @@ export class PgStore implements Store {
     return this.promotions.filter((promotion) =>
       status === "active" ? promotion.isActive : !promotion.isActive,
     );
+  }
+
+  getMenuBundles(): ReadonlyArray<MenuBundle> {
+    return this.menuBundles;
+  }
+
+  getActiveMenuBundles(): ReadonlyArray<MenuBundle> {
+    return this.menuBundles.filter((bundle) => bundle.isActive);
+  }
+
+  async createMenuBundle(input: {
+    name: string;
+    description?: string;
+    price: number;
+    displayOrder?: number;
+    isActive?: boolean;
+    items: Array<{ menuItemId: number; qty: number }>;
+  }): Promise<MenuBundle> {
+    const now = new Date();
+    const [inserted] = await db
+      .insert(menuBundlesTable)
+      .values({
+        name: input.name.trim(),
+        description: input.description?.trim() ?? "",
+        price: input.price,
+        displayOrder: input.displayOrder ?? 0,
+        isActive: input.isActive ?? true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+
+    if (!inserted) throw new Error("Failed to create menu bundle");
+
+    await db.insert(menuBundleItemsTable).values(
+      input.items.map((item) => ({
+        bundleId: inserted.id,
+        menuItemId: item.menuItemId,
+        qty: item.qty,
+      })),
+    );
+
+    await this.reloadFromDatabase();
+    return this.menuBundles.find((bundle) => bundle.id === inserted.id) ?? this.toMenuBundle(inserted, []);
+  }
+
+  async updateMenuBundle(
+    bundleId: number,
+    patch: {
+      name?: string;
+      description?: string;
+      price?: number;
+      displayOrder?: number;
+      isActive?: boolean;
+      items?: Array<{ menuItemId: number; qty: number }>;
+    },
+  ): Promise<MenuBundle | null> {
+    const existing = this.menuBundles.find((bundle) => bundle.id === bundleId);
+    if (!existing) return null;
+
+    const [updated] = await db
+      .update(menuBundlesTable)
+      .set({
+        name: patch.name?.trim() ?? existing.name,
+        description:
+          patch.description !== undefined
+            ? patch.description.trim()
+            : existing.description,
+        price: patch.price ?? existing.price,
+        displayOrder: patch.displayOrder ?? existing.displayOrder,
+        isActive: patch.isActive ?? existing.isActive,
+        updatedAt: new Date(),
+      })
+      .where(eq(menuBundlesTable.id, bundleId))
+      .returning();
+
+    if (!updated) return null;
+
+    if (patch.items) {
+      await db
+        .delete(menuBundleItemsTable)
+        .where(eq(menuBundleItemsTable.bundleId, bundleId));
+      await db.insert(menuBundleItemsTable).values(
+        patch.items.map((item) => ({
+          bundleId,
+          menuItemId: item.menuItemId,
+          qty: item.qty,
+        })),
+      );
+    }
+
+    await this.reloadFromDatabase();
+    return this.menuBundles.find((bundle) => bundle.id === bundleId) ?? null;
+  }
+
+  async deleteMenuBundle(bundleId: number): Promise<MenuBundle | null> {
+    return this.updateMenuBundle(bundleId, { isActive: false });
   }
 
   async createPromotion(input: {
@@ -859,6 +960,10 @@ export class PgStore implements Store {
       guestName: null,
       guestPhone: null,
       createdByStaffId: null,
+      isGroupOrder: false,
+      groupName: null,
+      contactName: null,
+      contactPhone: null,
       fulfillmentType: "takeout",
       customerNote: null,
       pickupTime: null,
@@ -886,7 +991,14 @@ export class PgStore implements Store {
     orderSource?: "walk_in" | "phone";
     guestName?: string | null;
     guestPhone?: string | null;
-    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+    items: Array<{
+      itemId: number;
+      qty: number;
+      menuItemVersion?: number;
+      memberName?: string | null;
+      bundleId?: number | null;
+      bundleName?: string | null;
+    }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;
     pickupTime?: string | null;
@@ -894,6 +1006,10 @@ export class PgStore implements Store {
     paymentStatus?: PaymentStatus;
     promoCode?: string | null;
     abTestGroup?: AbTestGroup;
+    isGroupOrder?: boolean;
+    groupName?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
   }): Promise<
     | { ok: true; order: Order }
     | {
@@ -946,6 +1062,9 @@ export class PgStore implements Store {
         menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
         ab_test_group: menuItem.ab_test_group,
+        memberName: requestedItem.memberName?.trim() || null,
+        bundleId: requestedItem.bundleId ?? null,
+        bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
 
@@ -977,6 +1096,10 @@ export class PgStore implements Store {
         guestName: input.guestName?.trim() || null,
         guestPhone,
         createdByStaffId: input.staffUserId,
+        isGroupOrder: input.isGroupOrder ?? false,
+        groupName: input.groupName?.trim() || null,
+        contactName: input.contactName?.trim() || null,
+        contactPhone: input.contactPhone?.trim() || null,
         fulfillmentType: input.fulfillmentType,
         customerNote: input.customerNote?.trim() || null,
         pickupTime,
@@ -1004,6 +1127,9 @@ export class PgStore implements Store {
         description: orderItem.item.description,
         imageUrl: orderItem.item.image_url,
         qty: orderItem.qty,
+        memberName: orderItem.memberName,
+        bundleId: orderItem.bundleId,
+        bundleName: orderItem.bundleName,
       })),
     );
 
@@ -1021,6 +1147,10 @@ export class PgStore implements Store {
       guestName: input.guestName?.trim() || null,
       guestPhone,
       createdByStaffId: input.staffUserId,
+      isGroupOrder: input.isGroupOrder ?? false,
+      groupName: input.groupName?.trim() || null,
+      contactName: input.contactName?.trim() || null,
+      contactPhone: input.contactPhone?.trim() || null,
       fulfillmentType: input.fulfillmentType,
       customerNote: input.customerNote?.trim() || null,
       pickupTime: pickupTime ? pickupTime.toISOString() : null,
@@ -1044,12 +1174,23 @@ export class PgStore implements Store {
   async createGuestOrder(input: {
     guestName: string;
     guestPhone: string;
-    items: Array<{ itemId: number; qty: number; menuItemVersion?: number }>;
+    items: Array<{
+      itemId: number;
+      qty: number;
+      menuItemVersion?: number;
+      memberName?: string | null;
+      bundleId?: number | null;
+      bundleName?: string | null;
+    }>;
     fulfillmentType: FulfillmentType;
     customerNote?: string | null;
     pickupTime?: string | null;
     paymentMethod: PaymentMethod;
     promoCode?: string | null;
+    isGroupOrder?: boolean;
+    groupName?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
   }): Promise<
     | { ok: true; order: Order }
     | {
@@ -1102,6 +1243,9 @@ export class PgStore implements Store {
         menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
         ab_test_group: menuItem.ab_test_group,
+        memberName: requestedItem.memberName?.trim() || null,
+        bundleId: requestedItem.bundleId ?? null,
+        bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
 
@@ -1130,6 +1274,10 @@ export class PgStore implements Store {
         guestName: input.guestName.trim(),
         guestPhone: input.guestPhone.trim(),
         createdByStaffId: null,
+        isGroupOrder: input.isGroupOrder ?? false,
+        groupName: input.groupName?.trim() || null,
+        contactName: input.contactName?.trim() || null,
+        contactPhone: input.contactPhone?.trim() || null,
         fulfillmentType: input.fulfillmentType,
         customerNote: input.customerNote?.trim() || null,
         pickupTime,
@@ -1157,6 +1305,9 @@ export class PgStore implements Store {
         description: orderItem.item.description,
         imageUrl: orderItem.item.image_url,
         qty: orderItem.qty,
+        memberName: orderItem.memberName,
+        bundleId: orderItem.bundleId,
+        bundleName: orderItem.bundleName,
       })),
     );
 
@@ -1174,6 +1325,10 @@ export class PgStore implements Store {
       guestName: input.guestName.trim(),
       guestPhone: input.guestPhone.trim(),
       createdByStaffId: null,
+      isGroupOrder: input.isGroupOrder ?? false,
+      groupName: input.groupName?.trim() || null,
+      contactName: input.contactName?.trim() || null,
+      contactPhone: input.contactPhone?.trim() || null,
       fulfillmentType: input.fulfillmentType,
       customerNote: input.customerNote?.trim() || null,
       pickupTime: pickupTime ? pickupTime.toISOString() : null,
@@ -1304,6 +1459,9 @@ export class PgStore implements Store {
         menu_item_version_minor: menuItem.version_minor,
         menu_item_group_id: menuItem.menu_item_group_id,
         ab_test_group: menuItem.ab_test_group,
+        memberName: null,
+        bundleId: null,
+        bundleName: null,
       });
     }
 
@@ -1356,6 +1514,16 @@ export class PgStore implements Store {
       paymentStatus?: PaymentStatus;
       promoCode?: string | null;
       abTestGroup?: AbTestGroup;
+      isGroupOrder?: boolean;
+      groupName?: string | null;
+      contactName?: string | null;
+      contactPhone?: string | null;
+      itemCustomizations?: Array<{
+        itemId: number;
+        memberName?: string | null;
+        bundleId?: number | null;
+        bundleName?: string | null;
+      }>;
     },
   ): Promise<
     | { ok: true; order: Order }
@@ -1402,6 +1570,33 @@ export class PgStore implements Store {
     );
     if (!discount.ok) return { ok: false, code: discount.code };
     const { discountAmount, promoCode, total } = discount.preview;
+    const customizationsByItemId = new Map(
+      (input.itemCustomizations ?? []).map((customization) => [
+        customization.itemId,
+        customization,
+      ]),
+    );
+
+    for (const orderItem of order.items) {
+      const customization = customizationsByItemId.get(orderItem.item.id);
+      if (!customization) continue;
+      orderItem.memberName = customization.memberName?.trim() || null;
+      orderItem.bundleId = customization.bundleId ?? null;
+      orderItem.bundleName = customization.bundleName?.trim() || null;
+      await db
+        .update(orderItemsTable)
+        .set({
+          memberName: orderItem.memberName,
+          bundleId: orderItem.bundleId,
+          bundleName: orderItem.bundleName,
+        })
+        .where(
+          and(
+            eq(orderItemsTable.orderId, orderId),
+            eq(orderItemsTable.itemId, orderItem.item.id),
+          ),
+        );
+    }
 
     await db
       .update(ordersTable)
@@ -1418,6 +1613,10 @@ export class PgStore implements Store {
         pickupTime,
         paymentMethod: input.paymentMethod,
         paymentStatus,
+        isGroupOrder: input.isGroupOrder ?? false,
+        groupName: input.groupName?.trim() || null,
+        contactName: input.contactName?.trim() || null,
+        contactPhone: input.contactPhone?.trim() || null,
       })
       .where(eq(ordersTable.id, orderId));
 
@@ -1433,6 +1632,10 @@ export class PgStore implements Store {
     order.pickupTime = pickupTime ? pickupTime.toISOString() : null;
     order.paymentMethod = input.paymentMethod;
     order.paymentStatus = paymentStatus;
+    order.isGroupOrder = input.isGroupOrder ?? false;
+    order.groupName = input.groupName?.trim() || null;
+    order.contactName = input.contactName?.trim() || null;
+    order.contactPhone = input.contactPhone?.trim() || null;
 
     return { ok: true, order };
   }
@@ -1936,6 +2139,10 @@ export class PgStore implements Store {
         cancelled: 0,
       },
       orderSources: { customer: 0, walk_in: 0, phone: 0, guest: 0 },
+      groupOrders: 0,
+      groupRevenue: 0,
+      bundleOrders: 0,
+      bundleRevenue: 0,
     };
 
     for (const order of formalOrders) {
@@ -1945,6 +2152,19 @@ export class PgStore implements Store {
         summary.orderStatuses[order.status] += 1;
       }
       summary.orderSources[order.orderSource] += 1;
+      if (revenueOrderStatuses.includes(order.status) && order.isGroupOrder) {
+        summary.groupOrders += 1;
+        summary.groupRevenue += order.total;
+      }
+      const bundleRevenue = order.items.reduce(
+        (sum, item) =>
+          item.bundleId ? sum + item.item.price * item.qty : sum,
+        0,
+      );
+      if (bundleRevenue > 0 && revenueOrderStatuses.includes(order.status)) {
+        summary.bundleOrders += 1;
+        summary.bundleRevenue += bundleRevenue;
+      }
     }
 
     return summary;
@@ -2412,6 +2632,16 @@ export class PgStore implements Store {
       .from(promotionsTable)
       .orderBy(asc(promotionsTable.code), asc(promotionsTable.id));
 
+    const bundleRows = await db
+      .select()
+      .from(menuBundlesTable)
+      .orderBy(asc(menuBundlesTable.displayOrder), asc(menuBundlesTable.id));
+
+    const bundleItemRows = await db
+      .select()
+      .from(menuBundleItemsTable)
+      .orderBy(asc(menuBundleItemsTable.bundleId), asc(menuBundleItemsTable.id));
+
     const menuCategoryRows = await db
       .select({
         menuItemId: menuItemCategoriesTable.menuItemId,
@@ -2487,6 +2717,27 @@ export class PgStore implements Store {
       ab_test_group: row.abTestGroup === null ? null : toAbTestGroup(row.abTestGroup),
     }));
 
+    const currentMenuById = new Map(
+      this.menu
+        .filter((item) => item.is_current_version)
+        .map((item) => [item.id, item]),
+    );
+    const bundleItemsByBundleId = new Map<number, MenuBundle["items"]>();
+    for (const row of bundleItemRows) {
+      const items = bundleItemsByBundleId.get(row.bundleId) ?? [];
+      items.push({
+        id: row.id,
+        bundleId: row.bundleId,
+        menuItemId: row.menuItemId,
+        qty: row.qty,
+        item: currentMenuById.get(row.menuItemId),
+      });
+      bundleItemsByBundleId.set(row.bundleId, items);
+    }
+    this.menuBundles = bundleRows.map((row) =>
+      this.toMenuBundle(row, bundleItemsByBundleId.get(row.id) ?? []),
+    );
+
     const itemsByOrderId = new Map<number, OrderItem[]>();
     for (const row of orderItemRows) {
       const items = itemsByOrderId.get(row.orderId) ?? [];
@@ -2518,6 +2769,9 @@ export class PgStore implements Store {
         menu_item_version_minor: row.menuItemVersionMinor,
         menu_item_group_id: row.menuItemGroupId,
         ab_test_group: row.abTestGroup === null ? null : toAbTestGroup(row.abTestGroup),
+        memberName: row.memberName ?? null,
+        bundleId: row.bundleId ?? null,
+        bundleName: row.bundleName ?? null,
       });
       itemsByOrderId.set(row.orderId, items);
     }
@@ -2543,6 +2797,10 @@ export class PgStore implements Store {
       guestName: row.guestName ?? null,
       guestPhone: row.guestPhone ?? null,
       createdByStaffId: row.createdByStaffId ?? null,
+      isGroupOrder: row.isGroupOrder ?? false,
+      groupName: row.groupName ?? null,
+      contactName: row.contactName ?? null,
+      contactPhone: row.contactPhone ?? null,
       fulfillmentType:
         row.fulfillmentType === "dine_in" ? "dine_in" : "takeout",
       customerNote: row.customerNote ?? null,
@@ -2624,6 +2882,29 @@ export class PgStore implements Store {
         : null,
       usageLimit: row.usageLimit ?? null,
       isActive: row.isActive,
+      createdAt:
+        row.createdAt instanceof Date
+          ? row.createdAt.toISOString()
+          : new Date(row.createdAt).toISOString(),
+      updatedAt:
+        row.updatedAt instanceof Date
+          ? row.updatedAt.toISOString()
+          : new Date(row.updatedAt).toISOString(),
+    };
+  }
+
+  private toMenuBundle(
+    row: typeof menuBundlesTable.$inferSelect,
+    items: MenuBundle["items"],
+  ): MenuBundle {
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description ?? "",
+      price: row.price,
+      isActive: row.isActive ?? true,
+      displayOrder: row.displayOrder ?? 0,
+      items,
       createdAt:
         row.createdAt instanceof Date
           ? row.createdAt.toISOString()

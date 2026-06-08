@@ -182,6 +182,29 @@ export const orderItemSchema = z.object({
   menu_item_version_minor: z.number().int().min(0).nullable().optional(),
   menu_item_group_id: z.string().nullable(),
   ab_test_group: nullableAbTestGroupSchema.default(null),
+  memberName: z.string().nullable().default(null),
+  bundleId: z.number().int().min(1).nullable().default(null),
+  bundleName: z.string().nullable().default(null),
+});
+
+export const menuBundleItemSchema = z.object({
+  id: z.number().int().min(1).optional(),
+  bundleId: z.number().int().min(1).optional(),
+  menuItemId: z.number().int().min(1),
+  qty: z.number().int().min(1).max(99),
+  item: menuItemSchema.optional(),
+});
+
+export const menuBundleSchema = z.object({
+  id: z.number().int().min(1),
+  name: z.string().min(1),
+  description: z.string().default(""),
+  price: z.number().int().min(0),
+  isActive: z.boolean().default(true),
+  displayOrder: z.number().int().min(0).default(0),
+  items: z.array(menuBundleItemSchema),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
 });
 
 export const orderStatusSchema = z.enum([
@@ -223,6 +246,10 @@ export const orderSchema = z.object({
   guestName: z.string().nullable().default(null),
   guestPhone: z.string().nullable().default(null),
   createdByStaffId: z.string().nullable().default(null),
+  isGroupOrder: z.boolean().default(false),
+  groupName: z.string().nullable().default(null),
+  contactName: z.string().nullable().default(null),
+  contactPhone: z.string().nullable().default(null),
   fulfillmentType: fulfillmentTypeSchema.default("takeout"),
   customerNote: z.string().nullable().default(null),
   pickupTime: z.string().nullable().default(null),
@@ -339,6 +366,10 @@ export const analyticsSummarySchema = z.object({
     phone: z.number().int().min(0),
     guest: z.number().int().min(0),
   }),
+  groupOrders: z.number().int().min(0).default(0),
+  groupRevenue: z.number().min(0).default(0),
+  bundleOrders: z.number().int().min(0).default(0),
+  bundleRevenue: z.number().min(0).default(0),
 });
 
 export const analyticsTrendsSchema = z.object({
@@ -395,6 +426,8 @@ export const analyticsInsightsSchema = z.object({
 // Derived TypeScript Types
 export type MenuItem = z.infer<typeof menuItemSchema>;
 export type MenuItemHistory = z.infer<typeof menuItemHistorySchema>;
+export type MenuBundleItem = z.infer<typeof menuBundleItemSchema>;
+export type MenuBundle = z.infer<typeof menuBundleSchema>;
 export type AbTestGroup = z.infer<typeof abTestGroupSchema>;
 export type DiscountType = z.infer<typeof discountTypeSchema>;
 export type Promotion = z.infer<typeof promotionSchema>;

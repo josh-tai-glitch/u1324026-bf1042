@@ -1125,7 +1125,7 @@ export class JsonFileStore implements Store {
       return { ok: false, code: "EMPTY_ORDER" };
     }
 
-    const orderItems: OrderItem[] = [];
+    let orderItems: OrderItem[] = [];
     for (const requestedItem of requestedItems) {
       const menuItem = this.menu.find((item) => item.id === requestedItem.itemId);
       if (!menuItem) {
@@ -1158,7 +1158,7 @@ export class JsonFileStore implements Store {
         bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
-    applyBundlePricingToOrderItems(orderItems, this.menuBundles);
+    orderItems = applyBundlePricingToOrderItems(orderItems, this.menuBundles);
 
     const subtotal = calculateOrderTotal(orderItems);
     const discount = this.calculateDiscountForPromoCode(
@@ -1253,7 +1253,7 @@ export class JsonFileStore implements Store {
       return { ok: false, code: "EMPTY_ORDER" };
     }
 
-    const orderItems: OrderItem[] = [];
+    let orderItems: OrderItem[] = [];
     for (const requestedItem of requestedItems) {
       const menuItem = this.menu.find((item) => item.id === requestedItem.itemId);
       if (!menuItem) {
@@ -1286,7 +1286,7 @@ export class JsonFileStore implements Store {
         bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
-    applyBundlePricingToOrderItems(orderItems, this.menuBundles);
+    orderItems = applyBundlePricingToOrderItems(orderItems, this.menuBundles);
 
     const subtotal = calculateOrderTotal(orderItems);
     const discount = this.calculateDiscountForPromoCode(
@@ -1542,7 +1542,7 @@ export class JsonFileStore implements Store {
       orderItem.bundleId = customization.bundleId ?? null;
       orderItem.bundleName = customization.bundleName?.trim() || null;
     }
-    applyBundlePricingToOrderItems(order.items, this.menuBundles);
+    order.items = applyBundlePricingToOrderItems(order.items, this.menuBundles);
 
     const subtotal = calculateOrderTotal(order.items);
     const discount = this.calculateDiscountForPromoCode(

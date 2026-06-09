@@ -1035,7 +1035,7 @@ export class PgStore implements Store {
       return { ok: false, code: "EMPTY_ORDER" };
     }
 
-    const orderItems: OrderItem[] = [];
+    let orderItems: OrderItem[] = [];
     for (const requestedItem of requestedItems) {
       const menuItem = this.menu.find((item) => item.id === requestedItem.itemId);
       if (!menuItem) {
@@ -1068,7 +1068,7 @@ export class PgStore implements Store {
         bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
-    applyBundlePricingToOrderItems(orderItems, this.menuBundles);
+    orderItems = applyBundlePricingToOrderItems(orderItems, this.menuBundles);
 
     const now = new Date();
     const submittedAt = now.toISOString();
@@ -1217,7 +1217,7 @@ export class PgStore implements Store {
       return { ok: false, code: "EMPTY_ORDER" };
     }
 
-    const orderItems: OrderItem[] = [];
+    let orderItems: OrderItem[] = [];
     for (const requestedItem of requestedItems) {
       const menuItem = this.menu.find((item) => item.id === requestedItem.itemId);
       if (!menuItem) {
@@ -1250,7 +1250,7 @@ export class PgStore implements Store {
         bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
-    applyBundlePricingToOrderItems(orderItems, this.menuBundles);
+    orderItems = applyBundlePricingToOrderItems(orderItems, this.menuBundles);
 
     const now = new Date();
     const submittedAt = now.toISOString();
@@ -1580,7 +1580,7 @@ export class PgStore implements Store {
       orderItem.bundleId = customization.bundleId ?? null;
       orderItem.bundleName = customization.bundleName?.trim() || null;
     }
-    applyBundlePricingToOrderItems(order.items, this.menuBundles);
+    order.items = applyBundlePricingToOrderItems(order.items, this.menuBundles);
     for (const orderItem of order.items) {
       await db
         .update(orderItemsTable)

@@ -115,6 +115,10 @@ export function applyBundlePricingToOrderItems(
   orderItems: OrderItem[],
   bundles: ReadonlyArray<MenuBundle>,
 ): OrderItem[] {
+  const cloneOrderItem = (orderItem: OrderItem): OrderItem => ({
+    ...orderItem,
+    item: { ...orderItem.item },
+  });
   const itemsByBundleId = new Map<number, OrderItem[]>();
   for (const orderItem of orderItems) {
     if (!orderItem.bundleId) continue;
@@ -122,6 +126,8 @@ export function applyBundlePricingToOrderItems(
     group.push(orderItem);
     itemsByBundleId.set(orderItem.bundleId, group);
   }
+
+  const replacementsByBundleId = new Map<number, OrderItem[]>();
 
   for (const [bundleId, bundledOrderItems] of itemsByBundleId.entries()) {
     const bundle = bundles.find(
@@ -138,54 +144,119 @@ export function applyBundlePricingToOrderItems(
       bundleItemByMenuItemId.has(orderItem.item.id),
     );
     if (!allItemsBelongToBundle) continue;
-    const hasAllRequiredItems = bundle.items.every((bundleItem) => {
-      const matchingOrderItem = bundledOrderItems.find(
-        (orderItem) => orderItem.item.id === bundleItem.menuItemId,
-      );
-      return Boolean(
-        matchingOrderItem && matchingOrderItem.qty >= bundleItem.qty,
-      );
-    });
-    if (!hasAllRequiredItems) continue;
 
-    const originalSubtotal = bundledOrderItems.reduce(
+    const multiplier = Math.min(
+      ...bundle.items.map((bundleItem) => {
+        const matchingOrderItem = bundledOrderItems.find(
+          (orderItem) => orderItem.item.id === bundleItem.menuItemId,
+        );
+        return matchingOrderItem
+          ? Math.floor(matchingOrderItem.qty / bundleItem.qty)
+          : 0;
+      }),
+    );
+    if (!Number.isFinite(multiplier) || multiplier <= 0) continue;
+
+    const bundledRows: OrderItem[] = [];
+    const replacementRows: OrderItem[] = [];
+
+    for (const orderItem of bundledOrderItems) {
+      const bundleItem = bundleItemByMenuItemId.get(orderItem.item.id);
+      if (!bundleItem) continue;
+
+      const bundledQty = bundleItem.qty * multiplier;
+      const extraQty = orderItem.qty - bundledQty;
+      if (bundledQty > 0) {
+        const bundledRow = cloneOrderItem(orderItem);
+        bundledRow.qty = bundledQty;
+        bundledRow.bundleId = bundle.id;
+        bundledRow.bundleName = orderItem.bundleName ?? bundle.name;
+        bundledRows.push(bundledRow);
+        replacementRows.push(bundledRow);
+      }
+
+      if (extraQty > 0) {
+        const extraRow = cloneOrderItem(orderItem);
+        extraRow.qty = extraQty;
+        extraRow.bundleId = null;
+        extraRow.bundleName = null;
+        replacementRows.push(extraRow);
+      }
+    }
+
+    const originalBundleSubtotal = bundledRows.reduce(
       (sum, orderItem) => sum + orderItem.item.price * orderItem.qty,
       0,
     );
-    if (originalSubtotal <= 0) continue;
+    if (originalBundleSubtotal <= 0) continue;
 
-    const allocatedSubtotals = bundledOrderItems.map((orderItem) => ({
+    const targetBundleSubtotal = bundle.price * multiplier;
+    const allocatedRows = bundledRows.map((orderItem) => ({
       orderItem,
       allocatedSubtotal: Math.floor(
-        (bundle.price * orderItem.item.price * orderItem.qty) / originalSubtotal,
+        (targetBundleSubtotal * orderItem.item.price * orderItem.qty) /
+          originalBundleSubtotal,
       ),
     }));
 
-    const allocatedTotal = allocatedSubtotals.reduce(
+    const allocatedTotal = allocatedRows.reduce(
       (sum, entry) => sum + entry.allocatedSubtotal,
       0,
     );
-    const roundingRemainder = bundle.price - allocatedTotal;
-    const lastEntry = allocatedSubtotals[allocatedSubtotals.length - 1];
-    if (lastEntry) {
-      lastEntry.allocatedSubtotal += roundingRemainder;
+    const roundingRemainder = targetBundleSubtotal - allocatedTotal;
+    const lastAllocatedRow = allocatedRows[allocatedRows.length - 1];
+    if (lastAllocatedRow) {
+      lastAllocatedRow.allocatedSubtotal += roundingRemainder;
     }
 
-    for (const entry of allocatedSubtotals) {
+    for (const entry of allocatedRows) {
       if (entry.orderItem.qty <= 0) continue;
-      const allocatedUnitPrice = Math.max(
-        0,
-        Math.round(entry.allocatedSubtotal / entry.orderItem.qty),
-      );
       entry.orderItem.item = {
         ...entry.orderItem.item,
-        price: allocatedUnitPrice,
+        price: Math.max(
+          0,
+          Math.floor(entry.allocatedSubtotal / entry.orderItem.qty),
+        ),
       };
-      entry.orderItem.bundleName = entry.orderItem.bundleName ?? bundle.name;
     }
+
+    const pricedBundleSubtotal = bundledRows.reduce(
+      (sum, orderItem) => sum + orderItem.item.price * orderItem.qty,
+      0,
+    );
+    const pricedDiff = targetBundleSubtotal - pricedBundleSubtotal;
+    const lastBundledRow = bundledRows[bundledRows.length - 1];
+    if (lastBundledRow && lastBundledRow.qty === 1 && pricedDiff !== 0) {
+      lastBundledRow.item = {
+        ...lastBundledRow.item,
+        price: Math.max(0, lastBundledRow.item.price + pricedDiff),
+      };
+    }
+
+    replacementsByBundleId.set(bundleId, replacementRows);
   }
 
-  return orderItems;
+  const emittedBundleIds = new Set<number>();
+  const result: OrderItem[] = [];
+  for (const orderItem of orderItems) {
+    if (!orderItem.bundleId) {
+      result.push(cloneOrderItem(orderItem));
+      continue;
+    }
+
+    const replacementRows = replacementsByBundleId.get(orderItem.bundleId);
+    if (!replacementRows) {
+      result.push(cloneOrderItem(orderItem));
+      continue;
+    }
+
+    if (emittedBundleIds.has(orderItem.bundleId)) continue;
+    result.push(...replacementRows);
+    emittedBundleIds.add(orderItem.bundleId);
+  }
+
+  orderItems.splice(0, orderItems.length, ...result);
+  return result;
 }
 
 export type AppendAuditLogInput = {

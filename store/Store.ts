@@ -138,6 +138,15 @@ export function applyBundlePricingToOrderItems(
       bundleItemByMenuItemId.has(orderItem.item.id),
     );
     if (!allItemsBelongToBundle) continue;
+    const hasAllRequiredItems = bundle.items.every((bundleItem) => {
+      const matchingOrderItem = bundledOrderItems.find(
+        (orderItem) => orderItem.item.id === bundleItem.menuItemId,
+      );
+      return Boolean(
+        matchingOrderItem && matchingOrderItem.qty >= bundleItem.qty,
+      );
+    });
+    if (!hasAllRequiredItems) continue;
 
     const originalSubtotal = bundledOrderItems.reduce(
       (sum, orderItem) => sum + orderItem.item.price * orderItem.qty,

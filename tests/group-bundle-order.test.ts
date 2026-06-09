@@ -273,4 +273,68 @@ describe("group order and bundle contracts", () => {
     expect(subtotal).toBe(28);
     expect(allocatedItems.every((item) => item.item.price < 40)).toBe(true);
   });
+
+  test("bundle price allocation uses bundle price when every required item is tagged", () => {
+    const bundle: MenuBundle = {
+      ...classicBundle,
+      id: 1,
+      price: 30,
+      items: [
+        { menuItemId: 1, qty: 1, item: { ...toastItem, price: 55 } },
+        { menuItemId: 2, qty: 1, item: { ...drinkItem, price: 20 } },
+      ],
+    };
+    const orderItems: OrderItem[] = [
+      {
+        ...buildOrderItem({ ...toastItem, price: 55 }),
+        bundleId: 1,
+        bundleName: bundle.name,
+      },
+      {
+        ...buildOrderItem({ ...drinkItem, price: 20 }),
+        bundleId: 1,
+        bundleName: bundle.name,
+      },
+    ];
+
+    const allocatedItems = applyBundlePricingToOrderItems(orderItems, [bundle]);
+    const subtotal = allocatedItems.reduce(
+      (sum, item) => sum + item.item.price * item.qty,
+      0,
+    );
+
+    expect(subtotal).toBe(30);
+  });
+
+  test("bundle price allocation ignores partial bundle metadata", () => {
+    const bundle: MenuBundle = {
+      ...classicBundle,
+      id: 1,
+      price: 30,
+      items: [
+        { menuItemId: 1, qty: 1, item: { ...toastItem, price: 55 } },
+        { menuItemId: 2, qty: 1, item: { ...drinkItem, price: 20 } },
+      ],
+    };
+    const orderItems: OrderItem[] = [
+      {
+        ...buildOrderItem({ ...toastItem, price: 55 }),
+        bundleId: null,
+        bundleName: null,
+      },
+      {
+        ...buildOrderItem({ ...drinkItem, price: 20 }),
+        bundleId: 1,
+        bundleName: bundle.name,
+      },
+    ];
+
+    const allocatedItems = applyBundlePricingToOrderItems(orderItems, [bundle]);
+    const subtotal = allocatedItems.reduce(
+      (sum, item) => sum + item.item.price * item.qty,
+      0,
+    );
+
+    expect(subtotal).toBe(75);
+  });
 });

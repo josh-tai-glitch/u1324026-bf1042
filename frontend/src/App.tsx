@@ -24,6 +24,7 @@ import type {
   PaymentStatus,
   PriceSensitivityItem,
   Promotion,
+  QueueSummary,
   Role,
   RoleRequest,
   SessionUser,
@@ -218,6 +219,11 @@ const emptyMenuBundleForm = {
   price: "",
   displayOrder: "0",
   isActive: true,
+};
+const defaultQueueSummary: QueueSummary = {
+  kitchenQueue: 0,
+  estimatedWaitMinutes: 5,
+  busyLevel: "normal",
 };
 const defaultTastePreferenceChips = [
   "少冰",
@@ -492,6 +498,8 @@ export default function App() {
   const [orderId, setOrderId] = useState<number | null>(null);
   const [historyOrders, setHistoryOrders] = useState<Order[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [queueSummary, setQueueSummary] =
+    useState<QueueSummary>(defaultQueueSummary);
   const [cartQtyByItemId, setCartQtyByItemId] = useState<Record<number, number>>(
     {},
   );
@@ -943,8 +951,8 @@ export default function App() {
   const activeQueueOrders = historyOrders.filter(isKitchenQueueOrder);
   const kitchenQueueOrders = activeQueueOrders;
   const activeOrders = activeQueueOrders.length;
-  const estimatedWaitMinutes = estimateWaitMinutes(kitchenQueueOrders.length);
-  const busyLevel = getBusyLevel(kitchenQueueOrders.length);
+  const estimatedWaitMinutes = queueSummary.estimatedWaitMinutes;
+  const busyLevel = queueSummary.busyLevel;
   const unpaidOrders = historyOrders.filter(
     (order) =>
       order.paymentStatus === "unpaid" &&
@@ -2077,6 +2085,16 @@ export default function App() {
     [],
   );
 
+  const loadQueueSummary = useCallback(async () => {
+    const response = await fetch(buildApiUrl("/api/orders/queue-summary"));
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+
+    const payload = (await response.json()) as ApiDataResponse<QueueSummary>;
+    setQueueSummary(payload?.data ?? defaultQueueSummary);
+  }, []);
+
   function syncCartFromOrder(order: Order) {
     const nextQtyByItemId = order.items.reduce(
       (acc, orderItem) => {
@@ -2177,6 +2195,7 @@ export default function App() {
 
       const payload = (await response.json()) as ApiDataResponse<Order[]>;
       setHistoryOrders(Array.isArray(payload?.data) ? payload.data : []);
+      await loadQueueSummary();
     } finally {
       setHistoryLoading(false);
     }
@@ -2607,7 +2626,12 @@ export default function App() {
 
     async function loadInitialMenu() {
       try {
-        await Promise.all([loadMenu(), loadCategories(), loadMenuBundles()]);
+        await Promise.all([
+          loadMenu(),
+          loadCategories(),
+          loadMenuBundles(),
+          loadQueueSummary(),
+        ]);
       } catch (fetchError) {
         if (mounted) {
           setError("Unable to load menu.");
@@ -2627,7 +2651,7 @@ export default function App() {
     return () => {
       mounted = false;
     };
-  }, [loadCategories, loadMenu, loadMenuBundles]);
+  }, [loadCategories, loadMenu, loadMenuBundles, loadQueueSummary]);
 
   useEffect(() => {
     if (!user) {
@@ -3979,6 +4003,7 @@ export default function App() {
       setCheckoutForm(emptyCheckoutForm);
       setGuestCheckoutForm(emptyGuestCheckoutForm);
       setLastGuestOrder(submittedOrder);
+      await loadQueueSummary();
       setStatusMessage(
         `Guest order submitted. Pickup number: ${formatPickupNumber(
           submittedOrder.id,
@@ -4183,6 +4208,7 @@ export default function App() {
           updatedOrder.status
         }.`,
       );
+      await loadQueueSummary();
 
       if (canManageMenu) {
         await loadAnalytics();
@@ -4291,6 +4317,7 @@ export default function App() {
           ? `Order ${formatPickupNumber(updatedOrder.id)} voided.`
           : `Order ${formatPickupNumber(updatedOrder.id)} cancelled.`,
       );
+      await loadQueueSummary();
 
       if (canManageMenu) {
         await loadAnalytics();
@@ -5090,20 +5117,30 @@ export default function App() {
       return;
     }
 
+    const nextBundleMapPatch = Object.fromEntries(
+      availableItems.map((entry) => [
+        entry.menuItemId,
+        {
+          bundleId: bundle.id,
+          bundleName: bundle.name,
+          bundlePrice: bundle.price,
+        },
+      ]),
+    ) as Record<
+      number,
+      { bundleId: number; bundleName: string; bundlePrice: number }
+    >;
+
     for (const entry of availableItems) {
       if (!entry.item) continue;
       for (let count = 0; count < entry.qty; count += 1) {
         await addToCart(entry.item, `Added ${bundle.name} to cart.`);
       }
-      setCartBundleByItemId((current) => ({
-        ...current,
-        [entry.menuItemId]: {
-          bundleId: bundle.id,
-          bundleName: bundle.name,
-          bundlePrice: bundle.price,
-        },
-      }));
     }
+    setCartBundleByItemId((current) => ({
+      ...current,
+      ...nextBundleMapPatch,
+    }));
     setIsCartOpen(true);
   }
 
@@ -6297,7 +6334,7 @@ export default function App() {
                   <div className="stat rounded-box border border-base-300 bg-base-200">
                     <div className="stat-title">Kitchen queue</div>
                     <div className="stat-value text-info">
-                      {kitchenQueueOrders.length}
+                      {queueSummary.kitchenQueue}
                     </div>
                   </div>
                   <div className="stat rounded-box border border-base-300 bg-base-200">
@@ -6792,7 +6829,7 @@ export default function App() {
                         <div className="stat rounded-box border border-base-300 bg-base-100">
                           <div className="stat-title">Kitchen queue</div>
                           <div className="stat-value text-info">
-                            {kitchenDisplayOrders.length}
+                            {queueSummary.kitchenQueue}
                           </div>
                         </div>
                         <div className="stat rounded-box border border-base-300 bg-base-100">
@@ -10035,7 +10072,7 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-bold">Current wait estimate</h2>
                     <p className="text-sm opacity-70">
-                      Kitchen queue: {kitchenQueueOrders.length} order(s)
+                      Kitchen queue: {queueSummary.kitchenQueue} order(s)
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -10886,7 +10923,7 @@ export default function App() {
                 >
                   <span>
                     Estimated wait: {estimatedWaitMinutes} minutes. Ahead of
-                    you: {activeQueueOrders.length} active order(s).
+                    you: {queueSummary.kitchenQueue} active order(s).
                     {busyLevel === "normal"
                       ? ""
                       : " The kitchen is busy. Please review your pickup time before submitting."}

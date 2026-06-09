@@ -16,6 +16,7 @@ import {
   menuBundleSchema,
   menuItemSchema,
   orderSchema,
+  queueSummarySchema,
   orderIssueTypeSchema,
   orderStatusSchema,
   paymentMethodSchema,
@@ -605,6 +606,10 @@ export const orderListResponseSchema = z.object({
 
 export const orderResponseEnvelopeSchema = z.object({
   data: orderResponseSchema,
+});
+
+export const queueSummaryResponseSchema = z.object({
+  data: queueSummarySchema,
 });
 
 export const nullableOrderResponseEnvelopeSchema = z.object({

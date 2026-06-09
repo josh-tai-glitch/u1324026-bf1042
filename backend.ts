@@ -51,6 +51,7 @@ import {
   nullableOrderResponseEnvelopeSchema,
   orderListResponseSchema,
   orderResponseEnvelopeSchema,
+  queueSummaryResponseSchema,
   priceSensitivityAnalyticsResponseSchema,
   promotionListResponseSchema,
   promotionParamsSchema,
@@ -1589,6 +1590,37 @@ app.delete(
 );
 
 // Customer orders / cart
+function buildQueueSummary() {
+  const kitchenQueue = store
+    .getOrders()
+    .filter(
+      (order) => order.status === "submitted" || order.status === "preparing",
+    ).length;
+  const estimatedWaitMinutes = Math.min(45, 5 + kitchenQueue * 3);
+  const busyLevel =
+    kitchenQueue >= 6 ? "very_busy" : kitchenQueue >= 3 ? "busy" : "normal";
+
+  return { kitchenQueue, estimatedWaitMinutes, busyLevel };
+}
+
+app.get(
+  "/api/orders/queue-summary",
+  () => ({
+    data: buildQueueSummary(),
+  }),
+  {
+    detail: {
+      tags: ["orders"],
+      summary: "Get public queue summary",
+      description:
+        "Return the public kitchen queue estimate for submitted/preparing orders.",
+    },
+    response: {
+      200: queueSummaryResponseSchema,
+    },
+  },
+);
+
 app.get(
   "/api/orders",
   async ({ request }) => {

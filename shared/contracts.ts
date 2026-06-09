@@ -334,6 +334,12 @@ export const analyticsRatingDistributionSchema = z.object({
   "5": z.number().int().min(0),
 });
 
+export const queueSummarySchema = z.object({
+  kitchenQueue: z.number().int().min(0),
+  estimatedWaitMinutes: z.number().int().min(0),
+  busyLevel: z.enum(["normal", "busy", "very_busy"]),
+});
+
 // ─── Derived TypeScript Types（自動推導，永不過時）───────────────────────────
 export const analyticsSummarySchema = z.object({
   totalRevenue: z.number().min(0),
@@ -451,6 +457,7 @@ export type PaymentStatus = z.infer<typeof paymentStatusSchema>;
 export type OrderSource = z.infer<typeof orderSourceSchema>;
 export type OrderIssueType = z.infer<typeof orderIssueTypeSchema>;
 export type Order = z.infer<typeof orderSchema>;
+export type QueueSummary = z.infer<typeof queueSummarySchema>;
 export type CategorySales = z.infer<typeof categorySalesSchema>;
 export type TopItemSales = z.infer<typeof topItemSalesSchema>;
 export type AbTestAnalyticsItem = z.infer<typeof abTestAnalyticsItemSchema>;

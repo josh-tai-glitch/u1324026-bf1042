@@ -35,6 +35,7 @@ import {
   validatePromotionForSubtotal,
 } from "../promotions/PromotionCalculator.ts";
 import {
+  applyBundlePricingToOrderItems,
   CategoryNotFoundError,
   CategorySlugConflictError,
   type AnalyticsDateRangeInput,
@@ -1157,6 +1158,7 @@ export class JsonFileStore implements Store {
         bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
+    applyBundlePricingToOrderItems(orderItems, this.menuBundles);
 
     const subtotal = calculateOrderTotal(orderItems);
     const discount = this.calculateDiscountForPromoCode(
@@ -1284,6 +1286,7 @@ export class JsonFileStore implements Store {
         bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
+    applyBundlePricingToOrderItems(orderItems, this.menuBundles);
 
     const subtotal = calculateOrderTotal(orderItems);
     const discount = this.calculateDiscountForPromoCode(
@@ -1525,13 +1528,6 @@ export class JsonFileStore implements Store {
       };
     }
 
-    const subtotal = calculateOrderTotal(order.items);
-    const discount = this.calculateDiscountForPromoCode(
-      subtotal,
-      input.promoCode,
-    );
-    if (!discount.ok) return { ok: false, code: discount.code };
-    const { discountAmount, promoCode, total } = discount.preview;
     const customizationsByItemId = new Map(
       (input.itemCustomizations ?? []).map((customization) => [
         customization.itemId,
@@ -1546,6 +1542,15 @@ export class JsonFileStore implements Store {
       orderItem.bundleId = customization.bundleId ?? null;
       orderItem.bundleName = customization.bundleName?.trim() || null;
     }
+    applyBundlePricingToOrderItems(order.items, this.menuBundles);
+
+    const subtotal = calculateOrderTotal(order.items);
+    const discount = this.calculateDiscountForPromoCode(
+      subtotal,
+      input.promoCode,
+    );
+    if (!discount.ok) return { ok: false, code: discount.code };
+    const { discountAmount, promoCode, total } = discount.preview;
 
     order.status = "submitted";
     order.subtotal = subtotal;

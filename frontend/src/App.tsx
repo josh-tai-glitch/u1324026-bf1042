@@ -502,7 +502,7 @@ export default function App() {
     Record<number, string>
   >({});
   const [cartBundleByItemId, setCartBundleByItemId] = useState<
-    Record<number, { bundleId: number; bundleName: string }>
+    Record<number, { bundleId: number; bundleName: string; bundlePrice?: number }>
   >({});
   const [cartTotal, setCartTotal] = useState(0);
   const [activeItemId, setActiveItemId] = useState<number | null>(null);
@@ -936,12 +936,12 @@ export default function App() {
     }
   }
 
-  const activeQueueOrders = historyOrders.filter((order) =>
-    ["submitted", "preparing", "ready"].includes(order.status),
-  );
-  const kitchenQueueOrders = historyOrders.filter((order) =>
-    ["submitted", "preparing"].includes(order.status),
-  );
+  function isKitchenQueueOrder(order: Order): boolean {
+    return order.status === "submitted" || order.status === "preparing";
+  }
+
+  const activeQueueOrders = historyOrders.filter(isKitchenQueueOrder);
+  const kitchenQueueOrders = activeQueueOrders;
   const activeOrders = activeQueueOrders.length;
   const estimatedWaitMinutes = estimateWaitMinutes(kitchenQueueOrders.length);
   const busyLevel = getBusyLevel(kitchenQueueOrders.length);
@@ -2111,14 +2111,21 @@ export default function App() {
       order.items.reduce(
         (acc, orderItem) => {
           if (orderItem.bundleId && orderItem.bundleName) {
+            const bundle = menuBundles.find(
+              (candidate) => candidate.id === orderItem.bundleId,
+            );
             acc[orderItem.item.id] = {
               bundleId: orderItem.bundleId,
               bundleName: orderItem.bundleName,
+              bundlePrice: bundle?.price,
             };
           }
           return acc;
         },
-        {} as Record<number, { bundleId: number; bundleName: string }>,
+        {} as Record<
+          number,
+          { bundleId: number; bundleName: string; bundlePrice?: number }
+        >,
       ),
     );
     setCartTotal(order.total);
@@ -2870,10 +2877,54 @@ export default function App() {
     items,
   ]);
 
-  const cartSubtotal = useMemo(
-    () => cartDetails.reduce((sum, detail) => sum + detail.subtotal, 0),
-    [cartDetails],
-  );
+  const cartSubtotal = useMemo(() => {
+    const bundleGroups = new Map<number, typeof cartDetails>();
+    let subtotal = 0;
+
+    for (const detail of cartDetails) {
+      if (!detail.bundle) {
+        subtotal += detail.subtotal;
+        continue;
+      }
+      const group = bundleGroups.get(detail.bundle.bundleId) ?? [];
+      group.push(detail);
+      bundleGroups.set(detail.bundle.bundleId, group);
+    }
+
+    for (const [bundleId, details] of bundleGroups.entries()) {
+      const bundle = menuBundles.find((candidate) => candidate.id === bundleId);
+      if (!bundle) {
+        subtotal += details.reduce((sum, detail) => sum + detail.subtotal, 0);
+        continue;
+      }
+
+      const multiplier = Math.min(
+        ...bundle.items.map((bundleItem) => {
+          const detail = details.find(
+            (candidate) => candidate.itemId === bundleItem.menuItemId,
+          );
+          return detail ? Math.floor(detail.qty / bundleItem.qty) : 0;
+        }),
+      );
+
+      if (!Number.isFinite(multiplier) || multiplier <= 0) {
+        subtotal += details.reduce((sum, detail) => sum + detail.subtotal, 0);
+        continue;
+      }
+
+      subtotal += bundle.price * multiplier;
+      for (const detail of details) {
+        const bundleItem = bundle.items.find(
+          (candidate) => candidate.menuItemId === detail.itemId,
+        );
+        const bundledQty = (bundleItem?.qty ?? 0) * multiplier;
+        const remainingQty = Math.max(0, detail.qty - bundledQty);
+        subtotal += remainingQty * detail.item.price;
+      }
+    }
+
+    return subtotal;
+  }, [cartDetails, menuBundles]);
 
   const walkInOrderDetails = useMemo(() => {
     const itemById = new Map(items.map((item) => [item.id, item]));
@@ -2891,10 +2942,54 @@ export default function App() {
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }, [items, walkInOrderItems]);
 
-  const walkInOrderTotal = useMemo(
-    () => walkInOrderDetails.reduce((sum, entry) => sum + entry.subtotal, 0),
-    [walkInOrderDetails],
-  );
+  const walkInOrderTotal = useMemo(() => {
+    const bundleGroups = new Map<number, typeof walkInOrderDetails>();
+    let subtotal = 0;
+
+    for (const detail of walkInOrderDetails) {
+      if (!detail.bundleId) {
+        subtotal += detail.subtotal;
+        continue;
+      }
+      const group = bundleGroups.get(detail.bundleId) ?? [];
+      group.push(detail);
+      bundleGroups.set(detail.bundleId, group);
+    }
+
+    for (const [bundleId, details] of bundleGroups.entries()) {
+      const bundle = menuBundles.find((candidate) => candidate.id === bundleId);
+      if (!bundle) {
+        subtotal += details.reduce((sum, detail) => sum + detail.subtotal, 0);
+        continue;
+      }
+
+      const multiplier = Math.min(
+        ...bundle.items.map((bundleItem) => {
+          const detail = details.find(
+            (candidate) => candidate.itemId === bundleItem.menuItemId,
+          );
+          return detail ? Math.floor(detail.qty / bundleItem.qty) : 0;
+        }),
+      );
+
+      if (!Number.isFinite(multiplier) || multiplier <= 0) {
+        subtotal += details.reduce((sum, detail) => sum + detail.subtotal, 0);
+        continue;
+      }
+
+      subtotal += bundle.price * multiplier;
+      for (const detail of details) {
+        const bundleItem = bundle.items.find(
+          (candidate) => candidate.menuItemId === detail.itemId,
+        );
+        const bundledQty = (bundleItem?.qty ?? 0) * multiplier;
+        const remainingQty = Math.max(0, detail.qty - bundledQty);
+        subtotal += remainingQty * detail.item.price;
+      }
+    }
+
+    return subtotal;
+  }, [menuBundles, walkInOrderDetails]);
 
   function appendNoteText(current: string, addition: string): string {
     const trimmedCurrent = current.trim();
@@ -5002,7 +5097,11 @@ export default function App() {
       }
       setCartBundleByItemId((current) => ({
         ...current,
-        [entry.menuItemId]: { bundleId: bundle.id, bundleName: bundle.name },
+        [entry.menuItemId]: {
+          bundleId: bundle.id,
+          bundleName: bundle.name,
+          bundlePrice: bundle.price,
+        },
       }));
     }
     setIsCartOpen(true);
@@ -9181,15 +9280,15 @@ export default function App() {
                   />
                   <input
                     className="input input-bordered input-sm"
-                    min={0}
-                    step={1}
-                    type="number"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    type="text"
                     placeholder="Bundle price"
                     value={menuBundleForm.price}
                     onChange={(event) =>
                       setMenuBundleForm((current) => ({
                         ...current,
-                        price: event.target.value,
+                        price: event.target.value.replace(/\D/g, ""),
                       }))
                     }
                     required
@@ -10690,9 +10789,16 @@ export default function App() {
                           ${detail.item.price} x {detail.qty}
                         </p>
                         {detail.bundle ? (
-                          <span className="badge badge-secondary badge-sm mt-1">
-                            Bundle: {detail.bundle.bundleName}
-                          </span>
+                          <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                            <span className="badge badge-secondary badge-sm">
+                              Bundle: {detail.bundle.bundleName}
+                            </span>
+                            {detail.bundle.bundlePrice !== undefined ? (
+                              <span>
+                                Combo price: ${detail.bundle.bundlePrice}
+                              </span>
+                            ) : null}
+                          </div>
                         ) : null}
                         {detail.hasPriceChanged && detail.currentItem ? (
                           <div className="mt-1 flex flex-wrap gap-2 text-xs">

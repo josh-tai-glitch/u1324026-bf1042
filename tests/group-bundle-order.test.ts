@@ -5,8 +5,67 @@ import {
   createWalkInOrderBodySchema,
 } from "../shared/route-schemas";
 import { orderItemSchema, orderSchema } from "../shared/contracts";
+import type { MenuBundle, OrderItem } from "../shared/contracts";
+import { applyBundlePricingToOrderItems } from "../store/Store";
 
 describe("group order and bundle contracts", () => {
+  const toastItem = {
+    id: 1,
+    name: "Toast",
+    price: 40,
+    category: "Toast",
+    description: "Breakfast toast",
+    image_url: "/toast.jpg",
+    is_available: true,
+    version: 1,
+    version_major: 1,
+    version_minor: 0,
+    menu_item_group_id: "1",
+    is_current_version: true,
+    previous_version_id: null,
+    change_reason: null,
+    changed_by: null,
+    ab_test_group: "control" as const,
+    display_order: 0,
+  };
+  const drinkItem = {
+    ...toastItem,
+    id: 2,
+    name: "Tea",
+    price: 40,
+    category: "Drink",
+    menu_item_group_id: "2",
+  };
+  const classicBundle: MenuBundle = {
+    id: 7,
+    name: "Classic combo",
+    description: "Toast and tea",
+    price: 80,
+    isActive: true,
+    displayOrder: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    items: [
+      { menuItemId: 1, qty: 1, item: toastItem },
+      { menuItemId: 2, qty: 1, item: drinkItem },
+    ],
+  };
+
+  function buildOrderItem(
+    item: typeof toastItem,
+    qty = 1,
+  ): OrderItem {
+    return {
+      item: { ...item },
+      qty,
+      menu_item_version: item.version,
+      menu_item_group_id: item.menu_item_group_id,
+      memberName: null,
+      bundleId: classicBundle.id,
+      bundleName: classicBundle.name,
+    };
+  }
+
   test("order schema accepts group order fields", () => {
     const parsed = orderSchema.parse({
       id: 1,
@@ -177,5 +236,41 @@ describe("group order and bundle contracts", () => {
         items: [{ menuItemId: 1, qty: 100 }],
       }),
     ).toThrow();
+  });
+
+  test("bundle price allocation preserves bundle total for simple combos", () => {
+    const orderItems = [
+      buildOrderItem({ ...toastItem, price: 40 }),
+      buildOrderItem({ ...drinkItem, price: 40 }),
+    ];
+
+    const allocatedItems = applyBundlePricingToOrderItems(orderItems, [
+      classicBundle,
+    ]);
+    const subtotal = allocatedItems.reduce(
+      (sum, item) => sum + item.item.price * item.qty,
+      0,
+    );
+
+    expect(subtotal).toBe(80);
+  });
+
+  test("bundle price allocation can reduce item snapshot prices", () => {
+    const discountedBundle = { ...classicBundle, price: 28 };
+    const orderItems = [
+      buildOrderItem({ ...toastItem, price: 40 }),
+      buildOrderItem({ ...drinkItem, price: 40 }),
+    ];
+
+    const allocatedItems = applyBundlePricingToOrderItems(orderItems, [
+      discountedBundle,
+    ]);
+    const subtotal = allocatedItems.reduce(
+      (sum, item) => sum + item.item.price * item.qty,
+      0,
+    );
+
+    expect(subtotal).toBe(28);
+    expect(allocatedItems.every((item) => item.item.price < 40)).toBe(true);
   });
 });

@@ -14,6 +14,7 @@ import type {
   MenuBundle,
   MenuItem,
   Order,
+  OrderItem,
   OrderIssueType,
   OrderStatus,
   PaymentMethod,
@@ -109,6 +110,74 @@ export type AnalyticsDateRangeInput = {
   startDate?: string;
   endDate?: string;
 };
+
+export function applyBundlePricingToOrderItems(
+  orderItems: OrderItem[],
+  bundles: ReadonlyArray<MenuBundle>,
+): OrderItem[] {
+  const itemsByBundleId = new Map<number, OrderItem[]>();
+  for (const orderItem of orderItems) {
+    if (!orderItem.bundleId) continue;
+    const group = itemsByBundleId.get(orderItem.bundleId) ?? [];
+    group.push(orderItem);
+    itemsByBundleId.set(orderItem.bundleId, group);
+  }
+
+  for (const [bundleId, bundledOrderItems] of itemsByBundleId.entries()) {
+    const bundle = bundles.find(
+      (candidate) => candidate.id === bundleId && candidate.isActive,
+    );
+    if (!bundle || bundle.price <= 0 || bundledOrderItems.length === 0) {
+      continue;
+    }
+
+    const bundleItemByMenuItemId = new Map(
+      bundle.items.map((bundleItem) => [bundleItem.menuItemId, bundleItem]),
+    );
+    const allItemsBelongToBundle = bundledOrderItems.every((orderItem) =>
+      bundleItemByMenuItemId.has(orderItem.item.id),
+    );
+    if (!allItemsBelongToBundle) continue;
+
+    const originalSubtotal = bundledOrderItems.reduce(
+      (sum, orderItem) => sum + orderItem.item.price * orderItem.qty,
+      0,
+    );
+    if (originalSubtotal <= 0) continue;
+
+    const allocatedSubtotals = bundledOrderItems.map((orderItem) => ({
+      orderItem,
+      allocatedSubtotal: Math.floor(
+        (bundle.price * orderItem.item.price * orderItem.qty) / originalSubtotal,
+      ),
+    }));
+
+    const allocatedTotal = allocatedSubtotals.reduce(
+      (sum, entry) => sum + entry.allocatedSubtotal,
+      0,
+    );
+    const roundingRemainder = bundle.price - allocatedTotal;
+    const lastEntry = allocatedSubtotals[allocatedSubtotals.length - 1];
+    if (lastEntry) {
+      lastEntry.allocatedSubtotal += roundingRemainder;
+    }
+
+    for (const entry of allocatedSubtotals) {
+      if (entry.orderItem.qty <= 0) continue;
+      const allocatedUnitPrice = Math.max(
+        0,
+        Math.round(entry.allocatedSubtotal / entry.orderItem.qty),
+      );
+      entry.orderItem.item = {
+        ...entry.orderItem.item,
+        price: allocatedUnitPrice,
+      };
+      entry.orderItem.bundleName = entry.orderItem.bundleName ?? bundle.name;
+    }
+  }
+
+  return orderItems;
+}
 
 export type AppendAuditLogInput = {
   actorUserId?: string | null;

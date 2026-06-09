@@ -47,6 +47,7 @@ import {
   validatePromotionForSubtotal,
 } from "../promotions/PromotionCalculator.ts";
 import {
+  applyBundlePricingToOrderItems,
   CategoryNotFoundError,
   CategorySlugConflictError,
   type AnalyticsDateRangeInput,
@@ -1067,6 +1068,7 @@ export class PgStore implements Store {
         bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
+    applyBundlePricingToOrderItems(orderItems, this.menuBundles);
 
     const now = new Date();
     const submittedAt = now.toISOString();
@@ -1248,6 +1250,7 @@ export class PgStore implements Store {
         bundleName: requestedItem.bundleName?.trim() || null,
       });
     }
+    applyBundlePricingToOrderItems(orderItems, this.menuBundles);
 
     const now = new Date();
     const submittedAt = now.toISOString();
@@ -1563,13 +1566,6 @@ export class PgStore implements Store {
     const submittedAt = new Date().toISOString();
     const pickupTime = input.pickupTime ? new Date(input.pickupTime) : null;
     const paymentStatus = input.paymentStatus ?? "unpaid";
-    const subtotal = calculateTotal(order.items);
-    const discount = this.calculateDiscountForPromoCode(
-      subtotal,
-      input.promoCode,
-    );
-    if (!discount.ok) return { ok: false, code: discount.code };
-    const { discountAmount, promoCode, total } = discount.preview;
     const customizationsByItemId = new Map(
       (input.itemCustomizations ?? []).map((customization) => [
         customization.itemId,
@@ -1583,9 +1579,13 @@ export class PgStore implements Store {
       orderItem.memberName = customization.memberName?.trim() || null;
       orderItem.bundleId = customization.bundleId ?? null;
       orderItem.bundleName = customization.bundleName?.trim() || null;
+    }
+    applyBundlePricingToOrderItems(order.items, this.menuBundles);
+    for (const orderItem of order.items) {
       await db
         .update(orderItemsTable)
         .set({
+          price: orderItem.item.price,
           memberName: orderItem.memberName,
           bundleId: orderItem.bundleId,
           bundleName: orderItem.bundleName,
@@ -1597,6 +1597,14 @@ export class PgStore implements Store {
           ),
         );
     }
+
+    const subtotal = calculateTotal(order.items);
+    const discount = this.calculateDiscountForPromoCode(
+      subtotal,
+      input.promoCode,
+    );
+    if (!discount.ok) return { ok: false, code: discount.code };
+    const { discountAmount, promoCode, total } = discount.preview;
 
     await db
       .update(ordersTable)

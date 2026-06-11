@@ -14,8 +14,12 @@ import type {
   CategorySales,
   DiscountType,
   FulfillmentType,
+  Ingredient,
+  InventoryImpact,
   MenuBundle,
   MenuItem,
+  MenuItemAvailabilityImpact,
+  MenuItemIngredient,
   Order,
   OrderIssueType,
   OrderSource,
@@ -289,6 +293,7 @@ type ManagerTab =
   | "orders"
   | "analytics"
   | "menu"
+  | "inventory"
   | "categories"
   | "promotions"
   | "roleRequests"
@@ -493,6 +498,30 @@ export default function App() {
   const [displayOrderUpdatingId, setDisplayOrderUpdatingId] = useState<
     number | null
   >(null);
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [inventoryImpacts, setInventoryImpacts] = useState<InventoryImpact[]>(
+    [],
+  );
+  const [menuItemAvailabilityImpacts, setMenuItemAvailabilityImpacts] =
+    useState<MenuItemAvailabilityImpact[]>([]);
+  const [selectedInventoryMenuItemId, setSelectedInventoryMenuItemId] =
+    useState("");
+  const [menuItemIngredientLinks, setMenuItemIngredientLinks] = useState<
+    MenuItemIngredient[]
+  >([]);
+  const [ingredientForm, setIngredientForm] = useState({
+    name: "",
+    unit: "unit",
+    currentStock: "0",
+    safetyStock: "0",
+  });
+  const [editingIngredientId, setEditingIngredientId] = useState<number | null>(
+    null,
+  );
+  const [ingredientDraftId, setIngredientDraftId] = useState("");
+  const [ingredientDraftQty, setIngredientDraftQty] = useState("1");
+  const [inventoryMessage, setInventoryMessage] = useState("");
+  const [inventoryBusy, setInventoryBusy] = useState(false);
 
   // Cart / order state
   const [orderId, setOrderId] = useState<number | null>(null);
@@ -691,6 +720,7 @@ export default function App() {
     [hasRole],
   );
   const canManageMenu = hasAnyRole(["owner", "admin"]);
+  const canViewInventory = hasAnyRole(["staff", "chef", "owner", "admin"]);
   const canViewAllOrders = hasAnyRole(["staff", "chef", "owner", "admin"]);
   const canUpdatePaymentStatus = hasAnyRole(["staff", "owner", "admin"]);
   const canCancelManagerOrder = canUpdatePaymentStatus;
@@ -704,6 +734,11 @@ export default function App() {
         { id: "orders" as const, label: "Orders", visible: canViewAllOrders },
         { id: "analytics" as const, label: "Analytics", visible: canManageMenu },
         { id: "menu" as const, label: "Menu", visible: canManageMenu },
+        {
+          id: "inventory" as const,
+          label: "Inventory",
+          visible: canViewInventory,
+        },
         {
           id: "categories" as const,
           label: "Categories",
@@ -721,7 +756,7 @@ export default function App() {
         },
         { id: "roleRequests" as const, label: "Role requests", visible: isAdmin },
       ].filter((tab) => tab.visible),
-    [canManageMenu, canViewAllOrders, isAdmin],
+    [canManageMenu, canViewAllOrders, canViewInventory, isAdmin],
   );
   const hasManagerTools = managerTabs.length > 0;
 
@@ -2062,6 +2097,54 @@ export default function App() {
     setPromotions(Array.isArray(payload?.data) ? payload.data : []);
   }, []);
 
+  const loadInventory = useCallback(async () => {
+    const [ingredientsResponse, impactsResponse] = await Promise.all([
+      fetch(buildApiUrl("/api/ingredients"), { credentials: "include" }),
+      fetch(buildApiUrl("/api/inventory/impacts"), { credentials: "include" }),
+    ]);
+    if (!ingredientsResponse.ok) {
+      throw new Error(await readApiError(ingredientsResponse));
+    }
+    if (!impactsResponse.ok) {
+      throw new Error(await readApiError(impactsResponse));
+    }
+
+    const ingredientsPayload =
+      (await ingredientsResponse.json()) as ApiDataResponse<Ingredient[]>;
+    const impactsPayload = (await impactsResponse.json()) as ApiDataResponse<{
+      ingredients: InventoryImpact[];
+      menuItems: MenuItemAvailabilityImpact[];
+    }>;
+    setIngredients(
+      Array.isArray(ingredientsPayload?.data) ? ingredientsPayload.data : [],
+    );
+    setInventoryImpacts(
+      Array.isArray(impactsPayload?.data?.ingredients)
+        ? impactsPayload.data.ingredients
+        : [],
+    );
+    setMenuItemAvailabilityImpacts(
+      Array.isArray(impactsPayload?.data?.menuItems)
+        ? impactsPayload.data.menuItems
+        : [],
+    );
+  }, []);
+
+  const loadMenuItemIngredients = useCallback(async (menuItemId: number) => {
+    const response = await fetch(
+      buildApiUrl(`/api/menu/${menuItemId}/ingredients`),
+      { credentials: "include" },
+    );
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+    const payload =
+      (await response.json()) as ApiDataResponse<MenuItemIngredient[]>;
+    setMenuItemIngredientLinks(
+      Array.isArray(payload?.data) ? payload.data : [],
+    );
+  }, []);
+
   const loadMenuBundles = useCallback(
     async (options: { includeInactive?: boolean } = {}) => {
       const response = await fetch(
@@ -2747,6 +2830,38 @@ export default function App() {
   }, [canManageMenu, managerTab, loadMenuBundles]);
 
   useEffect(() => {
+    if (canViewInventory && managerTab === "inventory") {
+      void loadInventory().catch((inventoryError) => {
+        setInventoryMessage(
+          inventoryError instanceof Error
+            ? inventoryError.message
+            : "Unable to load inventory.",
+        );
+      });
+    } else if (!canViewInventory) {
+      setIngredients([]);
+      setInventoryImpacts([]);
+      setMenuItemAvailabilityImpacts([]);
+      setMenuItemIngredientLinks([]);
+    }
+  }, [canViewInventory, managerTab, loadInventory]);
+
+  useEffect(() => {
+    const menuItemId = Number(selectedInventoryMenuItemId);
+    if (!canViewInventory || !menuItemId) {
+      setMenuItemIngredientLinks([]);
+      return;
+    }
+    void loadMenuItemIngredients(menuItemId).catch((inventoryError) => {
+      setInventoryMessage(
+        inventoryError instanceof Error
+          ? inventoryError.message
+          : "Unable to load menu item ingredients.",
+      );
+    });
+  }, [canViewInventory, selectedInventoryMenuItemId, loadMenuItemIngredients]);
+
+  useEffect(() => {
     if (!hasManagerTools) return;
     if (!managerTabs.some((tab) => tab.id === managerTab)) {
       setManagerTab(managerTabs[0].id);
@@ -3014,6 +3129,17 @@ export default function App() {
 
     return subtotal;
   }, [menuBundles, walkInOrderDetails]);
+
+  const menuItemAvailabilityImpactById = useMemo(
+    () =>
+      new Map(
+        menuItemAvailabilityImpacts.map((impact) => [
+          impact.menuItemId,
+          impact,
+        ]),
+      ),
+    [menuItemAvailabilityImpacts],
+  );
 
   function appendNoteText(current: string, addition: string): string {
     const trimmedCurrent = current.trim();
@@ -4776,6 +4902,227 @@ export default function App() {
       primaryCategoryId: categoryIdText,
       category: selectedCategory?.name ?? current.category,
     }));
+  }
+
+  function getInventoryStatusLabel(status: InventoryImpact["status"]) {
+    if (status === "out_of_stock") return "Out of stock";
+    if (status === "low_stock") return "Low stock";
+    return "Normal";
+  }
+
+  function getInventoryStatusBadgeClass(status: InventoryImpact["status"]) {
+    if (status === "out_of_stock") return "badge badge-error";
+    if (status === "low_stock") return "badge badge-warning";
+    return "badge badge-success";
+  }
+
+  function startEditIngredient(ingredient: Ingredient) {
+    setEditingIngredientId(ingredient.id);
+    setIngredientForm({
+      name: ingredient.name,
+      unit: ingredient.unit,
+      currentStock: String(ingredient.currentStock),
+      safetyStock: String(ingredient.safetyStock),
+    });
+    setInventoryMessage("");
+  }
+
+  function resetIngredientForm() {
+    setEditingIngredientId(null);
+    setIngredientForm({
+      name: "",
+      unit: "unit",
+      currentStock: "0",
+      safetyStock: "0",
+    });
+  }
+
+  async function submitIngredientForm(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageMenu) return;
+    setInventoryBusy(true);
+    setInventoryMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl(
+          editingIngredientId
+            ? `/api/ingredients/${editingIngredientId}`
+            : "/api/ingredients",
+        ),
+        {
+          method: editingIngredientId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            name: ingredientForm.name.trim(),
+            unit: ingredientForm.unit.trim() || "unit",
+            currentStock: Number(ingredientForm.currentStock || 0),
+            safetyStock: Number(ingredientForm.safetyStock || 0),
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(await readApiError(response));
+      setInventoryMessage(
+        editingIngredientId ? "Ingredient updated." : "Ingredient created.",
+      );
+      notifySuccess(
+        editingIngredientId ? "Ingredient updated." : "Ingredient created.",
+      );
+      resetIngredientForm();
+      await Promise.all([loadInventory(), loadAnalytics()]);
+    } catch (ingredientError) {
+      const message =
+        ingredientError instanceof Error
+          ? ingredientError.message
+          : "Ingredient update failed.";
+      setInventoryMessage(message);
+      notifyError(message);
+    } finally {
+      setInventoryBusy(false);
+    }
+  }
+
+  async function adjustIngredientStock(ingredient: Ingredient, delta: number) {
+    setInventoryBusy(true);
+    setInventoryMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/ingredients/${ingredient.id}/stock`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ delta }),
+        },
+      );
+      if (!response.ok) throw new Error(await readApiError(response));
+      setInventoryMessage("Stock adjusted.");
+      notifySuccess("Stock adjusted.");
+      await Promise.all([loadInventory(), loadAnalytics()]);
+    } catch (stockError) {
+      const message =
+        stockError instanceof Error ? stockError.message : "Stock update failed.";
+      setInventoryMessage(message);
+      notifyError(message);
+    } finally {
+      setInventoryBusy(false);
+    }
+  }
+
+  function addIngredientMappingDraft() {
+    const ingredientId = Number(ingredientDraftId);
+    const quantityPerItem = Number(ingredientDraftQty);
+    if (!ingredientId || !Number.isInteger(quantityPerItem) || quantityPerItem <= 0) {
+      setInventoryMessage("Select an ingredient and quantity first.");
+      return;
+    }
+    const ingredient = ingredients.find((candidate) => candidate.id === ingredientId);
+    if (!ingredient) return;
+    setMenuItemIngredientLinks((currentLinks) => {
+      const existingIndex = currentLinks.findIndex(
+        (link) => link.ingredientId === ingredientId,
+      );
+      if (existingIndex === -1) {
+        return [
+          ...currentLinks,
+          {
+            menuItemId: Number(selectedInventoryMenuItemId),
+            ingredientId,
+            quantityPerItem,
+            ingredient,
+          },
+        ];
+      }
+      return currentLinks.map((link, index) =>
+        index === existingIndex
+          ? { ...link, quantityPerItem, ingredient }
+          : link,
+      );
+    });
+    setIngredientDraftId("");
+    setIngredientDraftQty("1");
+  }
+
+  function removeIngredientMappingDraft(ingredientId: number) {
+    setMenuItemIngredientLinks((currentLinks) =>
+      currentLinks.filter((link) => link.ingredientId !== ingredientId),
+    );
+  }
+
+  async function saveMenuItemIngredientMapping() {
+    if (!canManageMenu) return;
+    const menuItemId = Number(selectedInventoryMenuItemId);
+    if (!menuItemId) {
+      setInventoryMessage("Select a menu item first.");
+      return;
+    }
+    setInventoryBusy(true);
+    setInventoryMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl(`/api/menu/${menuItemId}/ingredients`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            ingredients: menuItemIngredientLinks.map((link) => ({
+              ingredientId: link.ingredientId,
+              quantityPerItem: link.quantityPerItem,
+            })),
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(await readApiError(response));
+      setInventoryMessage("Menu item ingredients saved.");
+      notifySuccess("Menu item ingredients saved.");
+      await Promise.all([loadInventory(), loadMenu()]);
+    } catch (mappingError) {
+      const message =
+        mappingError instanceof Error
+          ? mappingError.message
+          : "Ingredient mapping failed.";
+      setInventoryMessage(message);
+      notifyError(message);
+    } finally {
+      setInventoryBusy(false);
+    }
+  }
+
+  async function syncInventoryAvailability() {
+    if (!canManageMenu) return;
+    if (
+      !window.confirm(
+        "Sync shortage items now? This can disable unavailable menu items.",
+      )
+    ) {
+      return;
+    }
+    setInventoryBusy(true);
+    setInventoryMessage("");
+    try {
+      const response = await fetch(
+        buildApiUrl("/api/inventory/sync-menu-availability"),
+        { method: "POST", credentials: "include" },
+      );
+      if (!response.ok) throw new Error(await readApiError(response));
+      const payload = (await response.json()) as ApiDataResponse<{
+        disabledCount: number;
+        restoredCount: number;
+      }>;
+      setInventoryMessage(
+        `Sync complete. Disabled ${payload.data.disabledCount} item(s). Restocking requires manual re-enable.`,
+      );
+      notifySuccess("Inventory availability sync complete.");
+      await Promise.all([loadInventory(), loadMenu(), loadAnalytics()]);
+    } catch (syncError) {
+      const message =
+        syncError instanceof Error ? syncError.message : "Inventory sync failed.";
+      setInventoryMessage(message);
+      notifyError(message);
+    } finally {
+      setInventoryBusy(false);
+    }
   }
 
   function startEditMenuItem(item: MenuItem) {
@@ -8258,6 +8605,25 @@ export default function App() {
                         ${analyticsSummary.bundleRevenue} bundle items
                       </div>
                     </div>
+                    <div className="stat rounded-box border border-base-300 bg-base-200">
+                      <div className="stat-title">Active ingredients</div>
+                      <div className="stat-value text-primary">
+                        {analyticsSummary.activeIngredientCount}
+                      </div>
+                    </div>
+                    <div className="stat rounded-box border border-base-300 bg-base-200">
+                      <div className="stat-title">Low / out stock</div>
+                      <div className="stat-value text-warning">
+                        {analyticsSummary.lowStockIngredientCount} /{" "}
+                        {analyticsSummary.outOfStockIngredientCount}
+                      </div>
+                    </div>
+                    <div className="stat rounded-box border border-base-300 bg-base-200">
+                      <div className="stat-title">Affected menu items</div>
+                      <div className="stat-value text-error">
+                        {analyticsSummary.affectedMenuItemCount}
+                      </div>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
                     <div className="rounded-box border border-base-300 p-3">
@@ -9528,6 +9894,517 @@ export default function App() {
           </section>
         ) : null}
 
+        {hasManagerTools && managerTab === "inventory" && canViewInventory ? (
+          <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
+            <div className="card-body">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="card-title">Inventory</h2>
+                  <p className="text-sm opacity-70">
+                    Track ingredient stock, map ingredients to menu items, and
+                    see shortage impact before customers order.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline"
+                    disabled={inventoryBusy}
+                    onClick={() => {
+                      void loadInventory();
+                    }}
+                  >
+                    Refresh
+                  </button>
+                  {canManageMenu ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-warning"
+                      disabled={inventoryBusy}
+                      onClick={() => {
+                        void syncInventoryAvailability();
+                      }}
+                    >
+                      Sync shortage items
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="stat rounded-box border border-base-300 bg-base-200">
+                  <div className="stat-title">Active ingredients</div>
+                  <div className="stat-value text-primary">
+                    {ingredients.filter((ingredient) => ingredient.isActive).length}
+                  </div>
+                </div>
+                <div className="stat rounded-box border border-base-300 bg-base-200">
+                  <div className="stat-title">Low stock</div>
+                  <div className="stat-value text-warning">
+                    {
+                      inventoryImpacts.filter(
+                        (impact) => impact.status === "low_stock",
+                      ).length
+                    }
+                  </div>
+                </div>
+                <div className="stat rounded-box border border-base-300 bg-base-200">
+                  <div className="stat-title">Out of stock</div>
+                  <div className="stat-value text-error">
+                    {
+                      inventoryImpacts.filter(
+                        (impact) => impact.status === "out_of_stock",
+                      ).length
+                    }
+                  </div>
+                </div>
+                <div className="stat rounded-box border border-base-300 bg-base-200">
+                  <div className="stat-title">Affected items</div>
+                  <div className="stat-value">
+                    {
+                      new Set(
+                        inventoryImpacts
+                          .filter((impact) => impact.status !== "normal")
+                          .flatMap((impact) =>
+                            impact.affectedMenuItems.map((item) => item.id),
+                          ),
+                      ).size
+                    }
+                  </div>
+                </div>
+              </div>
+
+              {inventoryMessage ? (
+                <div className="alert">
+                  <span>{inventoryMessage}</span>
+                </div>
+              ) : null}
+
+              {canManageMenu ? (
+                <form
+                  className="rounded-box border border-base-300 bg-base-200 p-3"
+                  onSubmit={(event) => {
+                    void submitIngredientForm(event);
+                  }}
+                >
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="font-semibold">
+                      {editingIngredientId ? "Edit ingredient" : "Add ingredient"}
+                    </h3>
+                    {editingIngredientId ? (
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-ghost"
+                        onClick={resetIngredientForm}
+                      >
+                        Cancel edit
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+                    <input
+                      className="input input-bordered input-sm"
+                      placeholder="Ingredient name"
+                      value={ingredientForm.name}
+                      onChange={(event) =>
+                        setIngredientForm((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                    <input
+                      className="input input-bordered input-sm"
+                      placeholder="Unit"
+                      value={ingredientForm.unit}
+                      onChange={(event) =>
+                        setIngredientForm((current) => ({
+                          ...current,
+                          unit: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                    <input
+                      className="input input-bordered input-sm"
+                      type="number"
+                      min={0}
+                      value={ingredientForm.currentStock}
+                      onChange={(event) =>
+                        setIngredientForm((current) => ({
+                          ...current,
+                          currentStock: event.target.value,
+                        }))
+                      }
+                    />
+                    <input
+                      className="input input-bordered input-sm"
+                      type="number"
+                      min={0}
+                      value={ingredientForm.safetyStock}
+                      onChange={(event) =>
+                        setIngredientForm((current) => ({
+                          ...current,
+                          safetyStock: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <button
+                    className="btn btn-sm btn-primary mt-3"
+                    disabled={inventoryBusy}
+                  >
+                    {inventoryBusy
+                      ? "Saving..."
+                      : editingIngredientId
+                        ? "Save ingredient"
+                        : "Create ingredient"}
+                  </button>
+                </form>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className="rounded-box border border-base-300 p-3">
+                  <h3 className="mb-2 font-semibold">Ingredient management</h3>
+                  <div className="overflow-x-auto">
+                    <table className="table table-sm">
+                      <thead>
+                        <tr>
+                          <th>Ingredient</th>
+                          <th>Stock</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ingredients.map((ingredient) => {
+                          const impact = inventoryImpacts.find(
+                            (candidate) =>
+                              candidate.ingredientId === ingredient.id,
+                          );
+                          const status = impact?.status ?? "normal";
+                          return (
+                            <tr key={ingredient.id}>
+                              <td>
+                                <div className="font-semibold">
+                                  {ingredient.name}
+                                </div>
+                                <div className="text-xs opacity-70">
+                                  Safety: {ingredient.safetyStock}{" "}
+                                  {ingredient.unit}
+                                </div>
+                              </td>
+                              <td>
+                                {ingredient.currentStock} {ingredient.unit}
+                              </td>
+                              <td>
+                                <span className={getInventoryStatusBadgeClass(status)}>
+                                  {getInventoryStatusLabel(status)}
+                                </span>
+                              </td>
+                              <td>
+                                <div className="flex flex-wrap gap-1">
+                                  {canManageMenu ? (
+                                    <button
+                                      type="button"
+                                      className="btn btn-xs btn-outline"
+                                      disabled={inventoryBusy}
+                                      onClick={() => startEditIngredient(ingredient)}
+                                    >
+                                      Edit
+                                    </button>
+                                  ) : null}
+                                  {canUpdatePaymentStatus ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="btn btn-xs btn-outline"
+                                        disabled={inventoryBusy}
+                                        onClick={() => {
+                                          void adjustIngredientStock(
+                                            ingredient,
+                                            -1,
+                                          );
+                                        }}
+                                      >
+                                        -1
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn btn-xs btn-outline"
+                                        disabled={inventoryBusy}
+                                        onClick={() => {
+                                          void adjustIngredientStock(
+                                            ingredient,
+                                            1,
+                                          );
+                                        }}
+                                      >
+                                        +1
+                                      </button>
+                                    </>
+                                  ) : null}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {ingredients.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="text-center opacity-60">
+                              No ingredients yet.
+                            </td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="rounded-box border border-base-300 p-3">
+                  <h3 className="mb-2 font-semibold">
+                    Menu item ingredient mapping
+                  </h3>
+                  <select
+                    className="select select-bordered select-sm mb-3 w-full"
+                    value={selectedInventoryMenuItemId}
+                    onChange={(event) =>
+                      setSelectedInventoryMenuItemId(event.target.value)
+                    }
+                  >
+                    <option value="">Select menu item</option>
+                    {items.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedInventoryMenuItemId ? (
+                    <>
+                      {canManageMenu ? (
+                        <div className="mb-3 flex flex-wrap gap-2">
+                          <select
+                            className="select select-bordered select-sm min-w-52 flex-1"
+                            value={ingredientDraftId}
+                            onChange={(event) =>
+                              setIngredientDraftId(event.target.value)
+                            }
+                          >
+                            <option value="">Select ingredient</option>
+                            {ingredients
+                              .filter((ingredient) => ingredient.isActive)
+                              .map((ingredient) => (
+                                <option key={ingredient.id} value={ingredient.id}>
+                                  {ingredient.name}
+                                </option>
+                              ))}
+                          </select>
+                          <input
+                            className="input input-bordered input-sm w-24"
+                            type="number"
+                            min={1}
+                            value={ingredientDraftQty}
+                            onChange={(event) =>
+                              setIngredientDraftQty(event.target.value)
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline"
+                            onClick={addIngredientMappingDraft}
+                          >
+                            Add
+                          </button>
+                        </div>
+                      ) : null}
+                      <div className="overflow-x-auto">
+                        <table className="table table-sm">
+                          <tbody>
+                            {menuItemIngredientLinks.map((link) => (
+                              <tr key={link.ingredientId}>
+                                <td>
+                                  {link.ingredient?.name ??
+                                    `Ingredient #${link.ingredientId}`}
+                                </td>
+                                <td>
+                                  x {link.quantityPerItem}{" "}
+                                  {link.ingredient?.unit ?? "unit"}
+                                </td>
+                                <td className="text-right">
+                                  {canManageMenu ? (
+                                    <button
+                                      type="button"
+                                      className="btn btn-xs btn-ghost"
+                                      onClick={() =>
+                                        removeIngredientMappingDraft(
+                                          link.ingredientId,
+                                        )
+                                      }
+                                    >
+                                      Remove
+                                    </button>
+                                  ) : null}
+                                </td>
+                              </tr>
+                            ))}
+                            {menuItemIngredientLinks.length === 0 ? (
+                              <tr>
+                                <td colSpan={3} className="text-center opacity-60">
+                                  No ingredient mapping for this item.
+                                </td>
+                              </tr>
+                            ) : null}
+                          </tbody>
+                        </table>
+                      </div>
+                      {canManageMenu ? (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary mt-3"
+                          disabled={inventoryBusy}
+                          onClick={() => {
+                            void saveMenuItemIngredientMapping();
+                          }}
+                        >
+                          Save mapping
+                        </button>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="text-sm opacity-70">
+                      Select a menu item to view or edit ingredient usage.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className="rounded-box border border-base-300 p-3">
+                  <h3 className="mb-2 font-semibold">Shortage impact</h3>
+                  <div className="space-y-2">
+                    {inventoryImpacts
+                      .filter((impact) => impact.status !== "normal")
+                      .map((impact) => (
+                        <div
+                          key={impact.ingredientId}
+                          className="rounded-box border border-base-300 bg-base-200 p-3"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold">
+                              {impact.ingredientName}
+                            </span>
+                            <span className={getInventoryStatusBadgeClass(impact.status)}>
+                              {getInventoryStatusLabel(impact.status)}
+                            </span>
+                            <span className="text-sm opacity-70">
+                              {impact.currentStock} / safety{" "}
+                              {impact.safetyStock} {impact.unit}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs opacity-70">
+                            Affected items:{" "}
+                            {impact.affectedMenuItems.length > 0
+                              ? impact.affectedMenuItems
+                                  .map((item) => item.name)
+                                  .join(", ")
+                              : "None"}
+                          </p>
+                        </div>
+                      ))}
+                    {inventoryImpacts.every(
+                      (impact) => impact.status === "normal",
+                    ) ? (
+                      <p className="text-sm opacity-70">
+                        No low or out-of-stock ingredients.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="rounded-box border border-base-300 p-3">
+                  <h3 className="mb-2 font-semibold">Menu availability impact</h3>
+                  <div className="space-y-2">
+                    {menuItemAvailabilityImpacts
+                      .filter(
+                        (impact) =>
+                          !impact.canPrepare ||
+                          impact.lowStockIngredients.length > 0,
+                      )
+                      .map((impact) => (
+                        <div
+                          key={impact.menuItemId}
+                          className="rounded-box border border-base-300 bg-base-200 p-3"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold">
+                              {impact.menuItemName}
+                            </span>
+                            <span
+                              className={`badge ${
+                                impact.canPrepare
+                                  ? "badge-warning"
+                                  : "badge-error"
+                              }`}
+                            >
+                              {impact.canPrepare
+                                ? "Low stock warning"
+                                : "Missing ingredients"}
+                            </span>
+                            {!impact.isAvailable ? (
+                              <span className="badge badge-neutral">
+                                Unavailable
+                              </span>
+                            ) : null}
+                          </div>
+                          {impact.missingIngredients.length > 0 ? (
+                            <p className="mt-1 text-xs">
+                              Missing:{" "}
+                              {impact.missingIngredients
+                                .map(
+                                  (ingredient) =>
+                                    `${ingredient.ingredientName} (${ingredient.currentStock}/${ingredient.requiredQty} ${ingredient.unit})`,
+                                )
+                                .join(", ")}
+                            </p>
+                          ) : null}
+                          {impact.lowStockIngredients.length > 0 ? (
+                            <p className="mt-1 text-xs opacity-70">
+                              Low:{" "}
+                              {impact.lowStockIngredients
+                                .map(
+                                  (ingredient) =>
+                                    `${ingredient.ingredientName} (${ingredient.currentStock} ${ingredient.unit})`,
+                                )
+                                .join(", ")}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    {menuItemAvailabilityImpacts.every(
+                      (impact) =>
+                        impact.canPrepare &&
+                        impact.lowStockIngredients.length === 0,
+                    ) ? (
+                      <p className="text-sm opacity-70">
+                        No menu item shortage impact.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="alert alert-warning">
+                <span>
+                  Auto sync disables menu items that cannot be prepared.
+                  Restocking does not automatically re-enable items;
+                  owner/admin must manually turn them back on.
+                </span>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
         {hasManagerTools && managerTab === "categories" && canManageMenu ? (
           <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
             <div className="card-body">
@@ -10236,6 +11113,15 @@ export default function App() {
                         </span>
                         {!item.is_available ? (
                           <span className="badge badge-error">Sold out</span>
+                        ) : null}
+                        {menuItemAvailabilityImpactById.get(item.id)
+                          ?.missingIngredients.length ? (
+                          <span className="badge badge-error">
+                            Missing ingredients
+                          </span>
+                        ) : menuItemAvailabilityImpactById.get(item.id)
+                            ?.lowStockIngredients.length ? (
+                          <span className="badge badge-warning">Low stock</span>
                         ) : null}
                         {canManageMenu ? (
                           <span className="badge badge-secondary badge-outline">

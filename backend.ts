@@ -15,6 +15,7 @@ import {
   assignMenuItemCategoryBodySchema,
   assignMenuItemCategoryParamsSchema,
   analyticsSummaryResponseSchema,
+  adjustIngredientStockBodySchema,
   cancelOrderParamsSchema,
   categoryListResponseSchema,
   categoryParamsSchema,
@@ -25,6 +26,7 @@ import {
   createMenuItemBodySchema,
   createPromotionBodySchema,
   createGuestOrderBodySchema,
+  createIngredientBodySchema,
   createRoleRequestBodySchema,
   createWalkInOrderBodySchema,
   currentUserResponseSchema,
@@ -41,8 +43,15 @@ import {
   guestOrderLookupBodySchema,
   getOrderByIdParamsSchema,
   healthResponseSchema,
+  ingredientListResponseSchema,
+  ingredientParamsSchema,
+  ingredientResponseSchema,
+  inventoryImpactResponseSchema,
+  inventorySyncResponseSchema,
   menuItemHistoryParamsSchema,
   menuItemHistoryResponseSchema,
+  menuItemIngredientListResponseSchema,
+  menuItemIngredientsParamsSchema,
   menuBundleListResponseSchema,
   menuBundleParamsSchema,
   menuBundleResponseSchema,
@@ -65,10 +74,12 @@ import {
   submitOrderParamsSchema,
   setOrderIssueBodySchema,
   setOrderIssueParamsSchema,
+  setMenuItemIngredientsBodySchema,
   toOrderResponse,
   topItemSalesListResponseSchema,
   topItemsAnalyticsQuerySchema,
   updateCategoryBodySchema,
+  updateIngredientBodySchema,
   updateMenuItemDisplayOrderBodySchema,
   updateMenuItemDisplayOrderParamsSchema,
   updateMenuBundleBodySchema,
@@ -128,6 +139,8 @@ const orderEditorRoles = ["staff", "owner", "admin"] satisfies Role[];
 const statusUpdaterRoles = ["staff", "chef", "owner", "admin"] satisfies Role[];
 const paymentUpdaterRoles = ["staff", "owner", "admin"] satisfies Role[];
 const walkInOrderRoles = ["staff", "owner", "admin"] satisfies Role[];
+const inventoryViewerRoles = ["staff", "chef", "owner", "admin"] satisfies Role[];
+const inventoryStockUpdaterRoles = ["staff", "owner", "admin"] satisfies Role[];
 const orderCancelManagerRoles = ["staff", "owner", "admin"] satisfies Role[];
 const orderIssueReporterRoles = [
   "chef",
@@ -1585,6 +1598,253 @@ app.delete(
       401: apiErrorResponseSchema,
       403: apiErrorResponseSchema,
       404: apiErrorResponseSchema,
+    },
+  },
+);
+
+// Inventory / shortage impact
+app.get(
+  "/api/ingredients",
+  async ({ request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, inventoryViewerRoles);
+    return { data: store.getIngredients() };
+  },
+  {
+    detail: { tags: ["inventory"], summary: "List ingredients" },
+    response: {
+      200: ingredientListResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.post(
+  "/api/ingredients",
+  async ({ body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+    const ingredient = await store.createIngredient(
+      body as {
+        name: string;
+        unit?: string;
+        currentStock?: number;
+        safetyStock?: number;
+        isActive?: boolean;
+      },
+    );
+    set.status = 201;
+    await writeAuditLog(user, {
+      action: "ingredient_create",
+      targetType: "ingredient",
+      targetId: String(ingredient.id),
+      message: `Created ingredient ${ingredient.name}`,
+      metadata: {
+        unit: ingredient.unit,
+        currentStock: ingredient.currentStock,
+        safetyStock: ingredient.safetyStock,
+      },
+    });
+    return { data: ingredient };
+  },
+  {
+    body: createIngredientBodySchema,
+    detail: { tags: ["inventory"], summary: "Create ingredient" },
+    response: {
+      201: ingredientResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.patch(
+  "/api/ingredients/:id",
+  async ({ params, body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+    const ingredient = await store.updateIngredient(
+      parseInt(params.id, 10),
+      body as {
+        name?: string;
+        unit?: string;
+        currentStock?: number;
+        safetyStock?: number;
+        isActive?: boolean;
+      },
+    );
+    if (!ingredient) {
+      set.status = 404;
+      return { error: "Ingredient not found" };
+    }
+    await writeAuditLog(user, {
+      action: "ingredient_update",
+      targetType: "ingredient",
+      targetId: String(ingredient.id),
+      message: `Updated ingredient ${ingredient.name}`,
+      metadata: {
+        patchKeys: Object.keys(body as Record<string, unknown>),
+        currentStock: ingredient.currentStock,
+        safetyStock: ingredient.safetyStock,
+        isActive: ingredient.isActive,
+      },
+    });
+    return { data: ingredient };
+  },
+  {
+    params: ingredientParamsSchema,
+    body: updateIngredientBodySchema,
+    detail: { tags: ["inventory"], summary: "Update ingredient" },
+    response: {
+      200: ingredientResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.patch(
+  "/api/ingredients/:id/stock",
+  async ({ params, body, request, set }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, inventoryStockUpdaterRoles);
+    const input = body as {
+      delta?: number;
+      currentStock?: number;
+      reason?: string;
+    };
+    const ingredient = await store.adjustIngredientStock(
+      parseInt(params.id, 10),
+      input,
+    );
+    if (!ingredient) {
+      set.status = 404;
+      return { error: "Ingredient not found" };
+    }
+    await writeAuditLog(user, {
+      action: "ingredient_stock_adjust",
+      targetType: "ingredient",
+      targetId: String(ingredient.id),
+      message: `Adjusted stock for ${ingredient.name}`,
+      metadata: {
+        delta: input.delta ?? null,
+        currentStock: ingredient.currentStock,
+        reason: input.reason ?? null,
+      },
+    });
+    return { data: ingredient };
+  },
+  {
+    params: ingredientParamsSchema,
+    body: adjustIngredientStockBodySchema,
+    detail: { tags: ["inventory"], summary: "Adjust ingredient stock" },
+    response: {
+      200: ingredientResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+      404: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.get(
+  "/api/menu/:id/ingredients",
+  async ({ params, request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, inventoryViewerRoles);
+    return { data: store.getMenuItemIngredients(parseInt(params.id, 10)) };
+  },
+  {
+    params: menuItemIngredientsParamsSchema,
+    detail: { tags: ["inventory"], summary: "Get menu item ingredients" },
+    response: {
+      200: menuItemIngredientListResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.put(
+  "/api/menu/:id/ingredients",
+  async ({ params, body, request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+    const menuId = parseInt(params.id, 10);
+    const input = body as {
+      ingredients: Array<{ ingredientId: number; quantityPerItem: number }>;
+    };
+    const links = await store.setMenuItemIngredients(menuId, input.ingredients);
+    await writeAuditLog(user, {
+      action: "menu_item_ingredients_update",
+      targetType: "menu_item",
+      targetId: String(menuId),
+      message: `Updated ingredients for menu item #${menuId}`,
+      metadata: { ingredientCount: links.length },
+    });
+    return { data: links };
+  },
+  {
+    params: menuItemIngredientsParamsSchema,
+    body: setMenuItemIngredientsBodySchema,
+    detail: { tags: ["inventory"], summary: "Set menu item ingredients" },
+    response: {
+      200: menuItemIngredientListResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.get(
+  "/api/inventory/impacts",
+  async ({ request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, inventoryViewerRoles);
+    return {
+      data: {
+        ingredients: store.getInventoryImpacts(),
+        menuItems: store.getMenuItemAvailabilityImpacts(),
+      },
+    };
+  },
+  {
+    detail: { tags: ["inventory"], summary: "Get shortage impacts" },
+    response: {
+      200: inventoryImpactResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
+    },
+  },
+);
+
+app.post(
+  "/api/inventory/sync-menu-availability",
+  async ({ request }) => {
+    const user = await requireUser(request);
+    requireAnyRole(user, menuManagerRoles);
+    const result = await store.syncMenuAvailabilityByInventory();
+    await writeAuditLog(user, {
+      action: "inventory_sync_menu_availability",
+      targetType: "inventory",
+      targetId: null,
+      message: "Synced menu availability by inventory",
+      metadata: {
+        disabledCount: result.disabledCount,
+        restoredCount: result.restoredCount,
+        updatedMenuItemIds: result.updatedMenuItems.map((item) => item.id),
+      },
+    });
+    return { data: result };
+  },
+  {
+    detail: { tags: ["inventory"], summary: "Sync menu availability" },
+    response: {
+      200: inventorySyncResponseSchema,
+      401: apiErrorResponseSchema,
+      403: apiErrorResponseSchema,
     },
   },
 );

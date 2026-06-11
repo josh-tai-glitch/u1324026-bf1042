@@ -52,6 +52,65 @@ export const menuItemSchema = z.object({
 
 export const menuItemHistorySchema = z.array(menuItemSchema);
 
+export const ingredientStatusSchema = z.enum([
+  "normal",
+  "low_stock",
+  "out_of_stock",
+]);
+
+export const ingredientSchema = z.object({
+  id: z.number().int().min(1),
+  name: z.string().min(1),
+  unit: z.string().min(1),
+  currentStock: z.number().int().min(0),
+  safetyStock: z.number().int().min(0),
+  isActive: z.boolean(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
+export const menuItemIngredientSchema = z.object({
+  id: z.number().int().min(1).optional(),
+  menuItemId: z.number().int().min(1),
+  ingredientId: z.number().int().min(1),
+  quantityPerItem: z.number().int().min(1),
+  ingredient: ingredientSchema.optional(),
+});
+
+const affectedMenuItemSchema = z.object({
+  id: z.number().int().min(1),
+  name: z.string().min(1),
+  requiredQty: z.number().int().min(1),
+  isAvailable: z.boolean(),
+  primaryCategoryName: z.string().nullable().optional(),
+});
+
+export const inventoryImpactSchema = z.object({
+  ingredientId: z.number().int().min(1),
+  ingredientName: z.string().min(1),
+  currentStock: z.number().int().min(0),
+  safetyStock: z.number().int().min(0),
+  unit: z.string().min(1),
+  status: ingredientStatusSchema,
+  affectedMenuItems: z.array(affectedMenuItemSchema),
+});
+
+const menuItemIngredientImpactSchema = z.object({
+  ingredientName: z.string().min(1),
+  currentStock: z.number().int().min(0),
+  requiredQty: z.number().int().min(1),
+  unit: z.string().min(1),
+});
+
+export const menuItemAvailabilityImpactSchema = z.object({
+  menuItemId: z.number().int().min(1),
+  menuItemName: z.string().min(1),
+  isAvailable: z.boolean(),
+  canPrepare: z.boolean(),
+  missingIngredients: z.array(menuItemIngredientImpactSchema),
+  lowStockIngredients: z.array(menuItemIngredientImpactSchema),
+});
+
 export const discountTypeSchema = z.enum(["percent", "fixed"]);
 
 export const promotionSchema = z.object({
@@ -148,6 +207,11 @@ export const auditLogActionSchema = z.enum([
   "order_issue_clear",
   "walk_in_order_create",
   "phone_order_create",
+  "ingredient_create",
+  "ingredient_update",
+  "ingredient_stock_adjust",
+  "menu_item_ingredients_update",
+  "inventory_sync_menu_availability",
 ]);
 
 export const auditLogTargetTypeSchema = z.enum([
@@ -158,6 +222,8 @@ export const auditLogTargetTypeSchema = z.enum([
   "promotion",
   "menu_item_category",
   "order",
+  "ingredient",
+  "inventory",
 ]);
 
 export const auditLogSchema = z.object({
@@ -376,6 +442,10 @@ export const analyticsSummarySchema = z.object({
   groupRevenue: z.number().min(0).default(0),
   bundleOrders: z.number().int().min(0).default(0),
   bundleRevenue: z.number().min(0).default(0),
+  activeIngredientCount: z.number().int().min(0).default(0),
+  lowStockIngredientCount: z.number().int().min(0).default(0),
+  outOfStockIngredientCount: z.number().int().min(0).default(0),
+  affectedMenuItemCount: z.number().int().min(0).default(0),
 });
 
 export const analyticsTrendsSchema = z.object({
@@ -432,6 +502,13 @@ export const analyticsInsightsSchema = z.object({
 // Derived TypeScript Types
 export type MenuItem = z.infer<typeof menuItemSchema>;
 export type MenuItemHistory = z.infer<typeof menuItemHistorySchema>;
+export type IngredientStatus = z.infer<typeof ingredientStatusSchema>;
+export type Ingredient = z.infer<typeof ingredientSchema>;
+export type MenuItemIngredient = z.infer<typeof menuItemIngredientSchema>;
+export type InventoryImpact = z.infer<typeof inventoryImpactSchema>;
+export type MenuItemAvailabilityImpact = z.infer<
+  typeof menuItemAvailabilityImpactSchema
+>;
 export type MenuBundleItem = z.infer<typeof menuBundleItemSchema>;
 export type MenuBundle = z.infer<typeof menuBundleSchema>;
 export type AbTestGroup = z.infer<typeof abTestGroupSchema>;

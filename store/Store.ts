@@ -11,8 +11,12 @@ import type {
   AnalyticsTrends,
   DiscountType,
   FulfillmentType,
+  Ingredient,
+  InventoryImpact,
   MenuBundle,
   MenuItem,
+  MenuItemAvailabilityImpact,
+  MenuItemIngredient,
   Order,
   OrderItem,
   OrderIssueType,
@@ -109,6 +113,12 @@ export type GetCurrentMenuInput = {
 export type AnalyticsDateRangeInput = {
   startDate?: string;
   endDate?: string;
+};
+
+export type SyncMenuAvailabilityResult = {
+  updatedMenuItems: MenuItem[];
+  disabledCount: number;
+  restoredCount: number;
 };
 
 export function applyBundlePricingToOrderItems(
@@ -402,6 +412,39 @@ export interface Store {
     },
   ): Promise<MenuBundle | null>;
   deleteMenuBundle(bundleId: number): Promise<MenuBundle | null>;
+
+  // Inventory / shortage impact
+  getIngredients(): ReadonlyArray<Ingredient>;
+  getActiveIngredients(): ReadonlyArray<Ingredient>;
+  createIngredient(input: {
+    name: string;
+    unit?: string;
+    currentStock?: number;
+    safetyStock?: number;
+    isActive?: boolean;
+  }): Promise<Ingredient>;
+  updateIngredient(
+    ingredientId: number,
+    patch: {
+      name?: string;
+      unit?: string;
+      currentStock?: number;
+      safetyStock?: number;
+      isActive?: boolean;
+    },
+  ): Promise<Ingredient | null>;
+  adjustIngredientStock(
+    ingredientId: number,
+    input: { delta?: number; currentStock?: number },
+  ): Promise<Ingredient | null>;
+  getMenuItemIngredients(menuItemId: number): ReadonlyArray<MenuItemIngredient>;
+  setMenuItemIngredients(
+    menuItemId: number,
+    ingredients: Array<{ ingredientId: number; quantityPerItem: number }>,
+  ): Promise<ReadonlyArray<MenuItemIngredient>>;
+  getInventoryImpacts(): ReadonlyArray<InventoryImpact>;
+  getMenuItemAvailabilityImpacts(): ReadonlyArray<MenuItemAvailabilityImpact>;
+  syncMenuAvailabilityByInventory(): Promise<SyncMenuAvailabilityResult>;
 
   // Orders
   getOrders(): ReadonlyArray<Order>;

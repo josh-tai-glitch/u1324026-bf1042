@@ -81,6 +81,46 @@ export const menuItemsTable = appSchema.table("menu_items", {
   abTestGroup: text("ab_test_group"),
 });
 
+export const ingredientsTable = appSchema.table(
+  "ingredients",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    unit: text("unit").notNull().default("unit"),
+    currentStock: integer("current_stock").notNull().default(0),
+    safetyStock: integer("safety_stock").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    isActiveIdx: index("ingredients_is_active_idx").on(table.isActive),
+  }),
+);
+
+export const menuItemIngredientsTable = appSchema.table(
+  "menu_item_ingredients",
+  {
+    id: serial("id").primaryKey(),
+    menuItemId: integer("menu_item_id")
+      .notNull()
+      .references(() => menuItemsTable.id, { onDelete: "cascade" }),
+    ingredientId: integer("ingredient_id")
+      .notNull()
+      .references(() => ingredientsTable.id),
+    quantityPerItem: integer("quantity_per_item").notNull().default(1),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    menuItemIdIdx: index("menu_item_ingredients_menu_item_id_idx").on(
+      table.menuItemId,
+    ),
+    ingredientIdIdx: index("menu_item_ingredients_ingredient_id_idx").on(
+      table.ingredientId,
+    ),
+  }),
+);
+
 export const menuItemCategoriesTable = appSchema.table(
   "menu_item_categories",
   {

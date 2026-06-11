@@ -13,8 +13,13 @@ import type {
   CategorySales,
   DiscountType,
   FulfillmentType,
+  Ingredient,
+  IngredientStatus,
+  InventoryImpact,
   MenuBundle,
   MenuItem,
+  MenuItemAvailabilityImpact,
+  MenuItemIngredient,
   Order,
   OrderIssueType,
   OrderItem,
@@ -31,9 +36,11 @@ import { db } from "../../db/client.ts";
 import {
   auditLogsTable,
   categoriesTable,
+  ingredientsTable,
   menuBundleItemsTable,
   menuBundlesTable,
   menuItemCategoriesTable,
+  menuItemIngredientsTable,
   menuItemsTable,
   orderItemsTable,
   ordersTable,
@@ -154,6 +161,11 @@ const validAuditLogActions = [
   "order_issue_clear",
   "walk_in_order_create",
   "phone_order_create",
+  "ingredient_create",
+  "ingredient_update",
+  "ingredient_stock_adjust",
+  "menu_item_ingredients_update",
+  "inventory_sync_menu_availability",
 ] satisfies AuditLogAction[];
 
 const validAuditLogTargetTypes = [
@@ -164,6 +176,8 @@ const validAuditLogTargetTypes = [
   "promotion",
   "menu_item_category",
   "order",
+  "ingredient",
+  "inventory",
 ] satisfies AuditLogTargetType[];
 
 function toOrderStatus(value: string): OrderStatus {
@@ -194,6 +208,8 @@ export class PgStore implements Store {
   private allCategories: Category[] = [];
   private promotions: Promotion[] = [];
   private menuBundles: MenuBundle[] = [];
+  private ingredients: Ingredient[] = [];
+  private menuItemIngredients: MenuItemIngredient[] = [];
   private orders: Order[] = [];
   private auditLogs: AuditLog[] = [];
 
@@ -334,6 +350,182 @@ export class PgStore implements Store {
 
   async deleteMenuBundle(bundleId: number): Promise<MenuBundle | null> {
     return this.updateMenuBundle(bundleId, { isActive: false });
+  }
+
+  getIngredients(): ReadonlyArray<Ingredient> {
+    return this.ingredients;
+  }
+
+  getActiveIngredients(): ReadonlyArray<Ingredient> {
+    return this.ingredients.filter((ingredient) => ingredient.isActive);
+  }
+
+  async createIngredient(input: {
+    name: string;
+    unit?: string;
+    currentStock?: number;
+    safetyStock?: number;
+    isActive?: boolean;
+  }): Promise<Ingredient> {
+    const [created] = await db
+      .insert(ingredientsTable)
+      .values({
+        name: input.name.trim(),
+        unit: input.unit?.trim() || "unit",
+        currentStock: input.currentStock ?? 0,
+        safetyStock: input.safetyStock ?? 0,
+        isActive: input.isActive ?? true,
+      })
+      .returning();
+    if (!created) throw new Error("Failed to create ingredient");
+    await this.reloadFromDatabase();
+    return this.toIngredient(created);
+  }
+
+  async updateIngredient(
+    ingredientId: number,
+    patch: {
+      name?: string;
+      unit?: string;
+      currentStock?: number;
+      safetyStock?: number;
+      isActive?: boolean;
+    },
+  ): Promise<Ingredient | null> {
+    const values: Partial<typeof ingredientsTable.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+    if (patch.name !== undefined) values.name = patch.name.trim();
+    if (patch.unit !== undefined) values.unit = patch.unit.trim() || "unit";
+    if (patch.currentStock !== undefined) values.currentStock = patch.currentStock;
+    if (patch.safetyStock !== undefined) values.safetyStock = patch.safetyStock;
+    if (patch.isActive !== undefined) values.isActive = patch.isActive;
+
+    const [updated] = await db
+      .update(ingredientsTable)
+      .set(values)
+      .where(eq(ingredientsTable.id, ingredientId))
+      .returning();
+    if (!updated) return null;
+    await this.reloadFromDatabase();
+    return this.toIngredient(updated);
+  }
+
+  async adjustIngredientStock(
+    ingredientId: number,
+    input: { delta?: number; currentStock?: number },
+  ): Promise<Ingredient | null> {
+    const current = this.ingredients.find(
+      (ingredient) => ingredient.id === ingredientId,
+    );
+    if (!current) return null;
+    const nextStock =
+      input.currentStock !== undefined
+        ? input.currentStock
+        : Math.max(0, current.currentStock + (input.delta ?? 0));
+    return this.updateIngredient(ingredientId, { currentStock: nextStock });
+  }
+
+  getMenuItemIngredients(menuItemId: number): ReadonlyArray<MenuItemIngredient> {
+    return this.menuItemIngredients.filter(
+      (link) => link.menuItemId === menuItemId,
+    );
+  }
+
+  async setMenuItemIngredients(
+    menuItemId: number,
+    ingredients: Array<{ ingredientId: number; quantityPerItem: number }>,
+  ): Promise<ReadonlyArray<MenuItemIngredient>> {
+    const menuItem = this.menu.find((item) => item.id === menuItemId);
+    if (!menuItem) return [];
+    const activeIngredientIds = new Set(
+      this.getActiveIngredients().map((ingredient) => ingredient.id),
+    );
+    const safeIngredients = ingredients.filter((ingredient) =>
+      activeIngredientIds.has(ingredient.ingredientId),
+    );
+
+    await db
+      .delete(menuItemIngredientsTable)
+      .where(eq(menuItemIngredientsTable.menuItemId, menuItemId));
+    if (safeIngredients.length > 0) {
+      await db.insert(menuItemIngredientsTable).values(
+        safeIngredients.map((ingredient) => ({
+          menuItemId,
+          ingredientId: ingredient.ingredientId,
+          quantityPerItem: ingredient.quantityPerItem,
+        })),
+      );
+    }
+    await this.reloadFromDatabase();
+    return this.getMenuItemIngredients(menuItemId);
+  }
+
+  getInventoryImpacts(): ReadonlyArray<InventoryImpact> {
+    return this.ingredients
+      .filter((ingredient) => ingredient.isActive)
+      .map((ingredient) => {
+        const links = this.menuItemIngredients.filter(
+          (link) => link.ingredientId === ingredient.id,
+        );
+        return {
+          ingredientId: ingredient.id,
+          ingredientName: ingredient.name,
+          currentStock: ingredient.currentStock,
+          safetyStock: ingredient.safetyStock,
+          unit: ingredient.unit,
+          status: this.getIngredientStatus(ingredient),
+          affectedMenuItems: links
+            .map((link) => {
+              const item = this.menu.find(
+                (candidate) => candidate.id === link.menuItemId,
+              );
+              if (!item || !item.is_current_version) return null;
+              return {
+                id: item.id,
+                name: item.name,
+                requiredQty: link.quantityPerItem,
+                isAvailable: item.is_available,
+                primaryCategoryName: item.primary_category_name ?? null,
+              };
+            })
+            .filter((item): item is NonNullable<typeof item> => Boolean(item)),
+        };
+      });
+  }
+
+  getMenuItemAvailabilityImpacts(): ReadonlyArray<MenuItemAvailabilityImpact> {
+    return this.getCurrentMenu().map((item) =>
+      this.getMenuItemAvailabilityImpact(item),
+    );
+  }
+
+  async syncMenuAvailabilityByInventory(): Promise<{
+    updatedMenuItems: MenuItem[];
+    disabledCount: number;
+    restoredCount: number;
+  }> {
+    const updatedMenuItems: MenuItem[] = [];
+    let disabledCount = 0;
+    const restoredCount = 0;
+
+    for (const impact of this.getMenuItemAvailabilityImpacts()) {
+      const currentItem = this.menu.find((item) => item.id === impact.menuItemId);
+      if (!currentItem) continue;
+      if (!impact.canPrepare && currentItem.is_available) {
+        const updated = await this.updateMenuItem(currentItem.id, {
+          isAvailable: false,
+          changeReason: "Inventory shortage auto sync",
+        });
+        if (updated) {
+          updatedMenuItems.push(updated);
+          disabledCount += 1;
+        }
+      }
+    }
+
+    await this.reloadFromDatabase();
+    return { updatedMenuItems, disabledCount, restoredCount };
   }
 
   async createPromotion(input: {
@@ -2151,7 +2343,27 @@ export class PgStore implements Store {
       groupRevenue: 0,
       bundleOrders: 0,
       bundleRevenue: 0,
+      activeIngredientCount: 0,
+      lowStockIngredientCount: 0,
+      outOfStockIngredientCount: 0,
+      affectedMenuItemCount: 0,
     };
+
+    const inventoryImpacts = this.getInventoryImpacts();
+    const affectedMenuItemIds = new Set<number>();
+    summary.activeIngredientCount = this.getActiveIngredients().length;
+    for (const impact of inventoryImpacts) {
+      if (impact.status === "low_stock") summary.lowStockIngredientCount += 1;
+      if (impact.status === "out_of_stock") {
+        summary.outOfStockIngredientCount += 1;
+      }
+      if (impact.status !== "normal") {
+        for (const item of impact.affectedMenuItems) {
+          affectedMenuItemIds.add(item.id);
+        }
+      }
+    }
+    summary.affectedMenuItemCount = affectedMenuItemIds.size;
 
     for (const order of formalOrders) {
       summary.paymentMethods[order.paymentMethod] += 1;
@@ -2516,6 +2728,49 @@ export class PgStore implements Store {
     );
   }
 
+  private getIngredientStatus(ingredient: Ingredient): IngredientStatus {
+    if (ingredient.currentStock <= 0) return "out_of_stock";
+    if (ingredient.currentStock <= ingredient.safetyStock) return "low_stock";
+    return "normal";
+  }
+
+  private getMenuItemAvailabilityImpact(
+    item: MenuItem,
+  ): MenuItemAvailabilityImpact {
+    const links = this.getMenuItemIngredients(item.id);
+    const missingIngredients: MenuItemAvailabilityImpact["missingIngredients"] = [];
+    const lowStockIngredients: MenuItemAvailabilityImpact["lowStockIngredients"] = [];
+
+    for (const link of links) {
+      const ingredient =
+        link.ingredient ??
+        this.ingredients.find((candidate) => candidate.id === link.ingredientId);
+      if (!ingredient || !ingredient.isActive) continue;
+
+      const impact = {
+        ingredientName: ingredient.name,
+        currentStock: ingredient.currentStock,
+        requiredQty: link.quantityPerItem,
+        unit: ingredient.unit,
+      };
+
+      if (ingredient.currentStock < link.quantityPerItem) {
+        missingIngredients.push(impact);
+      } else if (ingredient.currentStock <= ingredient.safetyStock) {
+        lowStockIngredients.push(impact);
+      }
+    }
+
+    return {
+      menuItemId: item.id,
+      menuItemName: item.name,
+      isAvailable: item.is_available,
+      canPrepare: missingIngredients.length === 0,
+      missingIngredients,
+      lowStockIngredients,
+    };
+  }
+
   private parseAnalyticsDateBound(
     value: string | undefined,
     isEnd: boolean,
@@ -2650,6 +2905,19 @@ export class PgStore implements Store {
       .from(menuBundleItemsTable)
       .orderBy(asc(menuBundleItemsTable.bundleId), asc(menuBundleItemsTable.id));
 
+    const ingredientRows = await db
+      .select()
+      .from(ingredientsTable)
+      .orderBy(asc(ingredientsTable.name), asc(ingredientsTable.id));
+
+    const menuItemIngredientRows = await db
+      .select()
+      .from(menuItemIngredientsTable)
+      .orderBy(
+        asc(menuItemIngredientsTable.menuItemId),
+        asc(menuItemIngredientsTable.id),
+      );
+
     const menuCategoryRows = await db
       .select({
         menuItemId: menuItemCategoriesTable.menuItemId,
@@ -2691,6 +2959,7 @@ export class PgStore implements Store {
     this.allCategories = categoryRows.map((row) => this.toCategory(row));
     this.categories = this.allCategories.filter((category) => category.isActive);
     this.promotions = promotionRows.map((row) => this.toPromotion(row));
+    this.ingredients = ingredientRows.map((row) => this.toIngredient(row));
     this.auditLogs = auditLogRows
       .map((row) => this.toAuditLog(row))
       .filter((log): log is AuditLog => Boolean(log));
@@ -2744,6 +3013,10 @@ export class PgStore implements Store {
     }
     this.menuBundles = bundleRows.map((row) =>
       this.toMenuBundle(row, bundleItemsByBundleId.get(row.id) ?? []),
+    );
+
+    this.menuItemIngredients = menuItemIngredientRows.map((row) =>
+      this.toMenuItemIngredient(row),
     );
 
     const itemsByOrderId = new Map<number, OrderItem[]>();
@@ -2868,6 +3141,40 @@ export class PgStore implements Store {
         row.updatedAt instanceof Date
           ? row.updatedAt.toISOString()
           : new Date(row.updatedAt).toISOString(),
+    };
+  }
+
+  private toIngredient(row: typeof ingredientsTable.$inferSelect): Ingredient {
+    return {
+      id: row.id,
+      name: row.name,
+      unit: row.unit,
+      currentStock: row.currentStock,
+      safetyStock: row.safetyStock,
+      isActive: row.isActive,
+      createdAt:
+        row.createdAt instanceof Date
+          ? row.createdAt.toISOString()
+          : new Date(row.createdAt).toISOString(),
+      updatedAt:
+        row.updatedAt instanceof Date
+          ? row.updatedAt.toISOString()
+          : new Date(row.updatedAt).toISOString(),
+    };
+  }
+
+  private toMenuItemIngredient(
+    row: typeof menuItemIngredientsTable.$inferSelect,
+  ): MenuItemIngredient {
+    const ingredient = this.ingredients.find(
+      (candidate) => candidate.id === row.ingredientId,
+    );
+    return {
+      id: row.id,
+      menuItemId: row.menuItemId,
+      ingredientId: row.ingredientId,
+      quantityPerItem: row.quantityPerItem,
+      ingredient,
     };
   }
 

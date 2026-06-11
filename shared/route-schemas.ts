@@ -13,6 +13,10 @@ import {
   categorySalesSchema,
   discountTypeSchema,
   fulfillmentTypeSchema,
+  ingredientSchema,
+  inventoryImpactSchema,
+  menuItemAvailabilityImpactSchema,
+  menuItemIngredientSchema,
   menuBundleSchema,
   menuItemSchema,
   orderSchema,
@@ -203,6 +207,50 @@ export const updateMenuBundleBodySchema = z.object({
 
 export const menuBundleParamsSchema = z.object({
   id: z.string().regex(/^[0-9]+$/),
+});
+
+export const ingredientParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
+export const createIngredientBodySchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  unit: z.string().trim().min(1).max(20).default("unit"),
+  currentStock: z.number().int().min(0).max(999999).default(0),
+  safetyStock: z.number().int().min(0).max(999999).default(0),
+  isActive: z.boolean().optional(),
+});
+
+export const updateIngredientBodySchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  unit: z.string().trim().min(1).max(20).optional(),
+  currentStock: z.number().int().min(0).max(999999).optional(),
+  safetyStock: z.number().int().min(0).max(999999).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const adjustIngredientStockBodySchema = z
+  .object({
+    delta: z.number().int().min(-999999).max(999999).optional(),
+    currentStock: z.number().int().min(0).max(999999).optional(),
+    reason: z.string().trim().max(200).optional(),
+  })
+  .refine(
+    (value) => value.delta !== undefined || value.currentStock !== undefined,
+    "delta or currentStock is required",
+  );
+
+export const menuItemIngredientsParamsSchema = z.object({
+  id: z.string().regex(/^[0-9]+$/),
+});
+
+const menuItemIngredientBodySchema = z.object({
+  ingredientId: z.number().int().min(1),
+  quantityPerItem: z.number().int().min(1).max(9999),
+});
+
+export const setMenuItemIngredientsBodySchema = z.object({
+  ingredients: z.array(menuItemIngredientBodySchema),
 });
 
 /** DELETE /api/menu/:id */
@@ -531,6 +579,33 @@ export const menuBundleResponseSchema = z.object({
 
 export const menuBundleListResponseSchema = z.object({
   data: z.array(menuBundleSchema),
+});
+
+export const ingredientResponseSchema = z.object({
+  data: ingredientSchema,
+});
+
+export const ingredientListResponseSchema = z.object({
+  data: z.array(ingredientSchema),
+});
+
+export const menuItemIngredientListResponseSchema = z.object({
+  data: z.array(menuItemIngredientSchema),
+});
+
+export const inventoryImpactResponseSchema = z.object({
+  data: z.object({
+    ingredients: z.array(inventoryImpactSchema),
+    menuItems: z.array(menuItemAvailabilityImpactSchema),
+  }),
+});
+
+export const inventorySyncResponseSchema = z.object({
+  data: z.object({
+    updatedMenuItems: z.array(menuItemSchema),
+    disabledCount: z.number().int().min(0),
+    restoredCount: z.number().int().min(0),
+  }),
 });
 
 export const versionConflictResponseSchema = z.object({

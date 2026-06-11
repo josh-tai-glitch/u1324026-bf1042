@@ -51,17 +51,17 @@ const orderIssueTypeOptions: OrderIssueType[] = [
   "other",
 ];
 const abTestGroupOptions: Array<{ id: "" | AbTestGroup; label: string }> = [
-  { id: "", label: "No A/B group" },
-  { id: "control", label: "Control" },
-  { id: "variant_a", label: "Variant A" },
-  { id: "variant_b", label: "Variant B" },
+  { id: "", label: "未設定測試分組" },
+  { id: "control", label: "對照組" },
+  { id: "variant_a", label: "測試 A 組" },
+  { id: "variant_b", label: "測試 B 組" },
 ];
 const orderQuickFilters = [
-  { id: "active", label: "Active" },
-  { id: "ready_unpaid", label: "Ready unpaid" },
-  { id: "phone", label: "Phone orders" },
-  { id: "open_issues", label: "Open issues" },
-  { id: "promo", label: "Promo orders" },
+  { id: "active", label: "進行中" },
+  { id: "ready_unpaid", label: "待付款取餐" },
+  { id: "phone", label: "電話訂單" },
+  { id: "open_issues", label: "有問題訂單" },
+  { id: "promo", label: "優惠券訂單" },
 ] as const;
 const orderBoardColumnStatuses: OrderStatus[] = [
   "submitted",
@@ -71,11 +71,11 @@ const orderBoardColumnStatuses: OrderStatus[] = [
   "cancelled",
 ];
 const analyticsRangeOptions = [
-  { id: "all", label: "All" },
-  { id: "today", label: "Today" },
-  { id: "last7Days", label: "Last 7 days" },
-  { id: "thisMonth", label: "This month" },
-  { id: "custom", label: "Custom" },
+  { id: "all", label: "全部" },
+  { id: "today", label: "今天" },
+  { id: "last7Days", label: "近 7 天" },
+  { id: "thisMonth", label: "本月" },
+  { id: "custom", label: "自訂" },
 ] as const;
 const auditLogActionOptions: AuditLogAction[] = [
   "role_update",
@@ -115,52 +115,52 @@ const auditLogTargetTypeOptions: AuditLogTargetType[] = [
   "order",
 ];
 const auditLogActionLabels: Record<AuditLogAction, string> = {
-  role_update: "Role updated",
-  role_request_review: "Role request reviewed",
-  role_request_create: "Role request created",
-  menu_create: "Menu created",
-  menu_update: "Menu updated",
-  menu_availability_update: "Availability updated",
-  menu_display_order_update: "Display order updated",
-  menu_ab_test_update: "A/B test updated",
-  menu_delete: "Menu deleted",
-  category_create: "Category created",
-  category_update: "Category updated",
-  category_delete: "Category deactivated",
-  promotion_create: "Promotion created",
-  promotion_update: "Promotion updated",
-  promotion_delete: "Promotion deactivated",
-  menu_category_assign: "Category assigned",
-  menu_category_remove: "Category removed",
-  order_status_update: "Order status updated",
-  order_payment_update: "Payment updated",
-  order_cancel: "Order cancelled",
-  order_submit: "Order submitted",
-  order_rating_update: "Rating updated",
-  order_issue_set: "Issue set",
-  order_issue_clear: "Issue cleared",
-  walk_in_order_create: "Walk-in order created",
-  phone_order_create: "Phone order created",
+  role_update: "角色已更新",
+  role_request_review: "權限申請已審核",
+  role_request_create: "已送出權限申請",
+  menu_create: "已新增餐點",
+  menu_update: "已更新餐點",
+  menu_availability_update: "已更新販售狀態",
+  menu_display_order_update: "已更新顯示排序",
+  menu_ab_test_update: "已更新測試分組",
+  menu_delete: "已刪除餐點",
+  category_create: "已新增分類",
+  category_update: "已更新分類",
+  category_delete: "已停用分類",
+  promotion_create: "已新增優惠券",
+  promotion_update: "已更新優惠券",
+  promotion_delete: "已停用優惠券",
+  menu_category_assign: "已指派分類",
+  menu_category_remove: "已移除分類",
+  order_status_update: "已更新訂單狀態",
+  order_payment_update: "已更新付款狀態",
+  order_cancel: "已取消訂單",
+  order_submit: "已送出訂單",
+  order_rating_update: "已更新評價",
+  order_issue_set: "已標記訂單問題",
+  order_issue_clear: "已清除訂單問題",
+  walk_in_order_create: "已建立現場訂單",
+  phone_order_create: "已建立電話訂單",
 };
 const auditLogTargetTypeLabels: Record<AuditLogTargetType, string> = {
-  user: "User",
-  role_request: "Role request",
-  menu_item: "Menu item",
-  category: "Category",
-  promotion: "Promotion",
-  menu_item_category: "Menu item category",
-  order: "Order",
+  user: "使用者",
+  role_request: "權限申請",
+  menu_item: "餐點",
+  category: "分類",
+  promotion: "優惠券",
+  menu_item_category: "餐點分類",
+  order: "訂單",
 };
 const promotionRuntimeFilterOptions: Array<{
   id: PromotionRuntimeFilter;
   label: string;
 }> = [
-  { id: "all", label: "All" },
-  { id: "active_now", label: "Active now" },
-  { id: "scheduled", label: "Scheduled" },
-  { id: "expired", label: "Expired" },
-  { id: "usage_full", label: "Usage full" },
-  { id: "inactive", label: "Inactive" },
+  { id: "all", label: "全部" },
+  { id: "active_now", label: "目前可用" },
+  { id: "scheduled", label: "尚未開始" },
+  { id: "expired", label: "已過期" },
+  { id: "usage_full", label: "使用額滿" },
+  { id: "inactive", label: "已停用" },
 ];
 const emptyMenuForm = {
   name: "",
@@ -395,17 +395,56 @@ function formatSemanticVersion(
 }
 
 function formatAbTestGroup(group?: AbTestGroup | null) {
-  if (group === "control") return "Control";
-  if (group === "variant_a") return "Variant A";
-  if (group === "variant_b") return "Variant B";
-  return "No A/B group";
+  if (group === "control") return "對照組";
+  if (group === "variant_a") return "測試 A 組";
+  if (group === "variant_b") return "測試 B 組";
+  return "未設定測試分組";
 }
 
 function formatOrderSource(source: Order["orderSource"]) {
-  if (source === "walk_in") return "Walk-in";
-  if (source === "phone") return "Phone";
-  if (source === "guest") return "Guest";
-  return "Customer";
+  if (source === "walk_in") return "現場點餐";
+  if (source === "phone") return "電話訂餐";
+  if (source === "guest") return "訪客訂餐";
+  return "會員訂餐";
+}
+
+function formatOrderStatus(status: OrderStatus) {
+  if (status === "pending") return "購物車";
+  if (status === "submitted") return "已送出";
+  if (status === "preparing") return "製作中";
+  if (status === "ready") return "可取餐";
+  if (status === "completed") return "已完成";
+  if (status === "cancelled") return "已取消";
+  return status;
+}
+
+function formatPaymentStatus(status: PaymentStatus) {
+  return status === "paid" ? "已付款" : "未付款";
+}
+
+function formatPaymentMethod(method: PaymentMethod) {
+  if (method === "cash") return "現金";
+  if (method === "card") return "刷卡";
+  return "線上付款";
+}
+
+function formatFulfillmentType(type: FulfillmentType) {
+  return type === "dine_in" ? "內用" : "外帶";
+}
+
+function formatOrderIssueType(type: OrderIssueType) {
+  if (type === "out_of_stock") return "原料不足";
+  if (type === "need_customer_confirmation") return "需與顧客確認";
+  if (type === "special_request_problem") return "特殊需求問題";
+  return "其他";
+}
+
+function formatDemoUserLabel(demoUser: SessionUser) {
+  if (demoUser.roles.includes("admin")) return "管理者";
+  if (demoUser.roles.includes("owner")) return "老闆";
+  if (demoUser.roles.includes("chef")) return "廚師";
+  if (demoUser.roles.includes("staff")) return "店員";
+  return "顧客";
 }
 
 function getPhoneLastFour(phone?: string | null) {
@@ -634,6 +673,8 @@ export default function App() {
   const [ordersViewMode, setOrdersViewMode] = useState<
     "list" | "board" | "kitchen"
   >("list");
+  const [orderPage, setOrderPage] = useState(1);
+  const orderPageSize = 10;
 
   // Role request / admin review state
   const [roleRequestRole, setRoleRequestRole] = useState<"staff" | "chef">(
@@ -731,30 +772,30 @@ export default function App() {
   const managerTabs = useMemo(
     () =>
       [
-        { id: "orders" as const, label: "Orders", visible: canViewAllOrders },
-        { id: "analytics" as const, label: "Analytics", visible: canManageMenu },
-        { id: "menu" as const, label: "Menu", visible: canManageMenu },
-        {
-          id: "inventory" as const,
-          label: "Inventory",
+      { id: "orders" as const, label: "訂單處理", visible: canViewAllOrders },
+      { id: "analytics" as const, label: "營運分析", visible: canManageMenu },
+      { id: "menu" as const, label: "菜單管理", visible: canManageMenu },
+      {
+        id: "inventory" as const,
+          label: "庫存管理",
           visible: canViewInventory,
-        },
-        {
-          id: "categories" as const,
-          label: "Categories",
+      },
+      {
+        id: "categories" as const,
+          label: "分類管理",
           visible: canManageMenu,
-        },
-        {
-          id: "promotions" as const,
-          label: "Promotions",
+      },
+      {
+        id: "promotions" as const,
+          label: "優惠券管理",
           visible: canManageMenu,
-        },
-        {
-          id: "auditLogs" as const,
-          label: "Audit logs",
+      },
+      {
+        id: "auditLogs" as const,
+          label: "操作紀錄",
           visible: canManageMenu,
-        },
-        { id: "roleRequests" as const, label: "Role requests", visible: isAdmin },
+      },
+      { id: "roleRequests" as const, label: "權限管理", visible: isAdmin },
       ].filter((tab) => tab.visible),
     [canManageMenu, canViewAllOrders, canViewInventory, isAdmin],
   );
@@ -1474,6 +1515,34 @@ export default function App() {
     orderStatusFilter,
   ]);
 
+  const managerOrderPageCount = Math.max(
+    1,
+    Math.ceil(managerVisibleOrders.length / orderPageSize),
+  );
+  const currentManagerOrderPage = Math.min(orderPage, managerOrderPageCount);
+  const paginatedManagerVisibleOrders = useMemo(() => {
+    const startIndex = (currentManagerOrderPage - 1) * orderPageSize;
+    return managerVisibleOrders.slice(startIndex, startIndex + orderPageSize);
+  }, [currentManagerOrderPage, managerVisibleOrders, orderPageSize]);
+
+  useEffect(() => {
+    setOrderPage(1);
+  }, [
+    orderIssueFilter,
+    orderPaymentFilter,
+    orderQuickFilter,
+    orderSearchText,
+    orderSourceFilter,
+    orderStatusFilter,
+    ordersViewMode,
+  ]);
+
+  useEffect(() => {
+    if (orderPage > managerOrderPageCount) {
+      setOrderPage(managerOrderPageCount);
+    }
+  }, [managerOrderPageCount, orderPage]);
+
   const kitchenDisplayOrders = useMemo(() => {
     const search = orderSearchText.trim().toLowerCase();
     const searchDigits = search.replace(/\D/g, "");
@@ -1627,15 +1696,15 @@ export default function App() {
       order.status === "submitted" &&
       allowedStatuses.includes("preparing")
     ) {
-      return { label: "Start preparing", status: "preparing" };
+      return { label: "開始製作", status: "preparing" };
     }
 
     if (order.status === "preparing" && allowedStatuses.includes("ready")) {
-      return { label: "Mark ready", status: "ready" };
+      return { label: "標記可取餐", status: "ready" };
     }
 
     if (order.status === "ready" && allowedStatuses.includes("completed")) {
-      return { label: "Complete pickup", status: "completed" };
+      return { label: "完成取餐", status: "completed" };
     }
 
     return null;
@@ -1785,47 +1854,47 @@ export default function App() {
 
   function formatReceiptText(order: Order): string {
     const lines = [
-      "Breakfast Shop Receipt",
+      "早餐店收據",
       "======================",
-      `Pickup number: ${formatPickupNumber(order.id)}`,
-      `Order ID: ${order.id}`,
-      `Source: ${formatOrderSource(order.orderSource)}`,
+      `取餐編號：${formatPickupNumber(order.id)}`,
+      `訂單編號：${order.id}`,
+      `訂單來源：${formatOrderSource(order.orderSource)}`,
     ];
 
     if (order.guestName) {
-      lines.push(`Guest name: ${order.guestName}`);
+      lines.push(`顧客姓名：${order.guestName}`);
     }
     if (order.guestPhone) {
-      lines.push(`Phone: ${order.guestPhone}`);
+      lines.push(`電話：${order.guestPhone}`);
     }
     if (order.isGroupOrder) {
-      lines.push(`Group order: ${order.groupName || "Yes"}`);
-      if (order.contactName) lines.push(`Contact: ${order.contactName}`);
-      if (order.contactPhone) lines.push(`Contact phone: ${order.contactPhone}`);
+      lines.push(`團體訂單：${order.groupName || "是"}`);
+      if (order.contactName) lines.push(`聯絡人：${order.contactName}`);
+      if (order.contactPhone) lines.push(`聯絡電話：${order.contactPhone}`);
     }
 
     lines.push(
-      `Status: ${order.status}`,
-      `Fulfillment: ${order.fulfillmentType}`,
+      `狀態：${formatOrderStatus(order.status)}`,
+      `取餐方式：${formatFulfillmentType(order.fulfillmentType)}`,
     );
 
     if (order.pickupTime) {
-      lines.push(`Pickup time: ${formatCheckoutDateTime(order.pickupTime)}`);
+      lines.push(`取餐時間：${formatCheckoutDateTime(order.pickupTime)}`);
     }
 
     lines.push(
-      `Payment: ${order.paymentMethod} / ${order.paymentStatus}`,
+      `付款：${formatPaymentMethod(order.paymentMethod)} / ${formatPaymentStatus(order.paymentStatus)}`,
     );
 
     if (order.customerNote) {
-      lines.push(`Note: ${order.customerNote}`);
+      lines.push(`備註：${order.customerNote}`);
     }
 
-    lines.push("", "Items:");
+    lines.push("", "餐點：");
     for (const detail of order.items) {
       const itemLineParts = [`${detail.item.name} x ${detail.qty}`];
-      if (detail.memberName) itemLineParts.push(`member: ${detail.memberName}`);
-      if (detail.bundleName) itemLineParts.push(`bundle: ${detail.bundleName}`);
+      if (detail.memberName) itemLineParts.push(`成員：${detail.memberName}`);
+      if (detail.bundleName) itemLineParts.push(`套餐：${detail.bundleName}`);
       lines.push(
         `${itemLineParts.join(" / ")} = $${detail.item.price * detail.qty}`,
       );
@@ -1834,13 +1903,13 @@ export default function App() {
     if (order.discountAmount > 0 || order.promoCode) {
       lines.push(
         "",
-        `Subtotal: $${order.subtotal}`,
-        `Promo code: ${order.promoCode ?? "-"}`,
-        `Discount: -$${order.discountAmount}`,
+        `小計：$${order.subtotal}`,
+        `優惠碼：${order.promoCode ?? "-"}`,
+        `折扣：-$${order.discountAmount}`,
       );
     }
 
-    lines.push("", `Total: $${order.total}`);
+    lines.push("", `總金額：$${order.total}`);
     return lines.join("\n");
   }
 
@@ -1893,9 +1962,9 @@ export default function App() {
   }
 
   function getBusyLevelLabel(level: BusyLevel): string {
-    if (level === "very_busy") return "Very busy";
-    if (level === "busy") return "Busy";
-    return "Normal";
+    if (level === "very_busy") return "非常忙碌";
+    if (level === "busy") return "忙碌";
+    return "正常";
   }
 
   function getBusyLevelBadgeClass(level: BusyLevel): string {
@@ -1906,12 +1975,12 @@ export default function App() {
 
   function getBusyLevelMessage(level: BusyLevel): string {
     if (level === "very_busy") {
-      return "High demand right now. Pickup may take longer than usual.";
+      return "目前訂單較多，取餐可能需要多等一點時間。";
     }
     if (level === "busy") {
-      return "The kitchen is currently busy. Consider choosing a later pickup time.";
+      return "廚房目前較忙，建議可選擇稍晚的取餐時間。";
     }
-    return "Orders are moving normally.";
+    return "目前出餐狀況正常。";
   }
 
   function getOrderQueueTime(order: Order): number {
@@ -3266,7 +3335,7 @@ export default function App() {
           <input
             className="input input-bordered input-xs min-w-40 flex-1"
             maxLength={maxTastePreferenceChipLength}
-            placeholder="Add shortcut, e.g. 不加美乃滋"
+            placeholder="新增快速備註，例如：不加美乃滋"
             value={newTastePreferenceChip}
             onChange={(event) => setNewTastePreferenceChip(event.target.value)}
             onKeyDown={(event) => {
@@ -3288,7 +3357,7 @@ export default function App() {
             type="button"
             onClick={resetTastePreferenceChips}
           >
-            Reset defaults
+            重設預設
           </button>
         </div>
         {options.compact ? (
@@ -3316,8 +3385,7 @@ export default function App() {
     const content = (
       <div className={`${options.compact ? "space-y-1.5" : "space-y-2"}`}>
         <p className="text-xs opacity-70">
-          Tap shortcuts to add common notes. Shortcuts are saved on this browser
-          only.
+          點選快速備註可加入訂單備註。這些設定只會保存在這台瀏覽器。
         </p>
         {visibleChips.length > 0 ? (
           chipButtons(visibleChips, !options.compact)
@@ -3327,7 +3395,7 @@ export default function App() {
         {options.compact && hiddenChips.length > 0 ? (
           <details className="rounded-box bg-base-100 px-2 py-1">
             <summary className="cursor-pointer text-xs font-semibold">
-              More shortcuts
+              更多快速備註
             </summary>
             <div className="mt-2">{chipButtons(hiddenChips, false)}</div>
           </details>
@@ -3335,7 +3403,7 @@ export default function App() {
         {options.compact ? (
           <details className="rounded-box bg-base-100 px-2 py-1">
             <summary className="cursor-pointer text-xs font-semibold">
-              Manage shortcuts
+              管理快速備註
             </summary>
             <div className="mt-2">{manageShortcuts}</div>
           </details>
@@ -3351,9 +3419,9 @@ export default function App() {
           className={`rounded-box border border-base-300 bg-base-200 ${panelPaddingClass} ${textSizeClass}`}
         >
           <summary className="cursor-pointer font-semibold">
-            Taste preferences{" "}
+            口味偏好{" "}
             {options.compact ? (
-              <span className="ml-1 font-normal opacity-60">Quick notes</span>
+              <span className="ml-1 font-normal opacity-60">快速備註</span>
             ) : null}
           </summary>
           <div className={options.compact ? "mt-1.5" : "mt-2"}>{content}</div>
@@ -3365,7 +3433,7 @@ export default function App() {
       <div
         className={`rounded-box border border-base-300 bg-base-200 ${panelPaddingClass} ${textSizeClass}`}
       >
-        <h4 className="text-sm font-semibold">Taste preferences</h4>
+        <h4 className="text-sm font-semibold">口味偏好</h4>
         {content}
       </div>
     );
@@ -3572,11 +3640,8 @@ export default function App() {
 
       window.location.href = payload.url;
     } catch (signInError) {
-      const message =
-        signInError instanceof Error
-          ? signInError.message
-          : "Google sign-in failed. Please try again.";
-      setAuthError("Google sign-in failed. Please try again.");
+      const message = "Google 登入失敗，請稍後再試，或使用測試帳號登入。";
+      setAuthError(message);
       notifyError(message);
       setIsGoogleSigningIn(false);
     }
@@ -4131,12 +4196,12 @@ export default function App() {
       setLastGuestOrder(submittedOrder);
       await loadQueueSummary();
       setStatusMessage(
-        `Guest order submitted. Pickup number: ${formatPickupNumber(
+        `訪客訂單已送出。取餐編號：${formatPickupNumber(
           submittedOrder.id,
         )}.`,
       );
       notifySuccess(
-        `Guest order submitted. Pickup number: ${formatPickupNumber(
+        `訪客訂單已送出。取餐編號：${formatPickupNumber(
           submittedOrder.id,
         )}.`,
       );
@@ -4165,8 +4230,8 @@ export default function App() {
     const guestPhone = (override?.guestPhone ?? guestLookupForm.guestPhone).trim();
 
     if (!pickupNumber || !guestPhone) {
-      setGuestLookupMessage("Enter pickup number and phone number.");
-      notifyWarning("Enter pickup number and phone number.");
+      setGuestLookupMessage("請輸入取餐編號與電話號碼。");
+      notifyWarning("請輸入取餐編號與電話號碼。");
       return;
     }
 
@@ -4192,10 +4257,10 @@ export default function App() {
 
       setGuestLookupOrder(order);
       setGuestLookupMessage("");
-      notifySuccess("Guest order found.");
+      notifySuccess("已找到訪客訂單。");
     } catch (lookupError) {
       const message =
-        "Guest order not found. Check pickup number and phone number.";
+        "查無訪客訂單，請確認取餐編號與電話號碼。";
       setGuestLookupOrder(null);
       setGuestLookupMessage(message);
       notifyError(message);
@@ -4262,10 +4327,10 @@ export default function App() {
       );
       notifySuccess(
         submittedOrder
-          ? `Order submitted. Pickup number: ${formatPickupNumber(
+          ? `訂單已送出。取餐編號：${formatPickupNumber(
               submittedOrder.id,
             )}.`
-          : "Order submitted. Check Order history for pickup number and receipt.",
+          : "訂單已送出，請到我的訂單查看取餐編號與收據。",
       );
       ordersSectionRef.current?.scrollIntoView({
         behavior: "smooth",
@@ -4779,7 +4844,7 @@ export default function App() {
         setStatusMessage(message);
         notifyError(
           message.toLowerCase().includes("phone")
-            ? "Phone number is invalid. Use numbers, spaces, +, -, or parentheses."
+            ? "電話號碼格式不正確，可使用數字、空格、+、- 或括號。"
             : getCheckoutErrorToastMessage(message),
         );
       }
@@ -4905,9 +4970,9 @@ export default function App() {
   }
 
   function getInventoryStatusLabel(status: InventoryImpact["status"]) {
-    if (status === "out_of_stock") return "Out of stock";
-    if (status === "low_stock") return "Low stock";
-    return "Normal";
+    if (status === "out_of_stock") return "已缺料";
+    if (status === "low_stock") return "庫存偏低";
+    return "正常";
   }
 
   function getInventoryStatusBadgeClass(status: InventoryImpact["status"]) {
@@ -5093,7 +5158,7 @@ export default function App() {
     if (!canManageMenu) return;
     if (
       !window.confirm(
-        "Sync shortage items now? This can disable unavailable menu items.",
+        "要同步下架缺料餐點嗎？系統只會下架無法製作的餐點，不會自動恢復販售。",
       )
     ) {
       return;
@@ -5111,9 +5176,9 @@ export default function App() {
         restoredCount: number;
       }>;
       setInventoryMessage(
-        `Sync complete. Disabled ${payload.data.disabledCount} item(s). Restocking requires manual re-enable.`,
+        `同步完成。已下架 ${payload.data.disabledCount} 項餐點；補貨後需手動恢復販售。`,
       );
-      notifySuccess("Inventory availability sync complete.");
+      notifySuccess("缺料同步完成。");
       await Promise.all([loadInventory(), loadMenu(), loadAnalytics()]);
     } catch (syncError) {
       const message =
@@ -6107,20 +6172,20 @@ export default function App() {
               {user && !canViewAllOrders ? (
                 <li>
                   <button onClick={() => scrollToSection(ordersSectionRef)}>
-                    My orders
+                    我的訂單
                   </button>
                 </li>
               ) : null}
               {hasManagerTools ? (
                 <li>
                   <button onClick={() => scrollToSection(managerSectionRef)}>
-                    Manager tools
+                    後台管理
                   </button>
                 </li>
               ) : null}
               <li>
                 <button onClick={() => scrollToSection(accountSectionRef)}>
-                  {user ? "Account" : "Sign in"}
+                  {user ? "帳號" : "登入"}
                 </button>
               </li>
             </ul>
@@ -6129,7 +6194,7 @@ export default function App() {
             className="btn btn-ghost text-xl normal-case"
             onClick={() => scrollToSection(menuSectionRef)}
           >
-            Breakfast Shop
+            早餐店訂餐系統
           </button>
         </div>
 
@@ -6139,20 +6204,20 @@ export default function App() {
               className="btn btn-sm join-item"
               onClick={() => scrollToSection(menuSectionRef)}
             >
-              Menu
+              菜單
             </button>
             <button
               className="btn btn-sm join-item"
               onClick={() => setIsCartOpen(true)}
             >
-              Cart
+              購物車
             </button>
             {user && !canViewAllOrders ? (
               <button
                 className="btn btn-sm join-item"
                 onClick={() => scrollToSection(ordersSectionRef)}
               >
-                My orders
+                我的訂單
               </button>
             ) : null}
             {hasManagerTools ? (
@@ -6160,14 +6225,14 @@ export default function App() {
                 className="btn btn-sm join-item"
                 onClick={() => scrollToSection(managerSectionRef)}
               >
-                Manager tools
+                後台管理
               </button>
             ) : null}
             <button
               className="btn btn-sm join-item"
               onClick={() => scrollToSection(accountSectionRef)}
             >
-              {user ? "Account" : "Sign in"}
+              {user ? "帳號" : "登入"}
             </button>
           </div>
         </div>
@@ -6175,9 +6240,9 @@ export default function App() {
         <div className="navbar-end gap-2">
           <div className="hidden flex-wrap items-center gap-2 md:flex">
             <span className="badge badge-primary">
-              {items.length} items / {grouped.categories.length} categories
+              {items.length} 項餐點 / {grouped.categories.length} 個分類
             </span>
-            <span className="badge badge-secondary">Cart {cartItemCount}</span>
+            <span className="badge badge-secondary">購物車 {cartItemCount}</span>
             <span className="badge badge-accent">${cartSubtotal}</span>
           </div>
           {user ? (
@@ -6213,6 +6278,18 @@ export default function App() {
       </div>
 
       <main className="container mx-auto p-6">
+        <section className="mb-6 rounded-box border border-base-300 bg-base-100 p-5 shadow-sm">
+          <h1 className="text-3xl font-bold">早餐店訂餐系統</h1>
+          <p className="mt-2 text-sm opacity-80">
+            可以直接線上點餐，也可以不登入用訪客身分訂餐；登入後可查看歷史訂單與常點餐點。
+          </p>
+          {!user ? (
+            <p className="mt-2 text-sm text-info">
+              您可以用訪客身分點餐，只需要留下姓名與電話；登入後可查看歷史訂單。
+            </p>
+          ) : null}
+        </section>
+
         {!user ? (
           <>
             <section
@@ -6220,10 +6297,9 @@ export default function App() {
               className="max-w-xl mx-auto card bg-base-100 shadow-md mb-4 scroll-mt-24"
             >
             <div className="card-body">
-              <h2 className="card-title">Sign in with Google</h2>
+              <h2 className="card-title">登入會員</h2>
               <p className="text-sm opacity-70">
-                You can order as a guest, or sign in to save order history and
-                request staff access.
+                您可以用訪客身分點餐，只需要留下姓名與電話；登入後可查看歷史訂單。
               </p>
               {authError ? (
                 <div className="alert alert-error">
@@ -6237,14 +6313,14 @@ export default function App() {
                 }}
                 disabled={isGoogleSigningIn}
               >
-                {isGoogleSigningIn ? "Opening Google..." : "Sign in"}
+                {isGoogleSigningIn ? "正在開啟 Google..." : "使用 Google 登入"}
               </button>
-              {demoAuthAvailable ? (
+              {demoAuthAvailable || demoUsers.length > 0 ? (
                 <div className="mt-4 rounded-box border border-base-300 bg-base-200 p-3">
                   <div className="mb-2">
-                    <h3 className="font-semibold">Demo mode only</h3>
+                    <h3 className="font-semibold">測試用帳號</h3>
                     <p className="text-xs opacity-70">
-                      Quickly switch classroom test roles without Google OAuth.
+                      展示或本機測試時可快速切換不同角色，不一定要使用 Google 登入。
                     </p>
                   </div>
                   {demoAuthError ? (
@@ -6263,37 +6339,37 @@ export default function App() {
                         }}
                       >
                         {demoLoginLoading === demoUser.id
-                          ? "Logging in..."
-                          : `Login as ${demoUser.name.replace("Demo ", "")}`}
+                          ? "登入中..."
+                          : formatDemoUserLabel(demoUser)}
                       </button>
                     ))}
                   </div>
                 </div>
               ) : null}
               {!demoAuthAvailable && demoAuthError ? (
-                <p className="text-xs opacity-60">{demoAuthError}</p>
+                <p className="text-xs opacity-60">
+                  測試用帳號目前無法載入：{demoAuthError}
+                </p>
               ) : null}
             </div>
             </section>
             <section className="max-w-xl mx-auto card bg-base-100 shadow-md mb-8">
               <div className="card-body">
-                <h2 className="card-title">Guest order lookup</h2>
+                <h2 className="card-title">訪客訂單查詢</h2>
                 <p className="text-sm opacity-70">
-                  Check your guest order with pickup number and phone number.
+                  用取餐號碼與電話查詢訪客訂單。
                 </p>
                 <p className="text-xs opacity-60">
-                  Enter the pickup number from your receipt and the full phone
-                  number used at checkout.
+                  請輸入收據上的取餐號碼，以及下單時留下的完整電話。
                 </p>
                 {!lastGuestOrder ? (
                   <p className="text-xs opacity-60">
-                    The "Use last guest order" shortcut appears only after you
-                    submit a guest order in this browser session.
+                    送出訪客訂單後，可使用「查詢上一筆訪客訂單」快速查看狀態。
                   </p>
                 ) : null}
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="form-control">
-                    <span className="label-text mb-1">Pickup number</span>
+                    <span className="label-text mb-1">取餐編號</span>
                     <input
                       className="input input-bordered input-sm"
                       value={guestLookupForm.pickupNumber}
@@ -6309,7 +6385,7 @@ export default function App() {
                     />
                   </label>
                   <label className="form-control">
-                    <span className="label-text mb-1">Phone number</span>
+                    <span className="label-text mb-1">電話號碼</span>
                     <input
                       className="input input-bordered input-sm"
                       value={guestLookupForm.guestPhone}
@@ -6333,7 +6409,7 @@ export default function App() {
                       void lookupGuestOrder();
                     }}
                   >
-                    {guestLookupLoading ? "Checking..." : "Check order"}
+                    {guestLookupLoading ? "查詢中..." : "查詢訂單"}
                   </button>
                   {lastGuestOrder ? (
                     <button
@@ -6348,7 +6424,7 @@ export default function App() {
                         void lookupGuestOrder(nextForm);
                       }}
                     >
-                      Use last guest order
+                      查詢上一筆訪客訂單
                     </button>
                   ) : null}
                 </div>
@@ -6359,15 +6435,14 @@ export default function App() {
                 ) : null}
                 {!guestLookupMessage && !guestLookupOrder ? (
                   <p className="text-xs opacity-60">
-                    You can look up guest orders only. Signed-in, walk-in, and
-                    phone orders are not available through this form.
+                    只能查詢訪客訂單；登入會員、現場與電話訂單請由店員協助查詢。
                   </p>
                 ) : null}
                 {guestLookupOrder ? (
                   <div className="rounded-box border border-base-300 bg-base-200 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <p className="text-sm opacity-70">Pickup number</p>
+                        <p className="text-sm opacity-70">取餐編號</p>
                         <p className="text-2xl font-bold text-primary">
                           {formatPickupNumber(guestLookupOrder.id)}
                         </p>
@@ -6377,30 +6452,30 @@ export default function App() {
                           guestLookupOrder.status,
                         )}`}
                       >
-                        {guestLookupOrder.status}
+                        {formatOrderStatus(guestLookupOrder.status)}
                       </span>
                     </div>
                     <div className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
                       <p>
-                        Payment: {guestLookupOrder.paymentMethod} /{" "}
-                        {guestLookupOrder.paymentStatus}
+                        付款：{formatPaymentMethod(guestLookupOrder.paymentMethod)} /{" "}
+                        {formatPaymentStatus(guestLookupOrder.paymentStatus)}
                       </p>
-                      <p>Fulfillment: {guestLookupOrder.fulfillmentType}</p>
+                      <p>取餐方式：{formatFulfillmentType(guestLookupOrder.fulfillmentType)}</p>
                       <p>
-                        Pickup:{" "}
+                        取餐時間：{" "}
                         {guestLookupOrder.pickupTime
                           ? formatCheckoutDateTime(guestLookupOrder.pickupTime)
-                          : "ASAP"}
+                          : "依現場安排"}
                       </p>
-                      <p>Total: ${guestLookupOrder.total}</p>
+                      <p>總金額：${guestLookupOrder.total}</p>
                       {guestLookupOrder.isGroupOrder ? (
                         <p>
-                          Group: {guestLookupOrder.groupName || "Group order"}
+                          團體：{guestLookupOrder.groupName || "團體訂單"}
                         </p>
                       ) : null}
                     </div>
                     <div className="mt-3 rounded-box bg-base-100 p-2">
-                      <p className="mb-1 font-semibold">Items</p>
+                      <p className="mb-1 font-semibold">餐點</p>
                       <ul className="space-y-1 text-sm">
                         {guestLookupOrder.items.map((detail) => (
                           <li
@@ -6413,7 +6488,7 @@ export default function App() {
                                 ? ` / ${detail.memberName}`
                                 : ""}
                               {detail.bundleName
-                                ? ` / Bundle: ${detail.bundleName}`
+                                ? ` / 套餐：${detail.bundleName}`
                                 : ""}
                             </span>
                             <span>${detail.item.price * detail.qty}</span>
@@ -6424,13 +6499,13 @@ export default function App() {
                     {guestLookupOrder.discountAmount > 0 ||
                     guestLookupOrder.promoCode ? (
                       <p className="mt-2 text-sm">
-                        Promo: {guestLookupOrder.promoCode ?? "-"} / Discount $
+                        優惠碼：{guestLookupOrder.promoCode ?? "-"} / 折扣 $
                         {guestLookupOrder.discountAmount}
                       </p>
                     ) : null}
                     {guestLookupOrder.customerNote ? (
                       <p className="mt-2 text-sm">
-                        Note: {guestLookupOrder.customerNote}
+                        備註：{guestLookupOrder.customerNote}
                       </p>
                     ) : null}
                     <p className="mt-3 text-sm font-medium">
@@ -6440,15 +6515,15 @@ export default function App() {
                       guestLookupOrder.status,
                     ) ? (
                       <p className="text-sm opacity-70">
-                        Ahead of you: {getQueueAheadCount(guestLookupOrder)} order(s).
-                        Estimated wait:{" "}
-                        {estimateWaitMinutes(getQueueAheadCount(guestLookupOrder))} min.
+                        前方約有 {getQueueAheadCount(guestLookupOrder)} 筆訂單。
+                        預估等待：{" "}
+                        {estimateWaitMinutes(getQueueAheadCount(guestLookupOrder))} 分鐘。
                       </p>
                     ) : null}
                     {guestLookupOrder.status === "ready" &&
                     guestLookupOrder.paymentStatus === "unpaid" ? (
                       <div className="alert alert-warning mt-3 py-2 text-sm">
-                        <span>Please pay at pickup before receiving your order.</span>
+                        <span>取餐前請先完成付款。</span>
                       </div>
                     ) : null}
                   </div>
@@ -6489,20 +6564,23 @@ export default function App() {
           <section className="mb-8 rounded-box border border-success/40 bg-success/10 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-bold">Guest order submitted</h2>
+                <h2 className="text-lg font-bold">訪客訂單已送出</h2>
                 <p className="text-2xl font-bold text-success">
-                  Pickup number: {formatPickupNumber(lastGuestOrder.id)}
+                  取餐編號：{formatPickupNumber(lastGuestOrder.id)}
                 </p>
                 <p className="text-sm opacity-75">
-                  Save this pickup number. Staff may use the phone number ending
-                  in {getPhoneLastFour(lastGuestOrder.guestPhone) || "your record"} to
-                  identify the order.
+                  請記下取餐編號。店員可能會用電話末四碼{" "}
+                  {getPhoneLastFour(lastGuestOrder.guestPhone) || "您的紀錄"}
+                  協助核對訂單。
                 </p>
               </div>
               <div className="text-sm">
-                <p>Status: {lastGuestOrder.status}</p>
-                <p>Payment: {lastGuestOrder.paymentMethod} / {lastGuestOrder.paymentStatus}</p>
-                <p>Total: ${lastGuestOrder.total}</p>
+                <p>狀態：{formatOrderStatus(lastGuestOrder.status)}</p>
+                <p>
+                  付款：{formatPaymentMethod(lastGuestOrder.paymentMethod)} /{" "}
+                  {formatPaymentStatus(lastGuestOrder.paymentStatus)}
+                </p>
+                <p>總金額：${lastGuestOrder.total}</p>
                 <button
                   className="btn btn-sm btn-outline mt-2"
                   disabled={guestLookupLoading}
@@ -6515,7 +6593,7 @@ export default function App() {
                     void lookupGuestOrder(nextForm);
                   }}
                 >
-                  Check latest status
+                  查詢最新狀態
                 </button>
               </div>
             </div>
@@ -6608,10 +6686,9 @@ export default function App() {
             <div className="border-b border-base-300 p-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                  <h2 className="text-2xl font-bold">Manager tools</h2>
+                  <h2 className="text-2xl font-bold">後台管理</h2>
                   <p className="text-sm opacity-70">
-                    Manage orders, analytics, menu items, categories, and role
-                    requests based on your role.
+                    依照您的角色處理訂單、菜單、庫存與營運資料。
                   </p>
                 </div>
                 <div className="tabs tabs-boxed w-full overflow-x-auto lg:w-auto">
@@ -6633,65 +6710,64 @@ export default function App() {
             {managerTab === "orders" && canViewAllOrders ? (
               <div className="p-5">
                 <div className="mb-4">
-                  <h3 className="text-xl font-bold">Order operations</h3>
+                  <h3 className="text-xl font-bold">訂單處理</h3>
                   <p className="text-sm opacity-70">
-                    Track submitted orders and update kitchen / pickup status.
+                    查看顧客訂單、更新製作狀態與付款狀態。
                   </p>
                 </div>
                 <div className="mb-4">
                   <h4 className="mb-2 font-semibold">
-                    Today operations summary
+                    今日營運摘要
                   </h4>
                   <p className="mb-3 text-sm opacity-70">
-                    Use this snapshot to connect kitchen work, counter payment,
-                    phone orders, promotions, and order issues.
+                    快速掌握廚房排隊、櫃台付款、電話訂單、優惠券與問題訂單。
                   </p>
                 </div>
                 <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-9">
                   <div className="stat rounded-box border border-base-300 bg-base-200">
-                    <div className="stat-title">Active orders</div>
+                    <div className="stat-title">進行中訂單</div>
                     <div className="stat-value text-info">{activeOrders}</div>
                   </div>
                   <div className="stat rounded-box border border-base-300 bg-base-200">
-                    <div className="stat-title">Unpaid orders</div>
+                    <div className="stat-title">未付款訂單</div>
                     <div className="stat-value text-warning">{unpaidOrders}</div>
                   </div>
                   <div className="stat rounded-box border border-base-300 bg-base-200">
-                    <div className="stat-title">Phone today</div>
+                    <div className="stat-title">今日電話單</div>
                     <div className="stat-value text-primary">
                       {phoneOrdersToday}
                     </div>
                   </div>
                   <div className="stat rounded-box border border-base-300 bg-base-200">
-                    <div className="stat-title">Walk-in today</div>
+                    <div className="stat-title">今日現場單</div>
                     <div className="stat-value">{walkInOrdersToday}</div>
                   </div>
                   <div className="stat rounded-box border border-base-300 bg-base-200">
-                    <div className="stat-title">Promo today</div>
+                    <div className="stat-title">今日優惠券單</div>
                     <div className="stat-value text-success">
                       {promoOrdersToday}
                     </div>
                   </div>
                   <div className="stat rounded-box border border-base-300 bg-base-200">
-                    <div className="stat-title">Open issues</div>
+                    <div className="stat-title">待處理問題</div>
                     <div className="stat-value text-error">
                       {ordersWithIssue}
                     </div>
                   </div>
                   <div className="stat rounded-box border border-base-300 bg-base-200">
-                    <div className="stat-title">Kitchen queue</div>
+                    <div className="stat-title">廚房排隊中</div>
                     <div className="stat-value text-info">
                       {queueSummary.kitchenQueue}
                     </div>
                   </div>
                   <div className="stat rounded-box border border-base-300 bg-base-200">
-                    <div className="stat-title">Estimated wait</div>
+                    <div className="stat-title">預估等待時間</div>
                     <div className="stat-value text-primary">
                       {estimatedWaitMinutes}m
                     </div>
                   </div>
                   <div className="stat rounded-box border border-base-300 bg-base-200">
-                    <div className="stat-title">Busy level</div>
+                    <div className="stat-title">忙碌程度</div>
                     <div
                       className={`stat-value text-2xl ${
                         busyLevel === "very_busy"
@@ -6708,10 +6784,9 @@ export default function App() {
                 {canCreateWalkInOrder ? (
                   <div className="mb-4 rounded-box border border-base-300 bg-base-200 p-4">
                     <div className="mb-3">
-                      <h4 className="font-semibold">Staff order</h4>
+                      <h4 className="font-semibold">櫃台代客點餐</h4>
                       <p className="text-sm opacity-70">
-                        Create a walk-in or phone order for a guest without
-                        customer login.
+                        建立現場或電話訂單，不需要顧客登入。
                       </p>
                     </div>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
@@ -6727,12 +6802,12 @@ export default function App() {
                           }))
                         }
                       >
-                        <option value="walk_in">Walk-in</option>
-                        <option value="phone">Phone</option>
+                        <option value="walk_in">現場點餐</option>
+                        <option value="phone">電話訂餐</option>
                       </select>
                       <input
                         className="input input-bordered input-sm"
-                        placeholder="Guest name"
+                        placeholder="顧客姓名"
                         value={walkInOrderForm.guestName}
                         onChange={(event) =>
                           setWalkInOrderForm((current) => ({
@@ -6743,7 +6818,7 @@ export default function App() {
                       />
                       <input
                         className="input input-bordered input-sm"
-                        placeholder="Phone number for phone orders"
+                        placeholder="電話訂單聯絡電話"
                         value={walkInOrderForm.guestPhone}
                         onChange={(event) =>
                           setWalkInOrderForm((current) => ({
@@ -6763,8 +6838,8 @@ export default function App() {
                           }))
                         }
                       >
-                        <option value="takeout">Takeout</option>
-                        <option value="dine_in">Dine in</option>
+                        <option value="takeout">外帶</option>
+                        <option value="dine_in">內用</option>
                       </select>
                       <input
                         className="input input-bordered input-sm"
@@ -6787,13 +6862,13 @@ export default function App() {
                           }))
                         }
                       >
-                        <option value="cash">Cash</option>
-                        <option value="card">Card</option>
-                        <option value="online">Online</option>
+                        <option value="cash">現金</option>
+                        <option value="card">刷卡</option>
+                        <option value="online">線上付款</option>
                       </select>
                       <input
                         className="input input-bordered input-sm"
-                        placeholder="Promo code"
+                        placeholder="優惠碼"
                         value={walkInOrderForm.promoCode}
                         onChange={(event) =>
                           setWalkInOrderForm((current) => ({
@@ -6822,13 +6897,13 @@ export default function App() {
                             }))
                           }
                         />
-                        <span className="label-text">Group order</span>
+                        <span className="label-text">團體訂單</span>
                       </label>
                       {walkInOrderForm.isGroupOrder ? (
                         <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
                           <input
                             className="input input-bordered input-sm"
-                            placeholder="Group name"
+                            placeholder="團體名稱"
                             maxLength={80}
                             value={walkInOrderForm.groupName}
                             onChange={(event) =>
@@ -6840,7 +6915,7 @@ export default function App() {
                           />
                           <input
                             className="input input-bordered input-sm"
-                            placeholder="Contact name"
+                            placeholder="聯絡人"
                             maxLength={80}
                             value={walkInOrderForm.contactName}
                             onChange={(event) =>
@@ -6852,7 +6927,7 @@ export default function App() {
                           />
                           <input
                             className="input input-bordered input-sm"
-                            placeholder="Contact phone"
+                            placeholder="聯絡電話"
                             maxLength={30}
                             value={walkInOrderForm.contactPhone}
                             onChange={(event) =>
@@ -6895,7 +6970,7 @@ export default function App() {
                             disabled={!item.is_available}
                           >
                             {item.name} - ${item.price}
-                            {item.is_available ? "" : " - Sold out"}
+                            {item.is_available ? "" : " - 已售完"}
                           </option>
                         ))}
                       </select>
@@ -6911,7 +6986,7 @@ export default function App() {
                         className="btn btn-sm btn-outline"
                         onClick={addWalkInItem}
                       >
-                        Add item
+                        加入餐點
                       </button>
                     </div>
                     {menuBundles.length > 0 ? (
@@ -6923,7 +6998,7 @@ export default function App() {
                             type="button"
                             onClick={() => addWalkInBundle(bundle)}
                           >
-                            Add combo: {bundle.name}
+                            加入套餐：{bundle.name}
                           </button>
                         ))}
                       </div>
@@ -6938,13 +7013,13 @@ export default function App() {
                                   <div>{detail.item.name}</div>
                                   {detail.bundleName ? (
                                     <span className="badge badge-secondary badge-xs">
-                                      Bundle: {detail.bundleName}
+                                      套餐：{detail.bundleName}
                                     </span>
                                   ) : null}
                                   {walkInOrderForm.isGroupOrder ? (
                                     <input
                                       className="input input-bordered input-xs mt-1 w-full"
-                                      placeholder="Member name"
+                                      placeholder="成員姓名"
                                       maxLength={80}
                                       value={detail.memberName ?? ""}
                                       onChange={(event) => {
@@ -6983,14 +7058,14 @@ export default function App() {
                     ) : null}
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                       <span className="font-semibold">
-                        Staff order total: ${walkInOrderTotal}
+                        代客點餐總金額：${walkInOrderTotal}
                       </span>
                       <button
                         className="btn btn-sm btn-primary"
                         disabled={walkInBusy || walkInOrderItems.length === 0}
                         onClick={() => void submitWalkInOrder()}
                       >
-                        {walkInBusy ? "Creating..." : "Submit staff order"}
+                        {walkInBusy ? "建立中..." : "送出代客訂單"}
                       </button>
                     </div>
                   </div>
@@ -7011,7 +7086,7 @@ export default function App() {
                         }`}
                         onClick={() => setOrdersViewMode("list")}
                       >
-                        List view
+                        列表
                       </button>
                       <button
                         className={`btn btn-sm join-item ${
@@ -7019,7 +7094,7 @@ export default function App() {
                         }`}
                         onClick={() => setOrdersViewMode("board")}
                       >
-                        Board view
+                        看板
                       </button>
                       <button
                         className={`btn btn-sm join-item ${
@@ -7027,16 +7102,16 @@ export default function App() {
                         }`}
                         onClick={() => setOrdersViewMode("kitchen")}
                       >
-                        Kitchen view
+                        廚房看板
                       </button>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-6">
                     <label className="form-control lg:col-span-2">
-                      <span className="label-text">Search</span>
+                      <span className="label-text">搜尋</span>
                       <input
                         className="input input-bordered input-sm"
-                        placeholder="Pickup, guest, phone, promo, item..."
+                        placeholder="取餐號、姓名、電話、優惠碼、餐點..."
                         value={orderSearchText}
                         onChange={(event) =>
                           setOrderSearchText(event.target.value)
@@ -7054,11 +7129,11 @@ export default function App() {
                           )
                         }
                       >
-                        <option value="">All sources</option>
-                        <option value="customer">Customer</option>
-                        <option value="walk_in">Walk-in</option>
-                        <option value="phone">Phone</option>
-                        <option value="guest">Guest</option>
+                        <option value="">全部來源</option>
+                        <option value="customer">會員訂餐</option>
+                        <option value="walk_in">現場點餐</option>
+                        <option value="phone">電話訂餐</option>
+                        <option value="guest">訪客訂餐</option>
                       </select>
                     </label>
                     <label className="form-control">
@@ -7072,13 +7147,13 @@ export default function App() {
                           )
                         }
                       >
-                        <option value="">All payments</option>
-                        <option value="unpaid">Unpaid</option>
-                        <option value="paid">Paid</option>
+                        <option value="">全部付款狀態</option>
+                        <option value="unpaid">未付款</option>
+                        <option value="paid">已付款</option>
                       </select>
                     </label>
                     <label className="form-control">
-                      <span className="label-text">Issue</span>
+                      <span className="label-text">問題</span>
                       <select
                         className="select select-bordered select-sm"
                         value={orderIssueFilter}
@@ -7091,13 +7166,13 @@ export default function App() {
                           )
                         }
                       >
-                        <option value="">All issues</option>
-                        <option value="has_issue">Has issue</option>
-                        <option value="no_issue">No issue</option>
+                        <option value="">全部問題狀態</option>
+                        <option value="has_issue">有問題</option>
+                        <option value="no_issue">無問題</option>
                       </select>
                     </label>
                     <label className="form-control">
-                      <span className="label-text">Status</span>
+                      <span className="label-text">訂單狀態</span>
                       <select
                         className="select select-bordered select-sm"
                         value={orderStatusFilter}
@@ -7107,13 +7182,12 @@ export default function App() {
                           )
                         }
                       >
-                        <option value="">All statuses</option>
-                        <option value="pending">Pending</option>
-                        <option value="submitted">Submitted</option>
-                        <option value="preparing">Preparing</option>
-                        <option value="ready">Ready</option>
-                        <option value="completed">Completed</option>
-                        <option value="cancelled">Cancelled</option>
+                        <option value="">全部狀態</option>
+                        {orderBoardColumnStatuses.concat("pending").map((status) => (
+                          <option key={status} value={status}>
+                            {formatOrderStatus(status)}
+                          </option>
+                        ))}
                       </select>
                     </label>
                   </div>
@@ -7135,12 +7209,40 @@ export default function App() {
                       className="btn btn-xs btn-ghost"
                       onClick={clearOrderFilters}
                     >
-                      Clear filters
+                      清除篩選
                     </button>
                     <span className="text-xs opacity-60">
-                      Showing {managerVisibleOrders.length} of{" "}
-                      {historyOrders.length} orders.
+                      顯示 {paginatedManagerVisibleOrders.length} /{" "}
+                      {managerVisibleOrders.length} 筆符合條件訂單，共{" "}
+                      {historyOrders.length} 筆。
                     </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-box border border-base-300 bg-base-100 p-2 text-sm">
+                    <span>
+                      第 {currentManagerOrderPage} / {managerOrderPageCount} 頁
+                    </span>
+                    <div className="join">
+                      <button
+                        className="btn btn-sm join-item"
+                        disabled={currentManagerOrderPage <= 1}
+                        onClick={() =>
+                          setOrderPage((page) => Math.max(1, page - 1))
+                        }
+                      >
+                        上一頁
+                      </button>
+                      <button
+                        className="btn btn-sm join-item"
+                        disabled={currentManagerOrderPage >= managerOrderPageCount}
+                        onClick={() =>
+                          setOrderPage((page) =>
+                            Math.min(managerOrderPageCount, page + 1),
+                          )
+                        }
+                      >
+                        下一頁
+                      </button>
+                    </div>
                   </div>
                 </div>
                 {statusMessage ? (
@@ -7150,7 +7252,7 @@ export default function App() {
                 ) : null}
                 {historyLoading ? (
                   <div className="alert">
-                    <span>Loading orders...</span>
+                    <span>訂單載入中...</span>
                   </div>
                 ) : historyOrders.length === 0 ? (
                   <div className="alert alert-info">
@@ -7291,7 +7393,7 @@ export default function App() {
                                       order.status,
                                     )}`}
                                   >
-                                    {order.status}
+                                    {formatOrderStatus(order.status)}
                                   </span>
                                   <span
                                     className={`badge ${getKitchenPriorityBadgeClass(
@@ -7320,7 +7422,7 @@ export default function App() {
                                     Group: {order.groupName || "Group order"}
                                   </span>
                                 ) : null}
-                                <span>Payment: {order.paymentStatus}</span>
+                                <span>付款：{formatPaymentStatus(order.paymentStatus)}</span>
                                 {order.pickupTime ? (
                                   <span>
                                     Pickup:{" "}
@@ -7378,7 +7480,7 @@ export default function App() {
                                   }}
                                 >
                                   {statusUpdatingOrderId === order.id
-                                    ? "Updating..."
+                                    ? "更新中..."
                                     : primaryAction.label}
                                 </button>
                               ) : null}
@@ -7390,18 +7492,18 @@ export default function App() {
                   </div>
                 ) : managerVisibleOrders.length === 0 ? (
                   <div className="alert alert-info">
-                    <span>No orders match the current filters.</span>
+                    <span>目前沒有符合篩選條件的訂單。</span>
                     <button
                       className="btn btn-sm btn-outline"
                       onClick={clearOrderFilters}
                     >
-                      Clear filters
+                      清除篩選
                     </button>
                   </div>
                 ) : ordersViewMode === "board" ? (
                   <div className="grid grid-cols-1 gap-3 xl:grid-cols-5">
                     {orderBoardColumnStatuses.map((status) => {
-                      const columnOrders = managerVisibleOrders.filter(
+                      const columnOrders = paginatedManagerVisibleOrders.filter(
                         (order) => order.status === status,
                       );
                       return (
@@ -7410,8 +7512,8 @@ export default function App() {
                           key={status}
                         >
                           <div className="mb-3 flex items-center justify-between gap-2">
-                            <h4 className="font-semibold capitalize">
-                              {status}
+                            <h4 className="font-semibold">
+                              {formatOrderStatus(status)}
                             </h4>
                             <span className="badge badge-outline">
                               {columnOrders.length}
@@ -7464,7 +7566,7 @@ export default function App() {
                                           order.status,
                                         )}`}
                                       >
-                                        {order.status}
+                                        {formatOrderStatus(order.status)}
                                       </span>
                                     </div>
                                     <div className="mt-2 flex flex-wrap gap-1">
@@ -7480,7 +7582,7 @@ export default function App() {
                                       ) : null}
                                       {readyPickupOverdue ? (
                                         <span className="badge badge-error badge-sm">
-                                          Pickup overdue
+                                          取餐逾時
                                           {readyAgeMinutes !== null
                                             ? ` ${readyAgeMinutes}m`
                                             : ""}
@@ -7509,7 +7611,7 @@ export default function App() {
                                             : "badge-warning"
                                         }`}
                                       >
-                                        {order.paymentStatus}
+                                        {formatPaymentStatus(order.paymentStatus)}
                                       </span>
                                     </div>
                                     {order.guestName ? (
@@ -7519,20 +7621,20 @@ export default function App() {
                                     ) : null}
                                     {readyPickupOverdue ? (
                                       <p className="mt-2 text-xs font-medium text-error">
-                                        Pickup overdue.
+                                        取餐已逾時。
                                       </p>
                                     ) : null}
                                     {order.status === "ready" &&
                                     order.paymentStatus === "unpaid" ? (
                                       <p className="mt-1 text-xs text-warning">
-                                        Confirm payment before pickup.
+                                        取餐前請確認付款。
                                       </p>
                                     ) : null}
                                     {order.status === "ready" &&
                                     order.orderSource === "phone" &&
                                     order.guestPhone ? (
                                       <p className="mt-1 text-xs text-info">
-                                        Call customer for pickup.
+                                        請通知顧客取餐。
                                       </p>
                                     ) : null}
                                     <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
@@ -7545,7 +7647,7 @@ export default function App() {
                                             ? ` / ${detail.memberName}`
                                             : ""}
                                           {detail.bundleName
-                                            ? ` / Bundle: ${detail.bundleName}`
+                                            ? ` / 套餐：${detail.bundleName}`
                                             : ""}
                                         </li>
                                       ))}
@@ -7563,7 +7665,7 @@ export default function App() {
                                         className="btn btn-xs btn-outline"
                                         onClick={() => printReceipt(order)}
                                       >
-                                        Receipt
+                                        收據
                                       </button>
                                     </div>
                                     {order.paymentStatus === "unpaid" &&
@@ -7579,8 +7681,8 @@ export default function App() {
                                         }}
                                       >
                                         {paymentUpdatingOrderId === order.id
-                                          ? "Updating..."
-                                          : "Mark paid"}
+                                          ? "更新中..."
+                                          : "標記已付款"}
                                       </button>
                                     ) : null}
                                     {primaryAction ? (
@@ -7597,7 +7699,7 @@ export default function App() {
                                         }}
                                       >
                                         {statusUpdatingOrderId === order.id
-                                          ? "Updating..."
+                                          ? "更新中..."
                                           : primaryAction.label}
                                       </button>
                                     ) : null}
@@ -7627,7 +7729,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {managerVisibleOrders.map((order) => {
+                    {paginatedManagerVisibleOrders.map((order) => {
                       const allowedStatuses = getNextAllowedStatuses(order);
                       const primaryAction = getPrimaryOrderAction(order);
                       const urgent = isUrgentOrder(order);
@@ -7686,7 +7788,7 @@ export default function App() {
                                   order.status,
                                 )}`}
                               >
-                                {order.status}
+                                {formatOrderStatus(order.status)}
                               </span>
                               {urgent ? (
                                 <span className="badge badge-error">
@@ -7700,7 +7802,7 @@ export default function App() {
                               ) : null}
                               {readyPickupOverdue ? (
                                 <span className="badge badge-error">
-                                  Pickup overdue
+                                  取餐逾時
                                   {readyAgeMinutes !== null
                                     ? ` ${readyAgeMinutes}m`
                                     : ""}
@@ -7748,7 +7850,7 @@ export default function App() {
                                   }}
                                 >
                                   {statusUpdatingOrderId === order.id
-                                    ? "Updating..."
+                                    ? "更新中..."
                                     : primaryAction.label}
                                 </button>
                               ) : null}
@@ -7768,11 +7870,11 @@ export default function App() {
                                       }));
                                     }}
                                   >
-                                    {allowedStatuses.map((status) => (
-                                      <option key={status} value={status}>
-                                        {status}
-                                      </option>
-                                    ))}
+                                  {allowedStatuses.map((status) => (
+                                    <option key={status} value={status}>
+                                      {formatOrderStatus(status)}
+                                    </option>
+                                  ))}
                                   </select>
                                   <button
                                     className="btn btn-sm join-item"
@@ -7787,7 +7889,7 @@ export default function App() {
                                     }}
                                   >
                                     {statusUpdatingOrderId === order.id
-                                      ? "Updating..."
+                                      ? "更新中..."
                                       : "Update status"}
                                   </button>
                                 </div>
@@ -7818,7 +7920,7 @@ export default function App() {
                             {order.guestPhone ? (
                               <span>Phone: {order.guestPhone}</span>
                             ) : null}
-                            <span>Fulfillment: {order.fulfillmentType}</span>
+                            <span>取餐方式：{formatFulfillmentType(order.fulfillmentType)}</span>
                             <div className="flex flex-wrap items-center gap-2">
                               <span>Payment: {order.paymentMethod}</span>
                               <span
@@ -7828,7 +7930,7 @@ export default function App() {
                                     : "badge-warning"
                                 }`}
                               >
-                                {order.paymentStatus}
+                                {formatPaymentStatus(order.paymentStatus)}
                               </span>
                               {canUpdatePaymentStatus &&
                               order.paymentStatus === "unpaid" &&
@@ -7843,8 +7945,8 @@ export default function App() {
                                   }}
                                 >
                                   {paymentUpdatingOrderId === order.id
-                                    ? "Updating..."
-                                    : "Mark paid"}
+                                    ? "更新中..."
+                                    : "標記已付款"}
                                 </button>
                               ) : null}
                             </div>
@@ -7857,25 +7959,25 @@ export default function App() {
                             (order.status === "ready" ||
                               order.status === "completed") ? (
                               <span className="text-warning">
-                                Payment due before pickup.
+                                取餐前請收款。
                               </span>
                             ) : null}
                             {readyPickupOverdue ? (
                               <span className="text-error">
-                                Pickup overdue.
+                                取餐已逾時。
                               </span>
                             ) : null}
                             {order.status === "ready" &&
                             order.paymentStatus === "unpaid" ? (
                               <span className="text-warning">
-                                Confirm payment before pickup.
+                                取餐前請確認付款。
                               </span>
                             ) : null}
                             {order.status === "ready" &&
                             order.orderSource === "phone" &&
                             order.guestPhone ? (
                               <span className="text-info">
-                                Call customer for pickup.
+                                請通知顧客取餐。
                               </span>
                             ) : null}
                             {order.customerNote ? (
@@ -7896,8 +7998,7 @@ export default function App() {
                               {order.orderSource === "phone" &&
                               order.guestPhone ? (
                                 <span className="rounded-box border border-base-300 px-2 py-1">
-                                  Phone order: call customer if pickup time
-                                  changes.
+                                  電話訂單：若取餐時間變動，請通知顧客。
                                 </span>
                               ) : null}
                               {order.issueType !== null &&
@@ -7947,7 +8048,7 @@ export default function App() {
                                   }}
                                 >
                                   {issueUpdatingOrderId === order.id
-                                    ? "Updating..."
+                                    ? "更新中..."
                                     : "Clear issue"}
                                 </button>
                               ) : null}
@@ -8017,7 +8118,7 @@ export default function App() {
                                   ? ` / ${detail.memberName}`
                                   : ""}
                                 {detail.bundleName
-                                  ? ` / Bundle: ${detail.bundleName}`
+                                  ? ` / 套餐：${detail.bundleName}`
                                   : ""}
                               </li>
                             ))}
@@ -8040,7 +8141,7 @@ export default function App() {
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="card-title">Role request review</h2>
+                  <h2 className="card-title">權限申請審核</h2>
                   <p className="text-sm opacity-70">
                     Approve or reject staff and chef access requests.
                   </p>
@@ -8064,7 +8165,7 @@ export default function App() {
                 </div>
               ) : null}
               <div className="rounded-box border border-base-300 bg-base-200 p-4">
-                <h3 className="font-semibold">Direct role editor</h3>
+                <h3 className="font-semibold">直接調整使用者角色</h3>
                 <p className="text-sm opacity-70">
                   This replaces the user roles. Keep customer checked if the
                   user should still act as a customer.
@@ -8213,14 +8314,12 @@ export default function App() {
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="card-title">Audit logs</h2>
+                  <h2 className="card-title">操作紀錄</h2>
                   <p className="text-sm opacity-70">
                     Review recent system operations by owner and admin users.
                   </p>
                   <p className="text-xs opacity-60">
-                    Audit logs track manager actions such as menu changes, role
-                    reviews, promotions, payments, issues, staff orders, and
-                    phone orders. Phone numbers are masked in audit metadata.
+                    查看管理者與員工的重要操作紀錄，例如菜單、權限、優惠券、付款、問題回報與電話訂單。
                   </p>
                 </div>
                 <button
@@ -8452,7 +8551,7 @@ export default function App() {
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="card-title">Analytics</h2>
+                  <h2 className="card-title">營運分析</h2>
                   <p className="text-sm opacity-70">
                     Review category sales and top-selling menu items.
                   </p>
@@ -9530,7 +9629,7 @@ export default function App() {
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="card-title">Menu item editor</h2>
+                  <h2 className="card-title">菜單管理</h2>
                   <p className="text-sm opacity-70">
                     Create or update menu items and connect them to primary
                     categories.
@@ -9899,10 +9998,9 @@ export default function App() {
             <div className="card-body">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="card-title">Inventory</h2>
+                  <h2 className="card-title">庫存管理</h2>
                   <p className="text-sm opacity-70">
-                    Track ingredient stock, map ingredients to menu items, and
-                    see shortage impact before customers order.
+                    管理原料庫存，並查看缺料會影響哪些餐點。
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -9914,7 +10012,7 @@ export default function App() {
                       void loadInventory();
                     }}
                   >
-                    Refresh
+                    重新整理
                   </button>
                   {canManageMenu ? (
                     <button
@@ -9925,7 +10023,7 @@ export default function App() {
                         void syncInventoryAvailability();
                       }}
                     >
-                      Sync shortage items
+                      同步下架缺料商品
                     </button>
                   ) : null}
                 </div>
@@ -9933,13 +10031,13 @@ export default function App() {
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="stat rounded-box border border-base-300 bg-base-200">
-                  <div className="stat-title">Active ingredients</div>
+                  <div className="stat-title">啟用原料</div>
                   <div className="stat-value text-primary">
                     {ingredients.filter((ingredient) => ingredient.isActive).length}
                   </div>
                 </div>
                 <div className="stat rounded-box border border-base-300 bg-base-200">
-                  <div className="stat-title">Low stock</div>
+                  <div className="stat-title">庫存偏低</div>
                   <div className="stat-value text-warning">
                     {
                       inventoryImpacts.filter(
@@ -9949,7 +10047,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="stat rounded-box border border-base-300 bg-base-200">
-                  <div className="stat-title">Out of stock</div>
+                  <div className="stat-title">已缺料</div>
                   <div className="stat-value text-error">
                     {
                       inventoryImpacts.filter(
@@ -9959,7 +10057,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="stat rounded-box border border-base-300 bg-base-200">
-                  <div className="stat-title">Affected items</div>
+                  <div className="stat-title">受影響餐點</div>
                   <div className="stat-value">
                     {
                       new Set(
@@ -9989,7 +10087,7 @@ export default function App() {
                 >
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <h3 className="font-semibold">
-                      {editingIngredientId ? "Edit ingredient" : "Add ingredient"}
+                      {editingIngredientId ? "編輯原料" : "新增原料"}
                     </h3>
                     {editingIngredientId ? (
                       <button
@@ -9997,14 +10095,14 @@ export default function App() {
                         className="btn btn-xs btn-ghost"
                         onClick={resetIngredientForm}
                       >
-                        Cancel edit
+                        取消編輯
                       </button>
                     ) : null}
                   </div>
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
                     <input
                       className="input input-bordered input-sm"
-                      placeholder="Ingredient name"
+                      placeholder="原料名稱"
                       value={ingredientForm.name}
                       onChange={(event) =>
                         setIngredientForm((current) => ({
@@ -10016,7 +10114,7 @@ export default function App() {
                     />
                     <input
                       className="input input-bordered input-sm"
-                      placeholder="Unit"
+                      placeholder="單位"
                       value={ingredientForm.unit}
                       onChange={(event) =>
                         setIngredientForm((current) => ({
@@ -10056,25 +10154,25 @@ export default function App() {
                     disabled={inventoryBusy}
                   >
                     {inventoryBusy
-                      ? "Saving..."
+                      ? "儲存中..."
                       : editingIngredientId
-                        ? "Save ingredient"
-                        : "Create ingredient"}
+                        ? "儲存原料"
+                        : "新增原料"}
                   </button>
                 </form>
               ) : null}
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-box border border-base-300 p-3">
-                  <h3 className="mb-2 font-semibold">Ingredient management</h3>
+                  <h3 className="mb-2 font-semibold">原料管理</h3>
                   <div className="overflow-x-auto">
                     <table className="table table-sm">
                       <thead>
                         <tr>
-                          <th>Ingredient</th>
-                          <th>Stock</th>
-                          <th>Status</th>
-                          <th>Actions</th>
+                          <th>原料</th>
+                          <th>庫存</th>
+                          <th>狀態</th>
+                          <th>操作</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -10091,7 +10189,7 @@ export default function App() {
                                   {ingredient.name}
                                 </div>
                                 <div className="text-xs opacity-70">
-                                  Safety: {ingredient.safetyStock}{" "}
+                                  安全庫存：{ingredient.safetyStock}{" "}
                                   {ingredient.unit}
                                 </div>
                               </td>
@@ -10164,7 +10262,7 @@ export default function App() {
 
                 <div className="rounded-box border border-base-300 p-3">
                   <h3 className="mb-2 font-semibold">
-                    Menu item ingredient mapping
+                    餐點原料設定
                   </h3>
                   <select
                     className="select select-bordered select-sm mb-3 w-full"
@@ -10173,7 +10271,7 @@ export default function App() {
                       setSelectedInventoryMenuItemId(event.target.value)
                     }
                   >
-                    <option value="">Select menu item</option>
+                    <option value="">選擇餐點</option>
                     {items.map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.name}
@@ -10191,7 +10289,7 @@ export default function App() {
                               setIngredientDraftId(event.target.value)
                             }
                           >
-                            <option value="">Select ingredient</option>
+                            <option value="">選擇原料</option>
                             {ingredients
                               .filter((ingredient) => ingredient.isActive)
                               .map((ingredient) => (
@@ -10267,7 +10365,7 @@ export default function App() {
                             void saveMenuItemIngredientMapping();
                           }}
                         >
-                          Save mapping
+                          儲存原料設定
                         </button>
                       ) : null}
                     </>
@@ -10281,7 +10379,7 @@ export default function App() {
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-box border border-base-300 p-3">
-                  <h3 className="mb-2 font-semibold">Shortage impact</h3>
+                  <h3 className="mb-2 font-semibold">缺料影響</h3>
                   <div className="space-y-2">
                     {inventoryImpacts
                       .filter((impact) => impact.status !== "normal")
@@ -10303,7 +10401,7 @@ export default function App() {
                             </span>
                           </div>
                           <p className="mt-1 text-xs opacity-70">
-                            Affected items:{" "}
+                            受影響餐點：{" "}
                             {impact.affectedMenuItems.length > 0
                               ? impact.affectedMenuItems
                                   .map((item) => item.name)
@@ -10323,7 +10421,7 @@ export default function App() {
                 </div>
 
                 <div className="rounded-box border border-base-300 p-3">
-                  <h3 className="mb-2 font-semibold">Menu availability impact</h3>
+                  <h3 className="mb-2 font-semibold">餐點可售影響</h3>
                   <div className="space-y-2">
                     {menuItemAvailabilityImpacts
                       .filter(
@@ -10348,18 +10446,18 @@ export default function App() {
                               }`}
                             >
                               {impact.canPrepare
-                                ? "Low stock warning"
-                                : "Missing ingredients"}
+                                ? "庫存偏低提醒"
+                                : "原料不足"}
                             </span>
                             {!impact.isAvailable ? (
                               <span className="badge badge-neutral">
-                                Unavailable
+                                暫停販售
                               </span>
                             ) : null}
                           </div>
                           {impact.missingIngredients.length > 0 ? (
                             <p className="mt-1 text-xs">
-                              Missing:{" "}
+                              缺少：{" "}
                               {impact.missingIngredients
                                 .map(
                                   (ingredient) =>
@@ -10370,7 +10468,7 @@ export default function App() {
                           ) : null}
                           {impact.lowStockIngredients.length > 0 ? (
                             <p className="mt-1 text-xs opacity-70">
-                              Low:{" "}
+                              偏低：{" "}
                               {impact.lowStockIngredients
                                 .map(
                                   (ingredient) =>
@@ -10396,9 +10494,7 @@ export default function App() {
 
               <div className="alert alert-warning">
                 <span>
-                  Auto sync disables menu items that cannot be prepared.
-                  Restocking does not automatically re-enable items;
-                  owner/admin must manually turn them back on.
+                  系統可將無法製作的餐點自動下架；補貨後不會自動恢復販售，需由老闆或管理者手動重新上架。
                 </span>
               </div>
             </div>
@@ -10410,7 +10506,7 @@ export default function App() {
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="card-title">Category management</h2>
+                  <h2 className="card-title">分類管理</h2>
                   <p className="text-sm opacity-70">
                     Create, update, and deactivate menu categories.
                   </p>
@@ -10585,7 +10681,7 @@ export default function App() {
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="card-title">Promotion management</h2>
+                  <h2 className="card-title">優惠券管理</h2>
                   <p className="text-sm opacity-70">
                     Create, update, deactivate, and reactivate checkout promo
                     codes.
@@ -10607,9 +10703,7 @@ export default function App() {
               </div>
               <div className="alert alert-info items-start">
                 <span>
-                  Promo codes can be used in customer checkout, walk-in orders,
-                  and phone orders. Discounts are shown on receipts and included
-                  in analytics revenue.
+                  優惠碼可用於顧客結帳、現場點餐與電話訂餐；折扣會顯示在收據並計入營運分析。
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -10663,7 +10757,7 @@ export default function App() {
               >
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                   <h3 className="font-semibold">
-                    {editingPromotionId ? "Edit promo code" : "Create promo code"}
+                    {editingPromotionId ? "編輯優惠碼" : "新增優惠碼"}
                   </h3>
                   {editingPromotionId ? (
                     <button
@@ -10945,20 +11039,28 @@ export default function App() {
           ) : (
             <>
               <section className="mb-8 rounded-box border border-base-300 bg-base-100 p-4 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-xl font-bold">Current wait estimate</h2>
-                    <p className="text-sm opacity-70">
-                      Kitchen queue: {queueSummary.kitchenQueue} order(s)
+                <div>
+                  <h2 className="text-xl font-bold">目前預估等待時間</h2>
+                  <p className="text-sm opacity-70">
+                    依目前全店廚房排隊狀況估算，實際時間以現場為準。
+                  </p>
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="rounded-box border border-base-300 bg-base-200 p-3">
+                    <p className="text-xs opacity-70">廚房排隊</p>
+                    <p className="text-lg font-bold">
+                      {queueSummary.kitchenQueue} 筆
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="badge badge-outline">
-                      Estimated wait: {estimatedWaitMinutes} min
-                    </span>
-                    <span
-                      className={`badge ${getBusyLevelBadgeClass(busyLevel)}`}
-                    >
+                  <div className="rounded-box border border-base-300 bg-base-200 p-3">
+                    <p className="text-xs opacity-70">預估等待</p>
+                    <p className="text-lg font-bold">
+                      {estimatedWaitMinutes} 分鐘
+                    </p>
+                  </div>
+                  <div className="rounded-box border border-base-300 bg-base-200 p-3">
+                    <p className="text-xs opacity-70">忙碌程度</p>
+                    <span className={`badge ${getBusyLevelBadgeClass(busyLevel)}`}>
                       {getBusyLevelLabel(busyLevel)}
                     </span>
                   </div>
@@ -10970,10 +11072,9 @@ export default function App() {
               {menuBundles.length > 0 ? (
                 <section className="mb-8 rounded-box border border-base-300 bg-base-100 p-4 shadow-sm">
                   <div className="mb-3">
-                    <h2 className="text-xl font-bold">Breakfast combos</h2>
+                    <h2 className="text-xl font-bold">早餐套餐組合</h2>
                     <p className="text-sm opacity-70">
-                      Add a bundle and each included menu item is added to your
-                      cart with a bundle label.
+                      選擇套餐後，系統會把套餐內餐點一起加入購物車。
                     </p>
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -11015,7 +11116,7 @@ export default function App() {
                             void addBundleToCart(bundle);
                           }}
                         >
-                          Add combo
+                          加入套餐
                         </button>
                       </article>
                     ))}
@@ -11067,8 +11168,8 @@ export default function App() {
                           }}
                         >
                           {activeItemId === entry.currentItem.id
-                            ? "Adding..."
-                            : "Add"}
+                            ? "加入中..."
+                            : "加入"}
                         </button>
                       </div>
                     ))}
@@ -11102,36 +11203,25 @@ export default function App() {
                         }}
                       />
                     </figure>
-                    <div className="card-body">
+                    <div className="card-body p-4">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="card-title text-lg">{item.name}</h3>
-                        <span className="badge badge-outline">
-                          {formatSemanticVersion(item)}
-                          <span className="ml-2 text-xs opacity-70">
-                            Serial #{item.version}
-                          </span>
-                        </span>
                         {!item.is_available ? (
-                          <span className="badge badge-error">Sold out</span>
+                          <span className="badge badge-error">已售完</span>
                         ) : null}
                         {menuItemAvailabilityImpactById.get(item.id)
                           ?.missingIngredients.length ? (
                           <span className="badge badge-error">
-                            Missing ingredients
+                            原料不足
                           </span>
                         ) : menuItemAvailabilityImpactById.get(item.id)
                             ?.lowStockIngredients.length ? (
-                          <span className="badge badge-warning">Low stock</span>
-                        ) : null}
-                        {canManageMenu ? (
-                          <span className="badge badge-secondary badge-outline">
-                            A/B: {formatAbTestGroup(item.ab_test_group)}
-                          </span>
+                          <span className="badge badge-warning">庫存偏低</span>
                         ) : null}
                       </div>
                       {item.primary_category_name ? (
                         <span className="badge badge-primary w-fit">
-                          Primary: {item.primary_category_name}
+                          {item.primary_category_name}
                         </span>
                       ) : null}
                       {item.categories && item.categories.length > 0 ? (
@@ -11165,7 +11255,9 @@ export default function App() {
                       ) : null}
                       {canManageMenu ? (
                         <p className="text-xs opacity-70">
-                          Display order: {item.display_order}
+                          菜單版本：{formatSemanticVersion(item)} · 版本編號：#
+                          {item.version} · 測試分組：{formatAbTestGroup(item.ab_test_group)}
+                          · 顯示排序：{item.display_order}
                         </p>
                       ) : null}
                       <p className="text-sm opacity-80 line-clamp-2 min-h-[2.75rem]">
@@ -11185,10 +11277,10 @@ export default function App() {
                           }
                         >
                           {!item.is_available
-                            ? "Sold out"
+                            ? "已售完"
                             : activeItemId === item.id
-                              ? "Adding..."
-                              : `Add${
+                              ? "加入中..."
+                              : `加入${
                                 cartQtyByItemId[item.id]
                                   ? ` (${cartQtyByItemId[item.id]})`
                                   : ""
@@ -11270,8 +11362,8 @@ export default function App() {
                               disabled={menuBusy}
                             >
                               {item.is_available
-                                ? "Mark sold out"
-                                : "Mark available"}
+                                ? "標記售完"
+                                : "恢復販售"}
                             </button>
                             <button
                               className="btn btn-sm btn-outline"
@@ -11345,8 +11437,8 @@ export default function App() {
                                             <td>{historyItem.display_order}</td>
                                             <td>
                                               {historyItem.is_available
-                                                ? "Available"
-                                                : "Sold out"}
+                                                ? "販售中"
+                                                : "已售完"}
                                             </td>
                                             <td>
                                               {historyItem.change_reason ||
@@ -11438,7 +11530,7 @@ export default function App() {
                           <div>
                             <h3 className="font-semibold">Order #{order.id}</h3>
                             <p className="text-sm font-medium text-primary">
-                              Pickup number: {formatPickupNumber(order.id)}
+                              取餐編號：{formatPickupNumber(order.id)}
                             </p>
                             {order.status === "ready" ? (
                               <p className="text-sm font-semibold text-primary">
@@ -11467,7 +11559,7 @@ export default function App() {
                                 order.status,
                               )}`}
                             >
-                              {order.status}
+                              {formatOrderStatus(order.status)}
                             </span>
                             {canCancelOwnOrder ? (
                               <button
@@ -11492,8 +11584,8 @@ export default function App() {
                                 }}
                               >
                                 {reorderingOrderId === order.id
-                                  ? "Adding..."
-                                  : "Order again"}
+                                  ? "加入中..."
+                                  : "再點一次"}
                               </button>
                             ) : null}
                             {allowedStatuses.length > 0 ? (
@@ -11512,7 +11604,7 @@ export default function App() {
                                 >
                                   {allowedStatuses.map((status) => (
                                     <option key={status} value={status}>
-                                      {status}
+                                      {formatOrderStatus(status)}
                                     </option>
                                   ))}
                                 </select>
@@ -11550,7 +11642,7 @@ export default function App() {
                               </span>
                             ) : (
                               <span>
-                                Estimated wait: {customerEstimatedWait} min
+                                預估等待：{customerEstimatedWait} 分鐘
                               </span>
                             )}
                           </div>
@@ -11561,10 +11653,10 @@ export default function App() {
                           </p>
                         ) : null}
                         <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
-                          <span>Fulfillment: {order.fulfillmentType}</span>
+                          <span>取餐方式：{formatFulfillmentType(order.fulfillmentType)}</span>
                           <span>
-                            Payment: {order.paymentMethod} /{" "}
-                            {order.paymentStatus}
+                            付款：{formatPaymentMethod(order.paymentMethod)} /{" "}
+                            {formatPaymentStatus(order.paymentStatus)}
                           </span>
                           {order.pickupTime ? (
                             <span>
@@ -11573,7 +11665,7 @@ export default function App() {
                           ) : null}
                           {order.customerNote ? (
                             <span className="md:col-span-2">
-                              Note: {order.customerNote}
+                              備註：{order.customerNote}
                             </span>
                           ) : null}
                           {order.discountAmount > 0 || order.promoCode ? (
@@ -11591,7 +11683,7 @@ export default function App() {
                                 ? ` / ${detail.memberName}`
                                 : ""}
                               {detail.bundleName
-                                ? ` / Bundle: ${detail.bundleName}`
+                                ? ` / 套餐：${detail.bundleName}`
                                 : ""}
                             </li>
                           ))}
@@ -11683,21 +11775,36 @@ export default function App() {
             aria-label="close cart drawer"
             onClick={() => setIsCartOpen(false)}
           />
-          <aside className="fixed right-0 top-0 h-full w-full max-w-md bg-base-100 shadow-2xl z-10 flex flex-col">
+          <aside className="fixed right-0 top-0 h-full w-full max-w-2xl bg-base-100 shadow-2xl z-10 flex flex-col">
             <div className="p-4 border-b border-base-300 flex items-center justify-between">
-              <h2 className="text-xl font-bold">Cart</h2>
+              <h2 className="text-xl font-bold">購物車</h2>
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => setIsCartOpen(false)}
               >
-                Close
+                關閉
               </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 border-b border-base-300 bg-base-200 p-3 text-center text-sm">
+              <div>
+                <p className="text-xs opacity-70">餐點數量</p>
+                <p className="font-bold">{cartItemCount}</p>
+              </div>
+              <div>
+                <p className="text-xs opacity-70">總金額</p>
+                <p className="font-bold">${cartSubtotal}</p>
+              </div>
+              <div>
+                <p className="text-xs opacity-70">預估等待</p>
+                <p className="font-bold">{estimatedWaitMinutes} 分鐘</p>
+              </div>
             </div>
 
             <div className="p-4 flex-1 overflow-auto">
+              <h3 className="mb-2 font-semibold">購物車餐點</h3>
               {cartDetails.length === 0 ? (
                 <div className="alert">
-                  <span>Your cart is empty.</span>
+                  <span>購物車目前是空的。</span>
                 </div>
               ) : (
                 <ul className="max-h-56 space-y-3 overflow-y-auto rounded-box border border-base-300 bg-base-100 p-2">
@@ -11714,11 +11821,11 @@ export default function App() {
                         {detail.bundle ? (
                           <div className="mt-1 flex flex-wrap gap-2 text-xs">
                             <span className="badge badge-secondary badge-sm">
-                              Bundle: {detail.bundle.bundleName}
+                              套餐：{detail.bundle.bundleName}
                             </span>
                             {detail.bundle.bundlePrice !== undefined ? (
                               <span>
-                                Combo price: ${detail.bundle.bundlePrice}
+                                套餐價：${detail.bundle.bundlePrice}
                               </span>
                             ) : null}
                           </div>
@@ -11726,16 +11833,16 @@ export default function App() {
                         {detail.hasPriceChanged && detail.currentItem ? (
                           <div className="mt-1 flex flex-wrap gap-2 text-xs">
                             <span className="badge badge-warning">
-                              Price changed
+                              價格已變更
                             </span>
-                            <span>Snapshot: ${detail.item.price}</span>
-                            <span>Current: ${detail.currentItem.price}</span>
+                            <span>下單時：${detail.item.price}</span>
+                            <span>目前：${detail.currentItem.price}</span>
                           </div>
                         ) : null}
                         {checkoutForm.isGroupOrder ? (
                           <input
                             className="input input-bordered input-xs mt-2 w-full"
-                            placeholder="Member name"
+                            placeholder="成員姓名"
                             value={detail.memberName}
                             maxLength={80}
                             onChange={(event) => {
@@ -11787,18 +11894,16 @@ export default function App() {
               )}
             </div>
 
-            <div className="p-4 border-t border-base-300 space-y-3">
+            <div className="max-h-[60vh] overflow-y-auto border-t border-base-300 p-4 space-y-3">
               <div className="rounded-box border border-base-300 bg-base-100 p-3 space-y-3">
                 <h3 className="font-semibold">
-                  {user ? "Checkout details" : "Guest checkout"}
+                  {user ? "訂單資訊" : "訪客訂餐"}
                 </h3>
                 {!user ? (
                   <div className="rounded-box border border-info/40 bg-info/10 p-2 text-xs">
-                    <p className="font-medium">Guest checkout</p>
+                    <p className="font-medium">訪客訂餐</p>
                     <p className="opacity-75">
-                      Enter a name and phone number so staff can identify your
-                      pickup order. Sign in later if you want saved order
-                      history.
+                      請留下姓名與電話，方便店員核對取餐；登入後可保存訂單紀錄。
                     </p>
                   </div>
                 ) : null}
@@ -11808,13 +11913,14 @@ export default function App() {
                   } py-2 text-sm`}
                 >
                   <span>
-                    Estimated wait: {estimatedWaitMinutes} minutes. Ahead of
-                    you: {queueSummary.kitchenQueue} active order(s).
+                    預估等待：{estimatedWaitMinutes} 分鐘。前方約有{" "}
+                    {queueSummary.kitchenQueue} 筆訂單。
                     {busyLevel === "normal"
                       ? ""
-                      : " The kitchen is busy. Please review your pickup time before submitting."}
+                      : " 廚房目前較忙，送出前請確認取餐時間。"}
                   </span>
                 </div>
+                <div className="divider my-1">訂餐資料</div>
                 <div className="rounded-box border border-base-300 bg-base-200 p-2 text-sm">
                   <label className="label cursor-pointer justify-start gap-2 p-0">
                     <input
@@ -11828,13 +11934,13 @@ export default function App() {
                         }))
                       }
                     />
-                    <span className="label-text">Group order</span>
+                    <span className="label-text">團體訂單</span>
                   </label>
                   {checkoutForm.isGroupOrder ? (
                     <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <input
                         className="input input-bordered input-sm"
-                        placeholder="Group name"
+                        placeholder="團體名稱"
                         value={checkoutForm.groupName}
                         maxLength={80}
                         onChange={(event) =>
@@ -11846,7 +11952,7 @@ export default function App() {
                       />
                       <input
                         className="input input-bordered input-sm"
-                        placeholder="Contact name"
+                        placeholder="聯絡人"
                         value={checkoutForm.contactName}
                         maxLength={80}
                         onChange={(event) =>
@@ -11858,7 +11964,7 @@ export default function App() {
                       />
                       <input
                         className="input input-bordered input-sm sm:col-span-2"
-                        placeholder="Contact phone"
+                        placeholder="聯絡電話"
                         value={checkoutForm.contactPhone}
                         maxLength={30}
                         onChange={(event) =>
@@ -11874,7 +11980,7 @@ export default function App() {
                 {!user ? (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="form-control">
-                      <span className="label-text mb-1">Guest name</span>
+                      <span className="label-text mb-1">訪客姓名</span>
                       <input
                         className="input input-bordered input-sm"
                         value={guestCheckoutForm.guestName}
@@ -11885,11 +11991,11 @@ export default function App() {
                           }))
                         }
                         maxLength={80}
-                        placeholder="Required"
+                        placeholder="必填"
                       />
                     </label>
                     <label className="form-control">
-                      <span className="label-text mb-1">Phone number</span>
+                      <span className="label-text mb-1">電話</span>
                       <input
                         className="input input-bordered input-sm"
                         value={guestCheckoutForm.guestPhone}
@@ -11900,14 +12006,15 @@ export default function App() {
                           }))
                         }
                         maxLength={30}
-                        placeholder="Required"
+                        placeholder="必填"
                       />
                     </label>
                   </div>
                 ) : null}
+                <div className="divider my-1">取餐與付款</div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="form-control">
-                    <span className="label-text mb-1">Fulfillment</span>
+                    <span className="label-text mb-1">取餐方式</span>
                     <select
                       className="select select-bordered select-sm"
                       value={checkoutForm.fulfillmentType}
@@ -11918,12 +12025,12 @@ export default function App() {
                         }))
                       }
                     >
-                      <option value="takeout">Takeout</option>
-                      <option value="dine_in">Dine in</option>
+                      <option value="takeout">外帶</option>
+                      <option value="dine_in">內用</option>
                     </select>
                   </label>
                   <label className="form-control">
-                    <span className="label-text mb-1">Payment</span>
+                    <span className="label-text mb-1">付款方式</span>
                     <select
                       className="select select-bordered select-sm"
                       value={checkoutForm.paymentMethod}
@@ -11934,14 +12041,14 @@ export default function App() {
                         }))
                       }
                     >
-                      <option value="cash">Cash</option>
-                      <option value="card">Card</option>
-                      <option value="online">Online</option>
+                      <option value="cash">現金</option>
+                      <option value="card">刷卡</option>
+                      <option value="online">線上付款</option>
                     </select>
                   </label>
                 </div>
                 <label className="form-control">
-                  <span className="label-text mb-1">Pickup time</span>
+                  <span className="label-text mb-1">取餐時間</span>
                   <input
                     className="input input-bordered input-sm"
                     type="datetime-local"
@@ -11953,9 +12060,13 @@ export default function App() {
                       }))
                     }
                     />
+                  <span className="mt-1 text-xs opacity-60">
+                    可不填，現場會依目前等待時間安排。
+                  </span>
                   </label>
+                <div className="divider my-1">優惠碼與備註</div>
                 <label className="form-control">
-                  <span className="label-text mb-1">Promo code</span>
+                  <span className="label-text mb-1">優惠碼</span>
                   <input
                     className="input input-bordered input-sm"
                     value={checkoutForm.promoCode}
@@ -11965,7 +12076,7 @@ export default function App() {
                         promoCode: event.target.value,
                       }))
                     }
-                    placeholder="Optional"
+                    placeholder="選填"
                   />
                   {renderPromotionEligibilityHint(
                     checkoutForm.promoCode,
@@ -11974,7 +12085,7 @@ export default function App() {
                   )}
                 </label>
                 <label className="form-control">
-                  <span className="label-text mb-1">Note</span>
+                  <span className="label-text mb-1">備註</span>
                   <textarea
                     className="textarea textarea-bordered min-h-20"
                     maxLength={500}
@@ -11993,11 +12104,11 @@ export default function App() {
                 })}
               </div>
               <div className="flex items-center justify-between font-semibold">
-                <span>Items</span>
+                <span>餐點數量</span>
                 <span>{cartItemCount}</span>
               </div>
               <div className="flex items-center justify-between text-lg font-bold">
-                <span>Total</span>
+                <span>總金額</span>
                 <span>${cartSubtotal}</span>
               </div>
               <button
@@ -12005,7 +12116,7 @@ export default function App() {
                 onClick={() => void clearCart()}
                 disabled={cartDetails.length === 0 || isClearingCart}
               >
-                {isClearingCart ? "Clearing..." : "Clear cart"}
+                {isClearingCart ? "清空中..." : "清空購物車"}
               </button>
               <button
                 className="btn btn-primary w-full"
@@ -12013,10 +12124,10 @@ export default function App() {
                 disabled={cartDetails.length === 0 || isSubmittingOrder}
               >
                 {isSubmittingOrder
-                  ? "Submitting..."
+                  ? "送出中..."
                   : user
-                    ? "Submit order"
-                    : "Submit guest order"}
+                    ? "送出訂單"
+                    : "送出訪客訂單"}
               </button>
             </div>
           </aside>

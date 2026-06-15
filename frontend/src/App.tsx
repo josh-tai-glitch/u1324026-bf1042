@@ -299,6 +299,20 @@ type ManagerTab =
   | "roleRequests"
   | "auditLogs";
 type MainView = "shop" | "account" | "manager";
+type AnalyticsSubTab =
+  | "overview"
+  | "promotions"
+  | "issues"
+  | "items"
+  | "sources"
+  | "ratings";
+type MenuSubTab = "items" | "bundles" | "list";
+type InventorySubTab =
+  | "ingredients"
+  | "mapping"
+  | "shortage"
+  | "availability";
+type OrdersSubTab = "orders" | "walkin" | "kitchen" | "issues";
 type OrderQuickFilter = "" | (typeof orderQuickFilters)[number]["id"];
 type CategoryStatusFilter = "active" | "inactive" | "all";
 type PromotionStatusFilter = "active" | "inactive" | "all";
@@ -495,6 +509,8 @@ export default function App() {
   const [menuBundleDraftItems, setMenuBundleDraftItems] = useState<
     Array<{ menuItemId: number; qty: number }>
   >([]);
+  const [menuSubTab, setMenuSubTab] = useState<MenuSubTab>("items");
+  const [menuListPage, setMenuListPage] = useState(1);
   const [menuForm, setMenuForm] = useState<MenuForm>(emptyMenuForm);
   const [editingMenuId, setEditingMenuId] = useState<number | null>(null);
   const [menuMessage, setMenuMessage] = useState("");
@@ -527,6 +543,7 @@ export default function App() {
     useState<PromotionStatusFilter>("active");
   const [promotionRuntimeFilter, setPromotionRuntimeFilter] =
     useState<PromotionRuntimeFilter>("all");
+  const [promotionManagementPage, setPromotionManagementPage] = useState(1);
   const [promotionMessage, setPromotionMessage] = useState("");
   const [promotionBusy, setPromotionBusy] = useState(false);
   const [recentlyUpdatedPromotionId, setRecentlyUpdatedPromotionId] = useState<
@@ -555,6 +572,9 @@ export default function App() {
     useState<MenuItemAvailabilityImpact[]>([]);
   const [selectedInventoryMenuItemId, setSelectedInventoryMenuItemId] =
     useState("");
+  const [inventorySubTab, setInventorySubTab] =
+    useState<InventorySubTab>("ingredients");
+  const [ingredientPage, setIngredientPage] = useState(1);
   const [menuItemIngredientLinks, setMenuItemIngredientLinks] = useState<
     MenuItemIngredient[]
   >([]);
@@ -685,6 +705,7 @@ export default function App() {
   >("list");
   const [orderPage, setOrderPage] = useState(1);
   const orderPageSize = 10;
+  const [ordersSubTab, setOrdersSubTab] = useState<OrdersSubTab>("orders");
 
   // Role request / admin review state
   const [roleRequestRole, setRoleRequestRole] = useState<"staff" | "chef">(
@@ -735,6 +756,9 @@ export default function App() {
   const [appliedAnalyticsStartDate, setAppliedAnalyticsStartDate] =
     useState("");
   const [appliedAnalyticsEndDate, setAppliedAnalyticsEndDate] = useState("");
+  const [analyticsSubTab, setAnalyticsSubTab] =
+    useState<AnalyticsSubTab>("overview");
+  const [promotionPerformancePage, setPromotionPerformancePage] = useState(1);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [auditLogsLoading, setAuditLogsLoading] = useState(false);
   const [auditLogsMessage, setAuditLogsMessage] = useState("");
@@ -750,6 +774,7 @@ export default function App() {
     "" | AuditLogTargetType
   >("");
   const [auditLogLimit, setAuditLogLimit] = useState("20");
+  const [auditLogPage, setAuditLogPage] = useState(1);
   const [auditLogRange, setAuditLogRange] = useState<AuditLogRange>("all");
   const [auditLogStartDate, setAuditLogStartDate] = useState("");
   const [auditLogEndDate, setAuditLogEndDate] = useState("");
@@ -955,15 +980,15 @@ export default function App() {
   ): string {
     switch (status) {
       case "active_now":
-        return "Active now";
+        return "目前可用";
       case "scheduled":
-        return "Scheduled";
+        return "尚未開始";
       case "expired":
-        return "Expired";
+        return "已過期";
       case "usage_full":
-        return "Usage full";
+        return "已達上限";
       case "inactive":
-        return "Inactive";
+        return "停用中";
     }
   }
 
@@ -991,23 +1016,23 @@ export default function App() {
     const runtimeStatus = getPromotionRuntimeStatus(promotion, usedCount);
     const discount =
       promotion.discountType === "percent"
-        ? `${promotion.discountValue}% off`
-        : `$${promotion.discountValue} off`;
+        ? `${promotion.discountValue}% 折扣`
+        : `折抵 $${promotion.discountValue}`;
 
     return [
       discount,
       promotion.minOrderAmount > 0
-        ? `Minimum order: $${promotion.minOrderAmount}`
-        : "No minimum order",
+        ? `最低消費：$${promotion.minOrderAmount}`
+        : "無最低消費",
       promotion.startsAt
-        ? `Valid from ${formatCheckoutDateTime(promotion.startsAt)}`
-        : "Valid immediately",
+        ? `開始：${formatCheckoutDateTime(promotion.startsAt)}`
+        : "立即生效",
       promotion.endsAt
-        ? `Ends ${formatCheckoutDateTime(promotion.endsAt)}`
-        : "No end date",
+        ? `結束：${formatCheckoutDateTime(promotion.endsAt)}`
+        : "無結束時間",
       promotion.usageLimit
-        ? `Usage: ${usedCount} / ${promotion.usageLimit}`
-        : `Usage: ${usedCount} / Unlimited`,
+        ? `使用次數：${usedCount} / ${promotion.usageLimit}`
+        : `使用次數：${usedCount} / 無限制`,
       getPromotionRuntimeStatusLabel(runtimeStatus),
     ];
   }
@@ -1212,6 +1237,60 @@ export default function App() {
         return left.code.localeCompare(right.code);
       });
   }, [promotions, revenueAnalyticsOrders]);
+  const tablePageSize = 10;
+  const promotionPerformancePageCount = Math.max(
+    1,
+    Math.ceil(promotionPerformanceRows.length / tablePageSize),
+  );
+  const currentPromotionPerformancePage = Math.min(
+    promotionPerformancePage,
+    promotionPerformancePageCount,
+  );
+  const paginatedPromotionPerformanceRows = promotionPerformanceRows.slice(
+    (currentPromotionPerformancePage - 1) * tablePageSize,
+    currentPromotionPerformancePage * tablePageSize,
+  );
+  const promotionManagementPageCount = Math.max(
+    1,
+    Math.ceil(filteredPromotions.length / tablePageSize),
+  );
+  const currentPromotionManagementPage = Math.min(
+    promotionManagementPage,
+    promotionManagementPageCount,
+  );
+  const paginatedFilteredPromotions = filteredPromotions.slice(
+    (currentPromotionManagementPage - 1) * tablePageSize,
+    currentPromotionManagementPage * tablePageSize,
+  );
+  const menuListPageSize = 10;
+  const menuListPageCount = Math.max(
+    1,
+    Math.ceil(items.length / menuListPageSize),
+  );
+  const currentMenuListPage = Math.min(menuListPage, menuListPageCount);
+  const paginatedMenuItems = items.slice(
+    (currentMenuListPage - 1) * menuListPageSize,
+    currentMenuListPage * menuListPageSize,
+  );
+  const auditLogPageSize = 10;
+  const auditLogPageCount = Math.max(
+    1,
+    Math.ceil(auditLogs.length / auditLogPageSize),
+  );
+  const currentAuditLogPage = Math.min(auditLogPage, auditLogPageCount);
+  const paginatedAuditLogs = auditLogs.slice(
+    (currentAuditLogPage - 1) * auditLogPageSize,
+    currentAuditLogPage * auditLogPageSize,
+  );
+  const ingredientPageCount = Math.max(
+    1,
+    Math.ceil(ingredients.length / tablePageSize),
+  );
+  const currentIngredientPage = Math.min(ingredientPage, ingredientPageCount);
+  const paginatedIngredients = ingredients.slice(
+    (currentIngredientPage - 1) * tablePageSize,
+    currentIngredientPage * tablePageSize,
+  );
   const issueOrders = formalAnalyticsOrders.filter(
     (order) => order.issueType !== null,
   );
@@ -1558,6 +1637,48 @@ export default function App() {
       setOrderPage(managerOrderPageCount);
     }
   }, [managerOrderPageCount, orderPage]);
+
+  useEffect(() => {
+    setPromotionPerformancePage(1);
+  }, [appliedAnalyticsRange, appliedAnalyticsStartDate, appliedAnalyticsEndDate]);
+
+  useEffect(() => {
+    setPromotionManagementPage(1);
+  }, [promotionRuntimeFilter, promotionStatusFilter]);
+
+  useEffect(() => {
+    setAuditLogPage(1);
+  }, [auditLogs, auditLogActionFilter, auditLogTargetTypeFilter]);
+
+  useEffect(() => {
+    if (promotionPerformancePage > promotionPerformancePageCount) {
+      setPromotionPerformancePage(promotionPerformancePageCount);
+    }
+  }, [promotionPerformancePage, promotionPerformancePageCount]);
+
+  useEffect(() => {
+    if (promotionManagementPage > promotionManagementPageCount) {
+      setPromotionManagementPage(promotionManagementPageCount);
+    }
+  }, [promotionManagementPage, promotionManagementPageCount]);
+
+  useEffect(() => {
+    if (auditLogPage > auditLogPageCount) {
+      setAuditLogPage(auditLogPageCount);
+    }
+  }, [auditLogPage, auditLogPageCount]);
+
+  useEffect(() => {
+    if (ingredientPage > ingredientPageCount) {
+      setIngredientPage(ingredientPageCount);
+    }
+  }, [ingredientPage, ingredientPageCount]);
+
+  useEffect(() => {
+    if (menuListPage > menuListPageCount) {
+      setMenuListPage(menuListPageCount);
+    }
+  }, [menuListPage, menuListPageCount]);
 
   const kitchenDisplayOrders = useMemo(() => {
     const search = orderSearchText.trim().toLowerCase();
@@ -2074,7 +2195,7 @@ export default function App() {
   }
 
   function formatKitchenPriority(priority: "normal" | "soon" | "urgent") {
-    if (priority === "urgent") return "Urgent";
+    if (priority === "urgent") return "緊急";
     if (priority === "soon") return "Due soon";
     return "Normal";
   }
@@ -6733,6 +6854,91 @@ export default function App() {
                 </button>
               </div>
             </form>
+            {menuSubTab === "list" ? (
+              <div className="card border border-base-300 bg-base-100 shadow-sm">
+                <div className="card-body">
+                  <div>
+                    <h2 className="card-title">菜單列表</h2>
+                    <p className="text-sm opacity-70">
+                      查看目前菜單餐點、販售狀態、價格與排序。
+                    </p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>餐點</th>
+                          <th>分類</th>
+                          <th>價格</th>
+                          <th>狀態</th>
+                          <th>菜單版本</th>
+                          <th>顯示排序</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedMenuItems.map((item) => (
+                          <tr key={item.id}>
+                            <td>
+                              <div className="font-semibold">{item.name}</div>
+                              <div className="text-xs opacity-60">
+                                {item.description}
+                              </div>
+                            </td>
+                            <td>
+                              {item.primary_category_name ||
+                                item.category ||
+                                "未分類"}
+                            </td>
+                            <td>${item.price}</td>
+                            <td>
+                              <span
+                                className={`badge ${
+                                  item.is_available
+                                    ? "badge-success"
+                                    : "badge-error"
+                                }`}
+                              >
+                                {item.is_available ? "販售中" : "已售完"}
+                              </span>
+                            </td>
+                            <td>{formatSemanticVersion(item)}</td>
+                            <td>{item.display_order}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                    <span>
+                      第 {currentMenuListPage} / {menuListPageCount} 頁，共{" "}
+                      {items.length} 筆
+                    </span>
+                    <div className="join">
+                      <button
+                        className="btn btn-sm join-item"
+                        disabled={currentMenuListPage <= 1}
+                        onClick={() =>
+                          setMenuListPage((page) => Math.max(1, page - 1))
+                        }
+                      >
+                        上一頁
+                      </button>
+                      <button
+                        className="btn btn-sm join-item"
+                        disabled={currentMenuListPage >= menuListPageCount}
+                        onClick={() =>
+                          setMenuListPage((page) =>
+                            Math.min(menuListPageCount, page + 1),
+                          )
+                        }
+                      >
+                        下一頁
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -6839,7 +7045,30 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                {canCreateWalkInOrder ? (
+                <div className="mb-4 flex flex-wrap gap-2 rounded-box border border-base-300 bg-base-200 p-2">
+                  {[
+                    { id: "orders" as const, label: "訂單列表" },
+                    { id: "walkin" as const, label: "現場 / 電話點餐" },
+                    { id: "kitchen" as const, label: "廚房看板" },
+                    { id: "issues" as const, label: "訂單問題" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      className={`btn btn-sm ${
+                        ordersSubTab === tab.id ? "btn-primary" : "btn-ghost"
+                      }`}
+                      onClick={() => {
+                        setOrdersSubTab(tab.id);
+                        if (tab.id === "kitchen") setOrdersViewMode("kitchen");
+                        if (tab.id === "orders") setOrdersViewMode("list");
+                        if (tab.id === "issues") setOrderIssueFilter("has_issue");
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                {ordersSubTab === "walkin" && canCreateWalkInOrder ? (
                   <div className="mb-4 rounded-box border border-base-300 bg-base-200 p-4">
                     <div className="mb-3">
                       <h4 className="font-semibold">櫃台代客點餐</h4>
@@ -7000,7 +7229,7 @@ export default function App() {
                     </div>
                     <textarea
                       className="textarea textarea-bordered mt-3 min-h-20 w-full"
-                      placeholder="Guest note"
+                      placeholder="顧客備註"
                       value={walkInOrderForm.customerNote}
                       onChange={(event) =>
                         setWalkInOrderForm((current) => ({
@@ -7020,7 +7249,7 @@ export default function App() {
                           setWalkInSelectedItemId(event.target.value)
                         }
                       >
-                        <option value="">Select menu item</option>
+                        <option value="">選擇餐點</option>
                         {items.map((item) => (
                           <option
                             key={item.id}
@@ -7105,7 +7334,7 @@ export default function App() {
                                       removeWalkInItem(detail.itemId)
                                     }
                                   >
-                                    Remove
+                                    移除
                                   </button>
                                 </td>
                               </tr>
@@ -7128,13 +7357,20 @@ export default function App() {
                     </div>
                   </div>
                 ) : null}
+                {ordersSubTab !== "walkin" ? (
+                <>
                 <div className="mb-4 rounded-box border border-base-300 bg-base-200 p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h4 className="font-semibold">Find orders</h4>
+                      <h4 className="font-semibold">
+                        {ordersSubTab === "kitchen"
+                          ? "廚房看板"
+                          : ordersSubTab === "issues"
+                            ? "訂單問題"
+                            : "查找訂單"}
+                      </h4>
                       <p className="text-sm opacity-70">
-                        Use search, filters, and board view to find and process
-                        orders.
+                        使用搜尋、篩選與檢視模式快速處理訂單。
                       </p>
                     </div>
                     <div className="join">
@@ -7346,7 +7582,7 @@ export default function App() {
                           </div>
                         </div>
                         <div className="stat rounded-box border border-base-300 bg-base-100">
-                          <div className="stat-title">Urgent orders</div>
+                          <div className="stat-title">緊急訂單</div>
                           <div className="stat-value text-error">
                             {urgentKitchenOrders}
                           </div>
@@ -7461,11 +7697,11 @@ export default function App() {
                                     {formatKitchenPriority(priority)}
                                   </span>
                                   <span className="badge badge-outline">
-                                    Age {orderAgeMinutes}m
+                                    等待 {orderAgeMinutes} 分
                                   </span>
                                   {urgent ? (
                                     <span className="badge badge-error">
-                                      Urgent
+                                      緊急
                                     </span>
                                   ) : null}
                                 </div>
@@ -7473,7 +7709,7 @@ export default function App() {
 
                               <div className="mt-3 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
                                 <span>
-                                  Source: {formatOrderSource(order.orderSource)}
+                                  來源：{formatOrderSource(order.orderSource)}
                                 </span>
                                 {order.isGroupOrder ? (
                                   <span>
@@ -7483,18 +7719,18 @@ export default function App() {
                                 <span>付款：{formatPaymentStatus(order.paymentStatus)}</span>
                                 {order.pickupTime ? (
                                   <span>
-                                    Pickup:{" "}
+                                    取餐時間：{" "}
                                     {formatCheckoutDateTime(order.pickupTime)}
                                   </span>
                                 ) : (
-                                  <span>Pickup: as soon as possible</span>
+                                  <span>取餐時間：盡快安排</span>
                                 )}
                                 {order.guestName ? (
-                                  <span>Guest: {order.guestName}</span>
+                                  <span>顧客：{order.guestName}</span>
                                 ) : null}
                                 {order.customerNote ? (
                                   <span className="md:col-span-2">
-                                    Note: {order.customerNote}
+                                    備註：{order.customerNote}
                                   </span>
                                 ) : null}
                               </div>
@@ -7502,7 +7738,7 @@ export default function App() {
                               {order.issueType ? (
                                 <div className="alert alert-warning mt-3 py-2">
                                   <span>
-                                    Issue: {order.issueType}
+                                    問題：{order.issueType}
                                     {order.issueNote
                                       ? ` / ${order.issueNote}`
                                       : ""}
@@ -7630,7 +7866,7 @@ export default function App() {
                                     <div className="mt-2 flex flex-wrap gap-1">
                                       {urgent ? (
                                         <span className="badge badge-error badge-sm">
-                                          Urgent {orderAgeMinutes}m
+                                          緊急 {orderAgeMinutes} 分
                                         </span>
                                       ) : null}
                                       {managerFlowHint ? (
@@ -7674,7 +7910,7 @@ export default function App() {
                                     </div>
                                     {order.guestName ? (
                                       <p className="mt-2 text-xs opacity-70">
-                                        Guest: {order.guestName}
+                                        顧客：{order.guestName}
                                       </p>
                                     ) : null}
                                     {readyPickupOverdue ? (
@@ -7850,7 +8086,7 @@ export default function App() {
                               </span>
                               {urgent ? (
                                 <span className="badge badge-error">
-                                  Urgent {orderAgeMinutes}m
+                                  緊急 {orderAgeMinutes} 分
                                 </span>
                               ) : null}
                               {managerFlowHint ? (
@@ -7963,7 +8199,7 @@ export default function App() {
                           </p>
                           <div className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
                             <span>
-                              Source: {formatOrderSource(order.orderSource)}
+                              來源：{formatOrderSource(order.orderSource)}
                             </span>
                             {order.isGroupOrder ? (
                               <span>
@@ -7973,7 +8209,7 @@ export default function App() {
                             {(order.orderSource === "walk_in" ||
                               order.orderSource === "phone") &&
                             order.guestName ? (
-                              <span>Guest: {order.guestName}</span>
+                              <span>顧客：{order.guestName}</span>
                             ) : null}
                             {order.guestPhone ? (
                               <span>Phone: {order.guestPhone}</span>
@@ -8010,7 +8246,7 @@ export default function App() {
                             </div>
                             {order.pickupTime ? (
                               <span>
-                                Pickup: {formatCheckoutDateTime(order.pickupTime)}
+                                取餐時間：{formatCheckoutDateTime(order.pickupTime)}
                               </span>
                             ) : null}
                             {order.paymentStatus === "unpaid" &&
@@ -8040,13 +8276,13 @@ export default function App() {
                             ) : null}
                             {order.customerNote ? (
                               <span className="md:col-span-2">
-                                Note: {order.customerNote}
+                                備註：{order.customerNote}
                               </span>
                             ) : null}
                             {order.discountAmount > 0 || order.promoCode ? (
                               <span className="md:col-span-2">
-                                Promo {order.promoCode ?? "-"}: subtotal $
-                                {order.subtotal}, discount -$
+                                優惠碼 {order.promoCode ?? "-"}：原始金額 $
+                                {order.subtotal}，折扣 -$
                                 {order.discountAmount}
                               </span>
                             ) : null}
@@ -8078,11 +8314,11 @@ export default function App() {
                             <div className="alert alert-warning mt-3 items-start">
                               <div>
                                 <div className="font-semibold">
-                                  Issue: {order.issueType}
+                                  問題：{order.issueType}
                                 </div>
                                 {order.issueNote ? (
                                   <div className="text-sm">
-                                    Note: {order.issueNote}
+                                    備註：{order.issueNote}
                                   </div>
                                 ) : null}
                                 {order.issueReportedAt ? (
@@ -8141,7 +8377,7 @@ export default function App() {
                                 </select>
                                 <input
                                   className="input input-sm input-bordered"
-                                  placeholder="Issue note"
+                                  placeholder="問題備註"
                                   value={issueDraft.issueNote}
                                   disabled={issueUpdatingOrderId === order.id}
                                   onChange={(event) => {
@@ -8162,8 +8398,8 @@ export default function App() {
                                   }}
                                 >
                                   {issueUpdatingOrderId === order.id
-                                    ? "Saving..."
-                                    : "Set issue"}
+                                    ? "儲存中..."
+                                    : "標記問題"}
                                 </button>
                               </div>
                             </div>
@@ -8182,13 +8418,15 @@ export default function App() {
                             ))}
                           </ul>
                           <p className="mt-2 text-right font-bold">
-                            Total ${order.total}
+                            總金額 ${order.total}
                           </p>
                         </article>
                       );
                     })}
                   </div>
                 )}
+                </>
+                ) : null}
               </div>
             ) : null}
           </section>
@@ -8553,7 +8791,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {auditLogs.map((log) => (
+                      {paginatedAuditLogs.map((log) => (
                         <tr key={log.id}>
                           <td className="whitespace-nowrap">
                             {formatCheckoutDateTime(log.createdAt)}
@@ -8605,6 +8843,36 @@ export default function App() {
                   </table>
                 </div>
               )}
+              {auditLogs.length > 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                  <span>
+                    第 {currentAuditLogPage} / {auditLogPageCount} 頁，共{" "}
+                    {auditLogs.length} 筆
+                  </span>
+                  <div className="join">
+                    <button
+                      className="btn btn-sm join-item"
+                      disabled={currentAuditLogPage <= 1}
+                      onClick={() =>
+                        setAuditLogPage((page) => Math.max(1, page - 1))
+                      }
+                    >
+                      上一頁
+                    </button>
+                    <button
+                      className="btn btn-sm join-item"
+                      disabled={currentAuditLogPage >= auditLogPageCount}
+                      onClick={() =>
+                        setAuditLogPage((page) =>
+                          Math.min(auditLogPageCount, page + 1),
+                        )
+                      }
+                    >
+                      下一頁
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </section>
         ) : null}
@@ -8683,7 +8951,31 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <details className="collapse collapse-arrow border border-base-300 bg-base-100">
+              <div className="flex flex-wrap gap-2 rounded-box border border-base-300 bg-base-200 p-2">
+                {[
+                  { id: "overview" as const, label: "營運總覽" },
+                  { id: "promotions" as const, label: "優惠券成效" },
+                  { id: "issues" as const, label: "問題分析" },
+                  { id: "items" as const, label: "熱銷商品" },
+                  { id: "sources" as const, label: "訂單來源" },
+                  { id: "ratings" as const, label: "顧客評價" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    className={`btn btn-sm ${
+                      analyticsSubTab === tab.id ? "btn-primary" : "btn-ghost"
+                    }`}
+                    onClick={() => setAnalyticsSubTab(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              <details
+                className={`collapse collapse-arrow border border-base-300 bg-base-100 ${
+                  analyticsSubTab === "overview" ? "" : "hidden"
+                }`}
+              >
                 <summary className="collapse-title font-semibold">
                   資料說明與指標定義
                 </summary>
@@ -8705,7 +8997,11 @@ export default function App() {
                 </div>
               ) : null}
               {analyticsSummary ? (
-                <div className="space-y-4">
+                <div
+                  className={`space-y-4 ${
+                    analyticsSubTab === "overview" ? "" : "hidden"
+                  }`}
+                >
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                     <div className="stat rounded-box border border-base-300 bg-base-200">
                       <div className="stat-title">總營收</div>
@@ -8832,7 +9128,11 @@ export default function App() {
                   </span>
                 </div>
               )}
-              <div className="space-y-4 rounded-box border border-base-300 bg-base-100 p-4">
+              <div
+                className={`space-y-4 rounded-box border border-base-300 bg-base-100 p-4 ${
+                  analyticsSubTab === "overview" ? "" : "hidden"
+                }`}
+              >
                 <div>
                   <h3 className="font-semibold">營運趨勢</h3>
                   <p className="text-sm opacity-70">
@@ -8976,7 +9276,7 @@ export default function App() {
                                   />
                                 </div>
                                 <p className="mt-2 text-sm opacity-70">
-                                  Revenue: ${row.revenue}
+                                  營收：${row.revenue}
                                 </p>
                               </div>
                             ))}
@@ -8989,29 +9289,32 @@ export default function App() {
                   <div className="alert">
                     <span>
                       {analyticsLoading
-                        ? "Loading trends..."
-                        : "No trend data yet."}
+                        ? "趨勢資料載入中..."
+                        : "目前沒有趨勢資料。"}
                     </span>
                   </div>
                 )}
               </div>
-              <div className="space-y-4 rounded-box border border-base-300 bg-base-100 p-4">
+              <div
+                className={`space-y-4 rounded-box border border-base-300 bg-base-100 p-4 ${
+                  analyticsSubTab === "sources" ? "" : "hidden"
+                }`}
+              >
                 <div>
-                  <h3 className="font-semibold">Operational insights</h3>
+                  <h3 className="font-semibold">營運洞察</h3>
                   <p className="text-sm opacity-70">
-                    Spot service issues, cancellation patterns, peak demand,
-                    and payment/source mix for the selected range.
+                    查看尖峰時段、訂單來源與付款方式，掌握營運組成。
                   </p>
                 </div>
                 {analyticsInsights ? (
                   <>
                     <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                       <div className="stat rounded-box border border-base-300 bg-base-200">
-                        <div className="stat-title">Peak hour</div>
+                        <div className="stat-title">尖峰時段</div>
                         {analyticsInsights.peakHour.hour === null ? (
                           <>
                             <div className="stat-value text-base">-</div>
-                            <div className="stat-desc">No peak hour data</div>
+                            <div className="stat-desc">目前沒有尖峰資料</div>
                           </>
                         ) : (
                           <>
@@ -9019,7 +9322,7 @@ export default function App() {
                               {formatTrendHour(analyticsInsights.peakHour.hour)}
                             </div>
                             <div className="stat-desc">
-                              {analyticsInsights.peakHour.orderCount} orders /
+                              {analyticsInsights.peakHour.orderCount} 筆 /
                               ${analyticsInsights.peakHour.revenue}
                             </div>
                           </>
@@ -9027,15 +9330,15 @@ export default function App() {
                       </div>
                       <div className="rounded-box border border-base-300 bg-base-200 p-4">
                         <h4 className="mb-2 font-semibold">
-                          Source comparison
+                          訂單來源比較
                         </h4>
                         <div className="overflow-x-auto">
                           <table className="table table-sm">
                             <thead>
                               <tr>
-                                <th>Source</th>
-                                <th>Orders</th>
-                                <th>Revenue</th>
+                                <th>來源</th>
+                                <th>訂單</th>
+                                <th>營收</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -9054,15 +9357,15 @@ export default function App() {
                       </div>
                       <div className="rounded-box border border-base-300 bg-base-200 p-4">
                         <h4 className="mb-2 font-semibold">
-                          Payment methods
+                          付款方式
                         </h4>
                         <div className="overflow-x-auto">
                           <table className="table table-sm">
                             <thead>
                               <tr>
-                                <th>Method</th>
-                                <th>Orders</th>
-                                <th>Revenue</th>
+                                <th>方式</th>
+                                <th>訂單</th>
+                                <th>營收</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -9160,44 +9463,48 @@ export default function App() {
                     <span>
                       {analyticsLoading
                         ? "Loading insights..."
-                        : "No insight data yet."}
+                        : "目前沒有洞察資料。"}
                     </span>
                   </div>
                 )}
               </div>
-              <div className="space-y-4 rounded-box border border-base-300 bg-base-100 p-4">
+              <div
+                className={`space-y-4 rounded-box border border-base-300 bg-base-100 p-4 ${
+                  analyticsSubTab === "promotions" ? "" : "hidden"
+                }`}
+              >
                 <div>
-                  <h3 className="font-semibold">Promotion performance</h3>
+                  <h3 className="text-xl font-bold">優惠券成效</h3>
                   <p className="text-sm opacity-70">
-                    Compare promo code usage and discounted revenue for the
-                    selected analytics range.
+                    比較優惠碼使用次數、折扣金額與實際營收。
                   </p>
                 </div>
                 {promotionPerformanceRows.length === 0 ? (
                   <div className="alert">
-                    <span>No promotion usage data for this range.</span>
+                    <span>此範圍目前沒有優惠券使用資料。</span>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th>Code</th>
-                          <th>Status</th>
-                          <th>Runtime</th>
-                          <th>Used orders</th>
-                          <th>Min order</th>
-                          <th>Limit</th>
-                          <th>Valid period</th>
-                          <th>Subtotal</th>
-                          <th>Discount</th>
-                          <th>Revenue</th>
-                          <th>AOV</th>
-                          <th>Last used</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {promotionPerformanceRows.map((row) => {
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>優惠碼</th>
+                            <th>狀態</th>
+                            <th>有效狀態</th>
+                            <th>使用訂單</th>
+                            <th>最低消費</th>
+                            <th>使用上限</th>
+                            <th>有效期間</th>
+                            <th>原始金額</th>
+                            <th>折扣</th>
+                            <th>實收金額</th>
+                            <th>平均客單價</th>
+                            <th>最後使用</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paginatedPromotionPerformanceRows.map((row) => {
                           const promotion = promotions.find(
                             (candidate) =>
                               candidate.code.trim().toUpperCase() === row.code,
@@ -9219,11 +9526,11 @@ export default function App() {
                                       : "badge-warning"
                                 }`}
                               >
-                                {row.isActive === null
-                                  ? "unknown"
-                                  : row.isActive
-                                ? "active"
-                                    : "inactive"}
+                                  {row.isActive === null
+                                    ? "未知"
+                                    : row.isActive
+                                      ? "啟用中"
+                                      : "停用中"}
                               </span>
                             </td>
                             <td>
@@ -9247,7 +9554,7 @@ export default function App() {
                             </td>
                             <td>
                               {row.usageLimit === null
-                                ? "Unlimited"
+                                ? "無限制"
                                 : `${row.usedOrders} / ${row.usageLimit}`}
                             </td>
                             <td>
@@ -9255,12 +9562,12 @@ export default function App() {
                                 <div>
                                   {row.startsAt
                                     ? formatCheckoutDateTime(row.startsAt)
-                                    : "Immediate"}
+                                    : "立即生效"}
                                 </div>
                                 <div>
                                   {row.endsAt
                                     ? formatCheckoutDateTime(row.endsAt)
-                                    : "No end"}
+                                    : "無結束時間"}
                                 </div>
                               </div>
                             </td>
@@ -9275,47 +9582,85 @@ export default function App() {
                             </td>
                           </tr>
                           );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                      <span>
+                        第 {currentPromotionPerformancePage} /{" "}
+                        {promotionPerformancePageCount} 頁，共{" "}
+                        {promotionPerformanceRows.length} 筆
+                      </span>
+                      <div className="join">
+                        <button
+                          className="btn btn-sm join-item"
+                          disabled={currentPromotionPerformancePage <= 1}
+                          onClick={() =>
+                            setPromotionPerformancePage((page) =>
+                              Math.max(1, page - 1),
+                            )
+                          }
+                        >
+                          上一頁
+                        </button>
+                        <button
+                          className="btn btn-sm join-item"
+                          disabled={
+                            currentPromotionPerformancePage >=
+                            promotionPerformancePageCount
+                          }
+                          onClick={() =>
+                            setPromotionPerformancePage((page) =>
+                              Math.min(promotionPerformancePageCount, page + 1),
+                            )
+                          }
+                        >
+                          下一頁
+                        </button>
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
-              <div className="space-y-4 rounded-box border border-base-300 bg-base-100 p-4">
+              <div
+                className={`space-y-4 rounded-box border border-base-300 bg-base-100 p-4 ${
+                  analyticsSubTab === "issues" ? "" : "hidden"
+                }`}
+              >
                 <div>
-                  <h3 className="font-semibold">Issue analytics</h3>
+                  <h3 className="text-xl font-bold">問題分析</h3>
                   <p className="text-sm opacity-70">
-                    Track kitchen and counter issues by type and order source
-                    for the selected analytics range.
+                    查看廚房與櫃台回報問題的數量與比例。
                   </p>
                 </div>
                 {issueSummary.totalIssueOrders === 0 ? (
                   <div className="alert">
-                    <span>No issue data for this range.</span>
+                    <span>此範圍目前沒有問題訂單資料。</span>
                   </div>
                 ) : (
                   <>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                       <div className="stat rounded-box border border-base-300 bg-base-200">
-                        <div className="stat-title">Issue orders</div>
+                        <div className="stat-title">問題訂單</div>
                         <div className="stat-value">
                           {issueSummary.totalIssueOrders}
                         </div>
                       </div>
                       <div className="stat rounded-box border border-base-300 bg-base-200">
-                        <div className="stat-title">Open issues</div>
+                        <div className="stat-title">未處理問題</div>
                         <div className="stat-value text-warning">
                           {issueSummary.openIssueOrders}
                         </div>
                       </div>
                       <div className="stat rounded-box border border-base-300 bg-base-200">
-                        <div className="stat-title">Resolved issues</div>
+                        <div className="stat-title">已解決問題</div>
                         <div className="stat-value text-success">
                           {issueSummary.resolvedIssueOrders}
                         </div>
                       </div>
                       <div className="stat rounded-box border border-base-300 bg-base-200">
-                        <div className="stat-title">Issue rate</div>
+                        <div className="stat-title">問題比例</div>
                         <div className="stat-value text-error">
                           {(issueSummary.issueRate * 100).toFixed(1)}%
                         </div>
@@ -9326,11 +9671,11 @@ export default function App() {
                         <table className="table">
                           <thead>
                             <tr>
-                              <th>Issue type</th>
-                              <th>Count</th>
-                              <th>Open</th>
-                              <th>Completed</th>
-                              <th>Cancelled</th>
+                              <th>問題類型</th>
+                              <th>數量</th>
+                              <th>未處理</th>
+                              <th>已完成</th>
+                              <th>已取消</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -9350,10 +9695,10 @@ export default function App() {
                         <table className="table">
                           <thead>
                             <tr>
-                              <th>Source</th>
-                              <th>Issue orders</th>
-                              <th>Total orders</th>
-                              <th>Issue rate</th>
+                              <th>來源</th>
+                              <th>問題訂單</th>
+                              <th>總訂單</th>
+                              <th>問題比例</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -9372,15 +9717,18 @@ export default function App() {
                   </>
                 )}
               </div>
-              <details className="collapse collapse-arrow border border-base-300 bg-base-100">
+              <details
+                className={`collapse collapse-arrow border border-base-300 bg-base-100 ${
+                  analyticsSubTab === "sources" ? "" : "hidden"
+                }`}
+              >
                 <summary className="collapse-title font-semibold">
-                  Staff operation summary
+                  員工操作摘要
                 </summary>
                 <div className="collapse-content space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-sm opacity-70">
-                      This summary is derived from audit logs, so it reflects
-                      manager and staff actions already recorded by the system.
+                      此摘要來自操作紀錄，可查看員工與管理者近期完成的後台操作。
                     </p>
                     <button
                       className="btn btn-sm btn-outline"
@@ -9392,13 +9740,13 @@ export default function App() {
                       }}
                     >
                       {operationAuditLogsLoading
-                        ? "Loading..."
-                        : "Refresh operation logs"}
+                        ? "載入中..."
+                        : "重新整理操作紀錄"}
                     </button>
                   </div>
                   {operationAuditLogsLoading ? (
                     <div className="alert">
-                      <span>Loading staff operation data...</span>
+                      <span>員工操作資料載入中...</span>
                     </div>
                   ) : operationAuditLogsMessage ? (
                     <div className="alert alert-warning">
@@ -9406,28 +9754,28 @@ export default function App() {
                     </div>
                   ) : operationAuditLogs.length === 0 ? (
                     <div className="alert alert-info">
-                      <span>No staff operation logs loaded.</span>
+                      <span>尚未載入員工操作紀錄。</span>
                     </div>
                   ) : staffOperationRows.length === 0 ? (
                     <div className="alert alert-info">
-                      <span>No staff operations found for this range.</span>
+                      <span>此範圍沒有員工操作資料。</span>
                     </div>
                   ) : (
                   <div className="overflow-x-auto">
                     <table className="table">
                       <thead>
                         <tr>
-                          <th>Actor</th>
-                          <th>Total actions</th>
-                          <th>Staff orders</th>
-                          <th>Phone orders</th>
-                          <th>Payments</th>
-                          <th>Status updates</th>
-                          <th>Issues</th>
-                          <th>Menu changes</th>
-                          <th>Promotions</th>
-                          <th>Role changes</th>
-                          <th>Last action</th>
+                          <th>操作人</th>
+                          <th>總操作</th>
+                          <th>現場單</th>
+                          <th>電話單</th>
+                          <th>付款</th>
+                          <th>狀態更新</th>
+                          <th>問題處理</th>
+                          <th>菜單變更</th>
+                          <th>優惠券</th>
+                          <th>權限變更</th>
+                          <th>最後操作</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -9456,30 +9804,33 @@ export default function App() {
                   )}
                 </div>
               </details>
-              <details className="collapse collapse-arrow border border-base-300 bg-base-100">
+              <details
+                className={`collapse collapse-arrow border border-base-300 bg-base-100 ${
+                  analyticsSubTab === "items" ? "" : "hidden"
+                }`}
+              >
                 <summary className="collapse-title font-semibold">
-                  Price sensitivity
+                  價格敏感度
                 </summary>
                 <div className="collapse-content space-y-4">
                   <p className="text-sm opacity-70">
-                    Compare quantity and revenue across historical snapshot
-                    prices for the same menu item.
+                    比較同一餐點在不同歷史價格下的銷量與營收。
                   </p>
                 {priceSensitivity.length === 0 ? (
                   <div className="alert">
-                    <span>No price sensitivity data for this range.</span>
+                    <span>此範圍沒有價格敏感度資料。</span>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="table">
                       <thead>
                         <tr>
-                          <th>Item</th>
-                          <th>Category</th>
-                          <th>Current price</th>
-                          <th>Total qty</th>
-                          <th>Total revenue</th>
-                          <th>Price points</th>
+                          <th>餐點</th>
+                          <th>分類</th>
+                          <th>目前價格</th>
+                          <th>總數量</th>
+                          <th>總營收</th>
+                          <th>價格紀錄</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -9501,8 +9852,8 @@ export default function App() {
                                     className="badge badge-outline"
                                     key={`${row.menuItemGroupId}-${point.price}`}
                                   >
-                                    ${point.price}: {point.quantity} sold / $
-                                    {point.revenue} / {point.orderCount} orders
+                                    ${point.price}：售出 {point.quantity} / $
+                                    {point.revenue} / {point.orderCount} 筆
                                   </span>
                                 ))}
                               </div>
@@ -9515,29 +9866,32 @@ export default function App() {
                 )}
                 </div>
               </details>
-              <details className="collapse collapse-arrow border border-base-300 bg-base-100">
+              <details
+                className={`collapse collapse-arrow border border-base-300 bg-base-100 ${
+                  analyticsSubTab === "sources" ? "" : "hidden"
+                }`}
+              >
                 <summary className="collapse-title font-semibold">
-                  A/B testing
+                  測試分組分析
                 </summary>
                 <div className="collapse-content space-y-4">
                   <p className="text-sm opacity-70">
-                    Compare revenue and order behavior across control and menu
-                    variants.
+                    比較控制組與不同菜單測試分組的訂單與營收。
                   </p>
                 {abTestAnalytics.length === 0 ? (
                   <div className="alert">
-                    <span>No A/B testing data for this range.</span>
+                    <span>此範圍沒有測試分組資料。</span>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="table">
                       <thead>
                         <tr>
-                          <th>Group</th>
-                          <th>Orders</th>
-                          <th>Quantity</th>
-                          <th>Revenue</th>
-                          <th>Average order value</th>
+                          <th>分組</th>
+                          <th>訂單</th>
+                          <th>數量</th>
+                          <th>營收</th>
+                          <th>平均客單價</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -9560,29 +9914,33 @@ export default function App() {
               categorySales.length === 0 &&
               topItemSales.length === 0 ? (
                 <div className="alert alert-info">
-                  <span>No category or top item data for this range.</span>
+                  <span>此範圍沒有分類或熱銷商品資料。</span>
                 </div>
               ) : null}
-              <details className="collapse collapse-arrow border border-base-300 bg-base-100">
+              <details
+                className={`collapse collapse-arrow border border-base-300 bg-base-100 ${
+                  analyticsSubTab === "items" ? "" : "hidden"
+                }`}
+              >
                 <summary className="collapse-title font-semibold">
-                  Category and top item sales
+                  熱銷商品與分類銷售
                 </summary>
                 <div className="collapse-content grid grid-cols-1 xl:grid-cols-2 gap-4">
                   <div>
-                    <h3 className="font-semibold mb-2">Category sales</h3>
+                    <h3 className="font-semibold mb-2">分類銷售</h3>
                   {categorySales.length === 0 ? (
                     <div className="alert">
-                      <span>No category sales data for this range.</span>
+                      <span>此範圍沒有分類銷售資料。</span>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="table">
                         <thead>
                           <tr>
-                            <th>Category</th>
-                            <th>Quantity</th>
-                            <th>Revenue</th>
-                            <th>Orders</th>
+                            <th>分類</th>
+                            <th>數量</th>
+                            <th>營收</th>
+                            <th>訂單</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -9600,22 +9958,22 @@ export default function App() {
                   )}
                   </div>
                   <div>
-                    <h3 className="font-semibold mb-2">Top items</h3>
+                    <h3 className="font-semibold mb-2">熱銷商品</h3>
                   {topItemSales.length === 0 ? (
                     <div className="alert">
-                      <span>No top item data yet.</span>
+                      <span>目前沒有熱銷商品資料。</span>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="table">
                         <thead>
                           <tr>
-                            <th>Rank</th>
-                            <th>Name</th>
-                            <th>Category</th>
-                            <th>Quantity</th>
-                            <th>Revenue</th>
-                            <th>Orders</th>
+                            <th>排名</th>
+                            <th>名稱</th>
+                            <th>分類</th>
+                            <th>數量</th>
+                            <th>營收</th>
+                            <th>訂單</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -9636,23 +9994,23 @@ export default function App() {
                 </div>
                 </div>
               </details>
-              <div className="mt-4">
-                <h3 className="font-semibold mb-2">Customer ratings</h3>
+              <div className={`mt-4 ${analyticsSubTab === "ratings" ? "" : "hidden"}`}>
+                <h3 className="text-xl font-bold mb-2">顧客評價</h3>
                 {ratedOrders.length === 0 ? (
                   <div className="alert">
-                    <span>No ratings yet.</span>
+                    <span>目前沒有顧客評價。</span>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="table">
                       <thead>
                         <tr>
-                          <th>Pickup</th>
-                          <th>Order</th>
-                          <th>Rating</th>
-                          <th>Comment</th>
-                          <th>Rated at</th>
-                          <th>Total</th>
+                          <th>取餐號</th>
+                          <th>訂單</th>
+                          <th>評分</th>
+                          <th>留言</th>
+                          <th>評價時間</th>
+                          <th>總金額</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -9681,8 +10039,33 @@ export default function App() {
 
         {hasManagerTools && mainView === "manager" && managerTab === "menu" && canManageMenu ? (
           <section className="mb-8 space-y-4">
+            <div className="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm">
+              <h2 className="text-2xl font-bold">菜單管理</h2>
+              <p className="text-sm opacity-70">
+                新增、編輯、停售餐點，並管理套餐組合。
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2 rounded-box border border-base-300 bg-base-200 p-2">
+                {[
+                  { id: "items" as const, label: "餐點管理" },
+                  { id: "bundles" as const, label: "套餐管理" },
+                  { id: "list" as const, label: "菜單列表" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    className={`btn btn-sm ${
+                      menuSubTab === tab.id ? "btn-primary" : "btn-ghost"
+                    }`}
+                    onClick={() => setMenuSubTab(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <form
-              className="card bg-base-100 shadow-sm border border-base-300"
+              className={`card bg-base-100 shadow-sm border border-base-300 ${
+                menuSubTab === "items" ? "" : "hidden"
+              }`}
               onSubmit={(event) => {
                 void submitMenuForm(event);
               }}
@@ -9690,10 +10073,9 @@ export default function App() {
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="card-title">菜單管理</h2>
+                  <h2 className="card-title">餐點管理</h2>
                   <p className="text-sm opacity-70">
-                    Create or update menu items and connect them to primary
-                    categories.
+                    新增或修改餐點，並設定分類與顯示資訊。
                   </p>
                 </div>
                 {editingMenuId ? (
@@ -9702,21 +10084,21 @@ export default function App() {
                     className="btn btn-sm btn-ghost"
                     onClick={resetMenuForm}
                   >
-                    Cancel edit
+                    取消編輯
                   </button>
                 ) : null}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 <input
                   className="input input-bordered"
-                  placeholder="Name"
+                  placeholder="餐點名稱"
                   value={menuForm.name}
                   onChange={(event) => updateMenuForm("name", event.target.value)}
                   required
                 />
                 <input
                   className="input input-bordered"
-                  placeholder="Price"
+                  placeholder="價格"
                   type="number"
                   min={0}
                   step={1}
@@ -9726,7 +10108,7 @@ export default function App() {
                 />
                 <input
                   className="input input-bordered"
-                  placeholder="Category"
+                  placeholder="分類"
                   value={menuForm.category}
                   onChange={(event) =>
                     updateMenuForm("category", event.target.value)
@@ -9740,7 +10122,7 @@ export default function App() {
                     updateMenuPrimaryCategory(event.target.value)
                   }
                 >
-                  <option value="">No primary category</option>
+                  <option value="">未設定主要分類</option>
                   {categories.map((category) => (
                     <option key={category.id} value={category.id}>
                       {category.name}
@@ -9762,7 +10144,7 @@ export default function App() {
                 </select>
                 <input
                   className="input input-bordered md:col-span-2"
-                  placeholder="Description"
+                  placeholder="餐點描述"
                   value={menuForm.description}
                   onChange={(event) =>
                     updateMenuForm("description", event.target.value)
@@ -9771,7 +10153,7 @@ export default function App() {
                 />
                 <input
                   className="input input-bordered"
-                  placeholder="Image URL"
+                  placeholder="圖片網址"
                   value={menuForm.image_url}
                   onChange={(event) =>
                     updateMenuForm("image_url", event.target.value)
@@ -9781,7 +10163,7 @@ export default function App() {
                 {editingMenuId ? (
                   <input
                     className="input input-bordered md:col-span-2"
-                    placeholder="Change reason"
+                    placeholder="變更原因"
                     value={menuForm.changeReason}
                     onChange={(event) =>
                       updateMenuForm("changeReason", event.target.value)
@@ -9796,15 +10178,17 @@ export default function App() {
               ) : null}
               <button className="btn btn-primary w-fit" disabled={menuBusy}>
                 {menuBusy
-                  ? "Saving..."
+                  ? "儲存中..."
                   : editingMenuId
-                    ? "Save changes"
-                    : "Add item"}
+                    ? "儲存變更"
+                    : "新增餐點"}
               </button>
               </div>
             </form>
             <form
-              className="card bg-base-100 shadow-sm border border-base-300"
+              className={`card bg-base-100 shadow-sm border border-base-300 ${
+                menuSubTab === "bundles" ? "" : "hidden"
+              }`}
               onSubmit={(event) => {
                 void submitMenuBundleForm(event);
               }}
@@ -9812,10 +10196,9 @@ export default function App() {
               <div className="card-body">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h2 className="card-title">Bundle editor</h2>
+                    <h2 className="card-title">套餐管理</h2>
                     <p className="text-sm opacity-70">
-                      Create combo bundles from current menu items. Bundles
-                      expand into item snapshots when ordered.
+                      建立套餐組合，顧客點套餐時會自動帶入套餐內餐點。
                     </p>
                   </div>
                   {editingMenuBundleId ? (
@@ -9824,14 +10207,14 @@ export default function App() {
                       className="btn btn-sm btn-ghost"
                       onClick={resetMenuBundleForm}
                     >
-                      Cancel edit
+                      取消編輯
                     </button>
                   ) : null}
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
                   <input
                     className="input input-bordered input-sm"
-                    placeholder="Bundle name"
+                    placeholder="套餐名稱"
                     value={menuBundleForm.name}
                     onChange={(event) =>
                       setMenuBundleForm((current) => ({
@@ -9846,7 +10229,7 @@ export default function App() {
                     inputMode="numeric"
                     pattern="[0-9]*"
                     type="text"
-                    placeholder="Bundle price"
+                    placeholder="套餐價格"
                     value={menuBundleForm.price}
                     onChange={(event) =>
                       setMenuBundleForm((current) => ({
@@ -9861,7 +10244,7 @@ export default function App() {
                     min={0}
                     step={1}
                     type="number"
-                    placeholder="Display order"
+                    placeholder="顯示排序"
                     value={menuBundleForm.displayOrder}
                     onChange={(event) =>
                       setMenuBundleForm((current) => ({
@@ -9882,11 +10265,11 @@ export default function App() {
                         }))
                       }
                     />
-                    <span className="label-text">Active</span>
+                    <span className="label-text">啟用中</span>
                   </label>
                   <input
                     className="input input-bordered input-sm md:col-span-2 lg:col-span-4"
-                    placeholder="Description"
+                    placeholder="套餐描述"
                     value={menuBundleForm.description}
                     onChange={(event) =>
                       setMenuBundleForm((current) => ({
@@ -9904,7 +10287,7 @@ export default function App() {
                       setMenuBundleSelectedItemId(event.target.value)
                     }
                   >
-                    <option value="">Select menu item</option>
+                    <option value="">選擇餐點</option>
                     {items.map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.name} - ${item.price}
@@ -9927,7 +10310,7 @@ export default function App() {
                     className="btn btn-sm btn-outline"
                     onClick={addMenuBundleDraftItem}
                   >
-                    Add item
+                    加入餐點
                   </button>
                 </div>
                 {menuBundleDraftItems.length > 0 ? (
@@ -9940,7 +10323,7 @@ export default function App() {
                           );
                           return (
                             <tr key={entry.menuItemId}>
-                              <td>{item?.name ?? `Item #${entry.menuItemId}`}</td>
+                              <td>{item?.name ?? `餐點 #${entry.menuItemId}`}</td>
                               <td>x {entry.qty}</td>
                               <td className="text-right">
                                 <button
@@ -9950,7 +10333,7 @@ export default function App() {
                                     removeMenuBundleDraftItem(entry.menuItemId)
                                   }
                                 >
-                                  Remove
+                                  移除
                                 </button>
                               </td>
                             </tr>
@@ -9970,21 +10353,21 @@ export default function App() {
                   disabled={menuBundleBusy}
                 >
                   {menuBundleBusy
-                    ? "Saving..."
+                    ? "儲存中..."
                     : editingMenuBundleId
-                      ? "Save bundle"
-                      : "Create bundle"}
+                      ? "儲存套餐"
+                      : "新增套餐"}
                 </button>
                 {menuBundleManagementItems.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="table table-sm">
                       <thead>
                         <tr>
-                          <th>Bundle</th>
-                          <th>Items</th>
-                          <th>Price</th>
-                          <th>Status</th>
-                          <th>Actions</th>
+                          <th>套餐</th>
+                          <th>內容</th>
+                          <th>價格</th>
+                          <th>狀態</th>
+                          <th>操作</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -10013,7 +10396,7 @@ export default function App() {
                                     : "badge-neutral"
                                 }`}
                               >
-                                {bundle.isActive ? "active" : "inactive"}
+                                {bundle.isActive ? "啟用中" : "停用中"}
                               </span>
                             </td>
                             <td>
@@ -10024,7 +10407,7 @@ export default function App() {
                                   disabled={menuBundleBusy}
                                   onClick={() => startEditMenuBundle(bundle)}
                                 >
-                                  Edit
+                                  編輯
                                 </button>
                                 <button
                                   type="button"
@@ -10039,7 +10422,7 @@ export default function App() {
                                     );
                                   }}
                                 >
-                                  {bundle.isActive ? "Deactivate" : "Reactivate"}
+                                  {bundle.isActive ? "停用" : "重新啟用"}
                                 </button>
                               </div>
                             </td>
@@ -10133,6 +10516,25 @@ export default function App() {
                 </div>
               </div>
 
+              <div className="flex flex-wrap gap-2 rounded-box border border-base-300 bg-base-200 p-2">
+                {[
+                  { id: "ingredients" as const, label: "原料管理" },
+                  { id: "mapping" as const, label: "餐點原料設定" },
+                  { id: "shortage" as const, label: "缺料影響" },
+                  { id: "availability" as const, label: "可售狀態" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    className={`btn btn-sm ${
+                      inventorySubTab === tab.id ? "btn-primary" : "btn-ghost"
+                    }`}
+                    onClick={() => setInventorySubTab(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
               {inventoryMessage ? (
                 <div className="alert">
                   <span>{inventoryMessage}</span>
@@ -10141,7 +10543,9 @@ export default function App() {
 
               {canManageMenu ? (
                 <form
-                  className="rounded-box border border-base-300 bg-base-200 p-3"
+                  className={`rounded-box border border-base-300 bg-base-200 p-3 ${
+                    inventorySubTab === "ingredients" ? "" : "hidden"
+                  }`}
                   onSubmit={(event) => {
                     void submitIngredientForm(event);
                   }}
@@ -10224,7 +10628,11 @@ export default function App() {
               ) : null}
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <div className="rounded-box border border-base-300 p-3">
+                <div
+                  className={`rounded-box border border-base-300 p-3 ${
+                    inventorySubTab === "ingredients" ? "" : "hidden"
+                  }`}
+                >
                   <h3 className="mb-2 font-semibold">原料管理</h3>
                   <div className="overflow-x-auto">
                     <table className="table table-sm">
@@ -10237,7 +10645,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {ingredients.map((ingredient) => {
+                        {paginatedIngredients.map((ingredient) => {
                           const impact = inventoryImpacts.find(
                             (candidate) =>
                               candidate.ingredientId === ingredient.id,
@@ -10271,7 +10679,7 @@ export default function App() {
                                       disabled={inventoryBusy}
                                       onClick={() => startEditIngredient(ingredient)}
                                     >
-                                      Edit
+                                      編輯
                                     </button>
                                   ) : null}
                                   {canUpdatePaymentStatus ? (
@@ -10312,16 +10720,48 @@ export default function App() {
                         {ingredients.length === 0 ? (
                           <tr>
                             <td colSpan={4} className="text-center opacity-60">
-                              No ingredients yet.
+                              目前沒有原料。
                             </td>
                           </tr>
                         ) : null}
                       </tbody>
                     </table>
                   </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+                    <span>
+                      第 {currentIngredientPage} / {ingredientPageCount} 頁，共{" "}
+                      {ingredients.length} 筆
+                    </span>
+                    <div className="join">
+                      <button
+                        className="btn btn-sm join-item"
+                        disabled={currentIngredientPage <= 1}
+                        onClick={() =>
+                          setIngredientPage((page) => Math.max(1, page - 1))
+                        }
+                      >
+                        上一頁
+                      </button>
+                      <button
+                        className="btn btn-sm join-item"
+                        disabled={currentIngredientPage >= ingredientPageCount}
+                        onClick={() =>
+                          setIngredientPage((page) =>
+                            Math.min(ingredientPageCount, page + 1),
+                          )
+                        }
+                      >
+                        下一頁
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="rounded-box border border-base-300 p-3">
+                <div
+                  className={`rounded-box border border-base-300 p-3 ${
+                    inventorySubTab === "mapping" ? "" : "hidden"
+                  }`}
+                >
                   <h3 className="mb-2 font-semibold">
                     餐點原料設定
                   </h3>
@@ -10373,7 +10813,7 @@ export default function App() {
                             className="btn btn-sm btn-outline"
                             onClick={addIngredientMappingDraft}
                           >
-                            Add
+                            加入
                           </button>
                         </div>
                       ) : null}
@@ -10384,7 +10824,7 @@ export default function App() {
                               <tr key={link.ingredientId}>
                                 <td>
                                   {link.ingredient?.name ??
-                                    `Ingredient #${link.ingredientId}`}
+                                    `原料 #${link.ingredientId}`}
                                 </td>
                                 <td>
                                   x {link.quantityPerItem}{" "}
@@ -10401,7 +10841,7 @@ export default function App() {
                                         )
                                       }
                                     >
-                                      Remove
+                                      移除
                                     </button>
                                   ) : null}
                                 </td>
@@ -10410,7 +10850,7 @@ export default function App() {
                             {menuItemIngredientLinks.length === 0 ? (
                               <tr>
                                 <td colSpan={3} className="text-center opacity-60">
-                                  No ingredient mapping for this item.
+                                  此餐點尚未設定原料。
                                 </td>
                               </tr>
                             ) : null}
@@ -10432,14 +10872,18 @@ export default function App() {
                     </>
                   ) : (
                     <p className="text-sm opacity-70">
-                      Select a menu item to view or edit ingredient usage.
+                      請選擇餐點以查看或編輯原料用量。
                     </p>
                   )}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <div className="rounded-box border border-base-300 p-3">
+                <div
+                  className={`rounded-box border border-base-300 p-3 ${
+                    inventorySubTab === "shortage" ? "" : "hidden"
+                  }`}
+                >
                   <h3 className="mb-2 font-semibold">缺料影響</h3>
                   <div className="space-y-2">
                     {inventoryImpacts
@@ -10457,7 +10901,7 @@ export default function App() {
                               {getInventoryStatusLabel(impact.status)}
                             </span>
                             <span className="text-sm opacity-70">
-                              {impact.currentStock} / safety{" "}
+                              {impact.currentStock} / 安全庫存{" "}
                               {impact.safetyStock} {impact.unit}
                             </span>
                           </div>
@@ -10467,7 +10911,7 @@ export default function App() {
                               ? impact.affectedMenuItems
                                   .map((item) => item.name)
                                   .join(", ")
-                              : "None"}
+                              : "無"}
                           </p>
                         </div>
                       ))}
@@ -10475,13 +10919,17 @@ export default function App() {
                       (impact) => impact.status === "normal",
                     ) ? (
                       <p className="text-sm opacity-70">
-                        No low or out-of-stock ingredients.
+                        目前沒有低庫存或缺料原料。
                       </p>
                     ) : null}
                   </div>
                 </div>
 
-                <div className="rounded-box border border-base-300 p-3">
+                <div
+                  className={`rounded-box border border-base-300 p-3 ${
+                    inventorySubTab === "availability" ? "" : "hidden"
+                  }`}
+                >
                   <h3 className="mb-2 font-semibold">餐點可售影響</h3>
                   <div className="space-y-2">
                     {menuItemAvailabilityImpacts
@@ -10941,6 +11389,7 @@ export default function App() {
                   <span>沒有符合篩選條件的優惠券。</span>
                 </div>
               ) : (
+                <>
                 <div className="overflow-x-auto">
                   <table className="table">
                     <thead>
@@ -10957,7 +11406,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredPromotions.map((promotion) => {
+                        {paginatedFilteredPromotions.map((promotion) => {
                         const usedCount =
                           promotionUsageCounts[
                             promotion.code.trim().toUpperCase()
@@ -11086,6 +11535,43 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+                {filteredPromotions.length > 0 ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                    <span>
+                      第 {currentPromotionManagementPage} /{" "}
+                      {promotionManagementPageCount} 頁，共{" "}
+                      {filteredPromotions.length} 筆
+                    </span>
+                    <div className="join">
+                      <button
+                        className="btn btn-sm join-item"
+                        disabled={currentPromotionManagementPage <= 1}
+                        onClick={() =>
+                          setPromotionManagementPage((page) =>
+                            Math.max(1, page - 1),
+                          )
+                        }
+                      >
+                        上一頁
+                      </button>
+                      <button
+                        className="btn btn-sm join-item"
+                        disabled={
+                          currentPromotionManagementPage >=
+                          promotionManagementPageCount
+                        }
+                        onClick={() =>
+                          setPromotionManagementPage((page) =>
+                            Math.min(promotionManagementPageCount, page + 1),
+                          )
+                        }
+                      >
+                        下一頁
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                </>
               )}
             </div>
           </section>
@@ -11722,7 +12208,7 @@ export default function App() {
                           </span>
                           {order.pickupTime ? (
                             <span>
-                              Pickup: {formatCheckoutDateTime(order.pickupTime)}
+                              取餐時間：{formatCheckoutDateTime(order.pickupTime)}
                             </span>
                           ) : null}
                           {order.customerNote ? (
@@ -11732,8 +12218,8 @@ export default function App() {
                           ) : null}
                           {order.discountAmount > 0 || order.promoCode ? (
                             <span className="md:col-span-2">
-                              Promo {order.promoCode ?? "-"}: subtotal $
-                              {order.subtotal}, discount -${order.discountAmount}
+                              優惠碼 {order.promoCode ?? "-"}：原始金額 $
+                              {order.subtotal}，折扣 -${order.discountAmount}
                             </span>
                           ) : null}
                         </div>
@@ -11753,11 +12239,11 @@ export default function App() {
                         {order.status === "completed" ? (
                           <div className="rounded-box border border-base-300 bg-base-200 p-3">
                             <div className="mb-2 text-sm font-semibold">
-                              Your rating
+                              我的評價
                             </div>
                             {order.rating ? (
                               <p className="mb-2 text-sm">
-                                Current rating: {order.rating}/5
+                                目前評分：{order.rating}/5
                                 {order.ratingComment
                                   ? ` - ${order.ratingComment}`
                                   : ""}
@@ -11781,7 +12267,7 @@ export default function App() {
                                   }));
                                 }}
                               >
-                                <option value="">Rating</option>
+                                <option value="">評分</option>
                                 {[1, 2, 3, 4, 5].map((rating) => (
                                   <option key={rating} value={rating}>
                                     {rating}
@@ -11790,7 +12276,7 @@ export default function App() {
                               </select>
                               <input
                                 className="input input-sm input-bordered"
-                                placeholder="Optional comment"
+                                placeholder="評價留言（可不填）"
                                 value={ratingDraft.ratingComment}
                                 disabled={ratingUpdatingOrderId === order.id}
                                 onChange={(event) => {
@@ -11811,14 +12297,14 @@ export default function App() {
                                 }}
                               >
                                 {ratingUpdatingOrderId === order.id
-                                  ? "Saving..."
-                                  : "Save rating"}
+                                  ? "儲存中..."
+                                  : "儲存評價"}
                               </button>
                             </div>
                           </div>
                         ) : null}
                         <p className="font-bold text-right">
-                          Total ${order.total}
+                          總金額 ${order.total}
                         </p>
                       </div>
                     </article>

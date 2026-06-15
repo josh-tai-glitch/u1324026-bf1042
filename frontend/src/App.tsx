@@ -298,6 +298,7 @@ type ManagerTab =
   | "promotions"
   | "roleRequests"
   | "auditLogs";
+type MainView = "shop" | "account" | "manager";
 type OrderQuickFilter = "" | (typeof orderQuickFilters)[number]["id"];
 type CategoryStatusFilter = "active" | "inactive" | "all";
 type PromotionStatusFilter = "active" | "inactive" | "all";
@@ -447,6 +448,14 @@ function formatDemoUserLabel(demoUser: SessionUser) {
   return "顧客";
 }
 
+function formatRoleLabel(role: Role) {
+  if (role === "admin") return "管理者";
+  if (role === "owner") return "老闆";
+  if (role === "chef") return "廚師";
+  if (role === "staff") return "店員";
+  return "顧客";
+}
+
 function getPhoneLastFour(phone?: string | null) {
   const digits = phone?.replace(/\D/g, "") ?? "";
   return digits ? digits.slice(-4) : "";
@@ -465,6 +474,7 @@ export default function App() {
   const [demoLoginLoading, setDemoLoginLoading] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [mainView, setMainView] = useState<MainView>("shop");
 
   // Menu / category state
   const [items, setItems] = useState<MenuItem[]>([]);
@@ -739,7 +749,7 @@ export default function App() {
   const [auditLogTargetTypeFilter, setAuditLogTargetTypeFilter] = useState<
     "" | AuditLogTargetType
   >("");
-  const [auditLogLimit, setAuditLogLimit] = useState("50");
+  const [auditLogLimit, setAuditLogLimit] = useState("20");
   const [auditLogRange, setAuditLogRange] = useState<AuditLogRange>("all");
   const [auditLogStartDate, setAuditLogStartDate] = useState("");
   const [auditLogEndDate, setAuditLogEndDate] = useState("");
@@ -800,6 +810,12 @@ export default function App() {
     [canManageMenu, canViewAllOrders, canViewInventory, isAdmin],
   );
   const hasManagerTools = managerTabs.length > 0;
+
+  useEffect(() => {
+    if (mainView === "manager" && !hasManagerTools) {
+      setMainView("shop");
+    }
+  }, [hasManagerTools, mainView]);
 
   function showToast(type: ToastType, message: string): void {
     const id = toastIdRef.current + 1;
@@ -2627,7 +2643,7 @@ export default function App() {
   const loadAuditLogs = useCallback(async () => {
     if (!canManageMenu) return;
 
-    const params = new URLSearchParams({ limit: auditLogLimit || "50" });
+    const params = new URLSearchParams({ limit: auditLogLimit || "20" });
     if (auditLogActionFilter) params.set("action", auditLogActionFilter);
     if (auditLogTargetTypeFilter) {
       params.set("targetType", auditLogTargetTypeFilter);
@@ -2703,7 +2719,7 @@ export default function App() {
   function resetAuditLogFilters(): void {
     setAuditLogActionFilter("");
     setAuditLogTargetTypeFilter("");
-    setAuditLogLimit("50");
+    setAuditLogLimit("20");
     setAuditLogRange("all");
     setAuditLogStartDate("");
     setAuditLogEndDate("");
@@ -4323,7 +4339,7 @@ export default function App() {
       setIsCartOpen(false);
       await loadOrderHistory();
       setStatusMessage(
-        "Order submitted. Check your pickup number, payment status, and receipt in Order history.",
+        "訂單已送出，請到我的訂單查看取餐編號、付款狀態與收據。",
       );
       notifySuccess(
         submittedOrder
@@ -4343,7 +4359,7 @@ export default function App() {
           : "Unable to submit order.";
       if (isMenuVersionChangedMessage(message)) {
         await refreshMenuAndCurrentOrderAfterVersionConflict(message);
-        notifyWarning("Menu changed. Please refresh your cart.");
+        notifyWarning("菜單已更新，請重新整理購物車。");
       } else {
         setActionError(message);
         notifyError(getCheckoutErrorToastMessage(message));
@@ -4468,7 +4484,7 @@ export default function App() {
     if (
       context === "manager" &&
       !window.confirm(
-        `Void order ${formatPickupNumber(targetOrderId)}? This cannot be undone.`,
+        `確定要作廢訂單 ${formatPickupNumber(targetOrderId)} 嗎？此操作無法復原。`,
       )
     ) {
       return;
@@ -6162,29 +6178,49 @@ export default function App() {
               className="menu dropdown-content mt-3 w-56 rounded-box bg-base-100 p-2 shadow"
             >
               <li>
-                <button onClick={() => scrollToSection(menuSectionRef)}>
-                  Menu
+                <button
+                  onClick={() => {
+                    setMainView("shop");
+                    window.setTimeout(() => scrollToSection(menuSectionRef), 0);
+                  }}
+                >
+                  菜單
                 </button>
               </li>
               <li>
-                <button onClick={() => setIsCartOpen(true)}>Cart</button>
+                <button onClick={() => setIsCartOpen(true)}>購物車</button>
               </li>
               {user && !canViewAllOrders ? (
                 <li>
-                  <button onClick={() => scrollToSection(ordersSectionRef)}>
+                  <button
+                    onClick={() => {
+                      setMainView("account");
+                      window.setTimeout(() => scrollToSection(ordersSectionRef), 0);
+                    }}
+                  >
                     我的訂單
                   </button>
                 </li>
               ) : null}
               {hasManagerTools ? (
                 <li>
-                  <button onClick={() => scrollToSection(managerSectionRef)}>
+                  <button
+                    onClick={() => {
+                      setMainView("manager");
+                      window.setTimeout(() => scrollToSection(managerSectionRef), 0);
+                    }}
+                  >
                     後台管理
                   </button>
                 </li>
               ) : null}
               <li>
-                <button onClick={() => scrollToSection(accountSectionRef)}>
+                <button
+                  onClick={() => {
+                    setMainView("account");
+                    window.setTimeout(() => scrollToSection(accountSectionRef), 0);
+                  }}
+                >
                   {user ? "帳號" : "登入"}
                 </button>
               </li>
@@ -6192,7 +6228,10 @@ export default function App() {
           </div>
           <button
             className="btn btn-ghost text-xl normal-case"
-            onClick={() => scrollToSection(menuSectionRef)}
+            onClick={() => {
+              setMainView("shop");
+              window.setTimeout(() => scrollToSection(menuSectionRef), 0);
+            }}
           >
             早餐店訂餐系統
           </button>
@@ -6202,7 +6241,10 @@ export default function App() {
           <div className="join">
             <button
               className="btn btn-sm join-item"
-              onClick={() => scrollToSection(menuSectionRef)}
+              onClick={() => {
+                setMainView("shop");
+                window.setTimeout(() => scrollToSection(menuSectionRef), 0);
+              }}
             >
               菜單
             </button>
@@ -6215,7 +6257,10 @@ export default function App() {
             {user && !canViewAllOrders ? (
               <button
                 className="btn btn-sm join-item"
-                onClick={() => scrollToSection(ordersSectionRef)}
+                onClick={() => {
+                  setMainView("account");
+                  window.setTimeout(() => scrollToSection(ordersSectionRef), 0);
+                }}
               >
                 我的訂單
               </button>
@@ -6223,14 +6268,20 @@ export default function App() {
             {hasManagerTools ? (
               <button
                 className="btn btn-sm join-item"
-                onClick={() => scrollToSection(managerSectionRef)}
+                onClick={() => {
+                  setMainView("manager");
+                  window.setTimeout(() => scrollToSection(managerSectionRef), 0);
+                }}
               >
                 後台管理
               </button>
             ) : null}
             <button
               className="btn btn-sm join-item"
-              onClick={() => scrollToSection(accountSectionRef)}
+              onClick={() => {
+                setMainView("account");
+                window.setTimeout(() => scrollToSection(accountSectionRef), 0);
+              }}
             >
               {user ? "帳號" : "登入"}
             </button>
@@ -6259,7 +6310,7 @@ export default function App() {
                 <div className="mt-3 flex flex-wrap gap-1">
                   {roles.map((role) => (
                     <span key={role} className="badge badge-neutral">
-                      {role}
+                      {formatRoleLabel(role)}
                     </span>
                   ))}
                 </div>
@@ -6269,7 +6320,7 @@ export default function App() {
                     void handleLogout();
                   }}
                 >
-                  Sign out
+                  登出
                 </button>
               </div>
             </div>
@@ -6278,23 +6329,29 @@ export default function App() {
       </div>
 
       <main className="container mx-auto p-6">
+        {mainView === "shop" ? (
         <section className="mb-6 rounded-box border border-base-300 bg-base-100 p-5 shadow-sm">
           <h1 className="text-3xl font-bold">早餐店訂餐系統</h1>
           <p className="mt-2 text-sm opacity-80">
-            可以直接線上點餐，也可以不登入用訪客身分訂餐；登入後可查看歷史訂單與常點餐點。
+            可以直接線上點餐，也可以不用登入，以訪客身分留下姓名與電話完成訂單。
           </p>
-          {!user ? (
-            <p className="mt-2 text-sm text-info">
-              您可以用訪客身分點餐，只需要留下姓名與電話；登入後可查看歷史訂單。
-            </p>
-          ) : null}
+          <p className="mt-2 text-sm text-info">
+            登入會員可查看歷史訂單；店員、廚師與老闆登入後可使用後台管理功能。
+          </p>
         </section>
+        ) : null}
 
-        {!user ? (
-          <>
+        {!user && (mainView === "shop" || mainView === "account") ? (
+          <div
+            className={
+              mainView === "shop"
+                ? "mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2"
+                : "mx-auto mb-8 max-w-xl"
+            }
+          >
             <section
               ref={accountSectionRef}
-              className="max-w-xl mx-auto card bg-base-100 shadow-md mb-4 scroll-mt-24"
+              className="card bg-base-100 shadow-md scroll-mt-24"
             >
             <div className="card-body">
               <h2 className="card-title">登入會員</h2>
@@ -6353,7 +6410,8 @@ export default function App() {
               ) : null}
             </div>
             </section>
-            <section className="max-w-xl mx-auto card bg-base-100 shadow-md mb-8">
+            {mainView === "shop" ? (
+            <section className="card bg-base-100 shadow-md">
               <div className="card-body">
                 <h2 className="card-title">訪客訂單查詢</h2>
                 <p className="text-sm opacity-70">
@@ -6530,7 +6588,8 @@ export default function App() {
                 ) : null}
               </div>
             </section>
-          </>
+            ) : null}
+          </div>
         ) : null}
 
         {actionError ? (
@@ -6540,8 +6599,7 @@ export default function App() {
                 <span>{actionError}</span>
                 {isMenuVersionChangedMessage(actionError) ? (
                   <p className="mt-1 text-sm">
-                    The menu has changed. Please review your cart before
-                    checkout.
+                    菜單已更新，請重新確認購物車後再送出。
                   </p>
                 ) : null}
               </div>
@@ -6553,7 +6611,7 @@ export default function App() {
                   }}
                   disabled={isRefreshingCartVersion}
                 >
-                  {isRefreshingCartVersion ? "Refreshing..." : "Refresh cart"}
+                  {isRefreshingCartVersion ? "重新整理中..." : "重新整理購物車"}
                 </button>
               ) : null}
             </div>
@@ -6600,26 +6658,26 @@ export default function App() {
           </section>
         ) : null}
 
-        {user ? (
+        {user && mainView === "account" ? (
           <section
             ref={accountSectionRef}
             className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-4 scroll-mt-24"
           >
             <div className="card bg-base-100 shadow-sm border border-base-300">
               <div className="card-body">
-                <h2 className="card-title">Your access</h2>
+                <h2 className="card-title">我的帳號</h2>
                 <p className="text-sm opacity-70">{user.email}</p>
                 <div className="flex flex-wrap gap-2">
                   {roles.map((role) => (
                     <span key={role} className="badge badge-outline">
-                      {role}
+                      {formatRoleLabel(role)}
                     </span>
                   ))}
                 </div>
                 <p className="text-xs opacity-60">
                   {roles.length === 1 && roles.includes("customer")
-                    ? "You have the default customer role."
-                    : "Your account has elevated access."}
+                    ? "目前是顧客身份。"
+                    : "你的帳號具有後台權限。"}
                 </p>
               </div>
             </div>
@@ -6631,10 +6689,10 @@ export default function App() {
               }}
             >
               <div className="card-body">
-                <h2 className="card-title">Request a role</h2>
+                <h2 className="card-title">申請身份權限</h2>
                 <div className="form-control">
                   <label className="label" htmlFor="role-request-role">
-                    <span className="label-text">Role</span>
+                    <span className="label-text">申請身份</span>
                   </label>
                   <select
                     id="role-request-role"
@@ -6644,13 +6702,13 @@ export default function App() {
                       setRoleRequestRole(event.target.value as "staff" | "chef");
                     }}
                   >
-                    <option value="staff">staff</option>
-                    <option value="chef">chef</option>
+                    <option value="staff">店員</option>
+                    <option value="chef">廚師</option>
                   </select>
                 </div>
                 <div className="form-control">
                   <label className="label" htmlFor="role-request-reason">
-                    <span className="label-text">Reason</span>
+                    <span className="label-text">申請原因</span>
                   </label>
                   <textarea
                     id="role-request-reason"
@@ -6671,14 +6729,14 @@ export default function App() {
                   className="btn btn-primary"
                   disabled={roleRequestBusy || roleRequestReason.trim().length < 10}
                 >
-                  {roleRequestBusy ? "Submitting..." : "Submit request"}
+                  {roleRequestBusy ? "送出中..." : "送出申請"}
                 </button>
               </div>
             </form>
           </section>
         ) : null}
 
-        {hasManagerTools ? (
+        {hasManagerTools && mainView === "manager" ? (
           <section
             ref={managerSectionRef}
             className="mb-8 scroll-mt-24 rounded-box border border-base-300 bg-base-100 shadow-md"
@@ -8136,7 +8194,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {hasManagerTools && managerTab === "roleRequests" && isAdmin ? (
+        {hasManagerTools && mainView === "manager" && managerTab === "roleRequests" && isAdmin ? (
           <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -8153,10 +8211,10 @@ export default function App() {
                     setAdminStatus(event.target.value as RoleRequestStatus);
                   }}
                 >
-                  <option value="pending">pending</option>
-                  <option value="approved">approved</option>
-                  <option value="rejected">rejected</option>
-                  <option value="all">all</option>
+                  <option value="pending">待審核</option>
+                  <option value="approved">已核准</option>
+                  <option value="rejected">已拒絕</option>
+                  <option value="all">全部</option>
                 </select>
               </div>
               {adminMessage ? (
@@ -8167,13 +8225,12 @@ export default function App() {
               <div className="rounded-box border border-base-300 bg-base-200 p-4">
                 <h3 className="font-semibold">直接調整使用者角色</h3>
                 <p className="text-sm opacity-70">
-                  This replaces the user roles. Keep customer checked if the
-                  user should still act as a customer.
+                  這會直接覆蓋使用者角色；如果該使用者仍需以顧客身份點餐，請保留「顧客」。
                 </p>
                 <div className="mt-3 flex flex-col gap-3">
                   <input
                     className="input input-bordered input-sm"
-                    placeholder="User ID"
+                    placeholder="使用者 ID"
                     value={adminRoleUserId}
                     onChange={(event) => setAdminRoleUserId(event.target.value)}
                   />
@@ -8197,7 +8254,7 @@ export default function App() {
                             );
                           }}
                         />
-                        <span className="label-text">{role}</span>
+                        <span className="label-text">{formatRoleLabel(role)}</span>
                       </label>
                     ))}
                   </div>
@@ -8210,17 +8267,17 @@ export default function App() {
                     }
                     onClick={() => void submitAdminRoleUpdate()}
                   >
-                    {adminRoleBusy ? "Updating..." : "Update roles"}
+                    {adminRoleBusy ? "更新中..." : "更新角色"}
                   </button>
                 </div>
               </div>
               {adminLoading ? (
                 <div className="alert">
-                  <span>Loading requests...</span>
+                  <span>權限申請載入中...</span>
                 </div>
               ) : adminRequests.length === 0 ? (
                 <div className="alert alert-info">
-                  <span>No role requests found.</span>
+                  <span>目前沒有權限申請。</span>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -8228,11 +8285,11 @@ export default function App() {
                     <thead>
                       <tr>
                         <th>ID</th>
-                        <th>User</th>
-                        <th>Role</th>
-                        <th>Status</th>
-                        <th>Reason</th>
-                        <th>Review</th>
+                        <th>使用者</th>
+                        <th>申請角色</th>
+                        <th>狀態</th>
+                        <th>原因</th>
+                        <th>審核</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -8247,9 +8304,15 @@ export default function App() {
                         >
                           <td>{request.id}</td>
                           <td className="max-w-48 truncate">{request.userId}</td>
-                          <td>{request.requestedRole}</td>
+                          <td>{formatRoleLabel(request.requestedRole)}</td>
                           <td>
-                            <span className="badge">{request.status}</span>
+                            <span className="badge">
+                              {request.status === "pending"
+                                ? "待審核"
+                                : request.status === "approved"
+                                  ? "已核准"
+                                  : "已拒絕"}
+                            </span>
                           </td>
                           <td className="max-w-xs">{request.reason}</td>
                           <td>
@@ -8257,7 +8320,7 @@ export default function App() {
                               <div className="flex flex-col gap-2 min-w-56">
                                 <input
                                   className="input input-bordered input-sm"
-                                  placeholder="Optional note"
+                                  placeholder="審核備註（可不填）"
                                   value={adminReviewNotes[request.id] ?? ""}
                                   onChange={(event) => {
                                     setAdminReviewNotes((current) => ({
@@ -8277,7 +8340,7 @@ export default function App() {
                                       );
                                     }}
                                   >
-                                    Approve
+                                    核准
                                   </button>
                                   <button
                                     className="btn btn-error btn-sm"
@@ -8289,13 +8352,13 @@ export default function App() {
                                       );
                                     }}
                                   >
-                                    Reject
+                                    拒絕
                                   </button>
                                 </div>
                               </div>
                             ) : (
                               <span className="text-sm opacity-70">
-                                {request.reviewNote || "Reviewed"}
+                                {request.reviewNote || "已審核"}
                               </span>
                             )}
                           </td>
@@ -8309,14 +8372,14 @@ export default function App() {
           </section>
         ) : null}
 
-        {hasManagerTools && managerTab === "auditLogs" && canManageMenu ? (
+        {hasManagerTools && mainView === "manager" && managerTab === "auditLogs" && canManageMenu ? (
           <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="card-title">操作紀錄</h2>
                   <p className="text-sm opacity-70">
-                    Review recent system operations by owner and admin users.
+                    查看老闆與管理者近期的重要系統操作。
                   </p>
                   <p className="text-xs opacity-60">
                     查看管理者與員工的重要操作紀錄，例如菜單、權限、優惠券、付款、問題回報與電話訂單。
@@ -8327,13 +8390,13 @@ export default function App() {
                   disabled={auditLogsLoading}
                   onClick={refreshAuditLogsWithToast}
                 >
-                  {auditLogsLoading ? "Loading..." : "Refresh"}
+                  {auditLogsLoading ? "載入中..." : "重新整理"}
                 </button>
               </div>
               <div className="rounded-box border border-base-300 bg-base-200 p-3">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto_auto]">
                   <label className="form-control">
-                    <span className="label-text">Action</span>
+                    <span className="label-text">操作類型</span>
                     <select
                       className="select select-bordered select-sm"
                       value={auditLogActionFilter}
@@ -8343,7 +8406,7 @@ export default function App() {
                         )
                       }
                     >
-                      <option value="">All actions</option>
+                      <option value="">全部操作</option>
                       {auditLogActionOptions.map((action) => (
                         <option key={action} value={action}>
                           {formatAuditAction(action)}
@@ -8352,7 +8415,7 @@ export default function App() {
                     </select>
                   </label>
                   <label className="form-control">
-                    <span className="label-text">Target type</span>
+                    <span className="label-text">目標類型</span>
                     <select
                       className="select select-bordered select-sm"
                       value={auditLogTargetTypeFilter}
@@ -8362,7 +8425,7 @@ export default function App() {
                         )
                       }
                     >
-                      <option value="">All targets</option>
+                      <option value="">全部目標</option>
                       {auditLogTargetTypeOptions.map((targetType) => (
                         <option key={targetType} value={targetType}>
                           {formatAuditTargetType(targetType)}
@@ -8371,7 +8434,7 @@ export default function App() {
                     </select>
                   </label>
                   <label className="form-control">
-                    <span className="label-text">Date range</span>
+                    <span className="label-text">日期範圍</span>
                     <select
                       className="select select-bordered select-sm"
                       value={auditLogRange}
@@ -8387,7 +8450,7 @@ export default function App() {
                     </select>
                   </label>
                   <label className="form-control">
-                    <span className="label-text">Limit</span>
+                    <span className="label-text">筆數</span>
                     <select
                       className="select select-bordered select-sm"
                       value={auditLogLimit}
@@ -8400,10 +8463,10 @@ export default function App() {
                     </select>
                   </label>
                   <label className="form-control">
-                    <span className="label-text">Actor</span>
+                    <span className="label-text">操作人</span>
                     <input
                       className="input input-bordered input-sm"
-                      placeholder="Name or user ID"
+                      placeholder="姓名或使用者 ID"
                       value={auditLogActorFilter}
                       onChange={(event) =>
                         setAuditLogActorFilter(event.target.value)
@@ -8411,10 +8474,10 @@ export default function App() {
                     />
                   </label>
                   <label className="form-control">
-                    <span className="label-text">Target ID</span>
+                    <span className="label-text">目標 ID</span>
                     <input
                       className="input input-bordered input-sm"
-                      placeholder="Order, menu, user..."
+                      placeholder="訂單、菜單、使用者..."
                       value={auditLogTargetIdFilter}
                       onChange={(event) =>
                         setAuditLogTargetIdFilter(event.target.value)
@@ -8426,20 +8489,20 @@ export default function App() {
                     disabled={auditLogsLoading}
                     onClick={refreshAuditLogsWithToast}
                   >
-                    Apply
+                    套用
                   </button>
                   <button
                     className="btn btn-sm btn-ghost self-end"
                     disabled={auditLogsLoading}
                     onClick={resetAuditLogFilters}
                   >
-                    Reset filters
+                    重設篩選
                   </button>
                 </div>
                 {auditLogRange === "custom" ? (
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="form-control">
-                      <span className="label-text">Start date</span>
+                      <span className="label-text">開始日期</span>
                       <input
                         className="input input-bordered input-sm"
                         type="date"
@@ -8450,7 +8513,7 @@ export default function App() {
                       />
                     </label>
                     <label className="form-control">
-                      <span className="label-text">End date</span>
+                      <span className="label-text">結束日期</span>
                       <input
                         className="input input-bordered input-sm"
                         type="date"
@@ -8470,23 +8533,23 @@ export default function App() {
               ) : null}
               {auditLogsLoading ? (
                 <div className="alert">
-                  <span>Loading audit logs...</span>
+                  <span>操作紀錄載入中...</span>
                 </div>
               ) : auditLogs.length === 0 ? (
                 <div className="alert alert-info">
-                  <span>No audit logs match the current filters.</span>
+                  <span>沒有符合條件的操作紀錄。</span>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Time</th>
-                        <th>Actor</th>
-                        <th>Action</th>
-                        <th>Target</th>
-                        <th>Message</th>
-                        <th>Metadata</th>
+                        <th>時間</th>
+                        <th>操作人</th>
+                        <th>操作</th>
+                        <th>目標</th>
+                        <th>訊息</th>
+                        <th>詳細資料</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -8499,8 +8562,8 @@ export default function App() {
                             <div>{log.actorName ?? "-"}</div>
                             <div className="text-xs opacity-60">
                               {log.actorRoles.length > 0
-                                ? log.actorRoles.join(", ")
-                                : "No roles"}
+                                ? log.actorRoles.map(formatRoleLabel).join(", ")
+                                : "無角色"}
                             </div>
                           </td>
                           <td>
@@ -8523,7 +8586,7 @@ export default function App() {
                             {log.metadata ? (
                               <details>
                                 <summary className="cursor-pointer">
-                                  View metadata
+                                  查看詳細資料
                                 </summary>
                                 <p className="mt-2 text-xs opacity-70">
                                   {formatAuditMetadata(log.metadata)}
@@ -8546,17 +8609,17 @@ export default function App() {
           </section>
         ) : null}
 
-        {hasManagerTools && managerTab === "analytics" && canManageMenu ? (
+        {hasManagerTools && mainView === "manager" && managerTab === "analytics" && canManageMenu ? (
           <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="card-title">營運分析</h2>
                   <p className="text-sm opacity-70">
-                    Review category sales and top-selling menu items.
+                    查看訂單數、營收、熱銷商品、優惠券使用與顧客評價。
                   </p>
                   <p className="text-xs opacity-60">
-                    Showing: {analyticsRangeLabel}
+                    顯示範圍：{analyticsRangeLabel}
                   </p>
                 </div>
                 <button
@@ -8564,13 +8627,13 @@ export default function App() {
                   disabled={analyticsLoading}
                   onClick={refreshAnalyticsWithToast}
                 >
-                  {analyticsLoading ? "Loading..." : "Refresh analytics"}
+                  {analyticsLoading ? "載入中..." : "重新整理分析"}
                 </button>
               </div>
               <div className="rounded-box border border-base-300 bg-base-200 p-3">
                 <div className="flex flex-wrap items-end gap-3">
                   <label className="form-control w-full sm:w-48">
-                    <span className="label-text">Date range</span>
+                    <span className="label-text">日期範圍</span>
                     <select
                       className="select select-bordered select-sm"
                       value={analyticsRange}
@@ -8588,7 +8651,7 @@ export default function App() {
                   {analyticsRange === "custom" ? (
                     <>
                       <label className="form-control w-full sm:w-44">
-                        <span className="label-text">Start date</span>
+                        <span className="label-text">開始日期</span>
                         <input
                           className="input input-bordered input-sm"
                           type="date"
@@ -8599,7 +8662,7 @@ export default function App() {
                         />
                       </label>
                       <label className="form-control w-full sm:w-44">
-                        <span className="label-text">End date</span>
+                        <span className="label-text">結束日期</span>
                         <input
                           className="input input-bordered input-sm"
                           type="date"
@@ -8616,24 +8679,23 @@ export default function App() {
                     disabled={analyticsLoading}
                     onClick={applyAnalyticsDateRange}
                   >
-                    Apply
+                    套用
                   </button>
                 </div>
               </div>
               <details className="collapse collapse-arrow border border-base-300 bg-base-100">
                 <summary className="collapse-title font-semibold">
-                  Data notes and metric definitions
+                  資料說明與指標定義
                 </summary>
                 <div className="collapse-content text-sm">
                   <ul className="list-disc space-y-1 pl-5 opacity-75">
-                    <li>Revenue uses discounted order total.</li>
+                    <li>營收採用折扣後的訂單總金額。</li>
                     <li>
-                      Source comparison includes customer, walk-in, and phone
-                      orders.
+                      訂單來源比較包含會員、現場、電話與訪客訂單。
                     </li>
-                    <li>A/B analytics uses the order snapshot group.</li>
-                    <li>Price sensitivity uses order item snapshot prices.</li>
-                    <li>Cancelled orders are excluded from revenue metrics.</li>
+                    <li>測試分組分析使用訂單送出當下的快照分組。</li>
+                    <li>價格敏感度使用訂單餐點快照價格。</li>
+                    <li>已取消訂單不列入營收指標。</li>
                   </ul>
                 </div>
               </details>
@@ -8646,79 +8708,79 @@ export default function App() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                     <div className="stat rounded-box border border-base-300 bg-base-200">
-                      <div className="stat-title">Total revenue</div>
+                      <div className="stat-title">總營收</div>
                       <div className="stat-value text-success">
                         ${analyticsSummary.totalRevenue}
                       </div>
                     </div>
                     <div className="stat rounded-box border border-base-300 bg-base-200">
-                      <div className="stat-title">Today revenue</div>
+                      <div className="stat-title">今日營收</div>
                       <div className="stat-value text-primary">
                         ${analyticsSummary.todayRevenue}
                       </div>
                     </div>
                     <div className="stat rounded-box border border-base-300 bg-base-200">
-                      <div className="stat-title">Revenue orders</div>
+                      <div className="stat-title">營收訂單</div>
                       <div className="stat-value">
                         {analyticsSummary.revenueOrderCount}
                       </div>
                     </div>
                     <div className="stat rounded-box border border-base-300 bg-base-200">
-                      <div className="stat-title">Average order value</div>
+                      <div className="stat-title">平均客單價</div>
                       <div className="stat-value">
                         ${analyticsSummary.averageOrderValue.toFixed(0)}
                       </div>
                     </div>
                     <div className="stat rounded-box border border-base-300 bg-base-200">
-                      <div className="stat-title">Average rating</div>
+                      <div className="stat-title">平均評價</div>
                       <div className="stat-value text-warning">
                         {analyticsSummary.averageRating === null
                           ? "-"
                           : analyticsSummary.averageRating.toFixed(1)}
                       </div>
                       <div className="stat-desc">
-                        {analyticsSummary.ratingsCount} ratings
+                        {analyticsSummary.ratingsCount} 筆評價
                       </div>
                     </div>
                     <div className="stat rounded-box border border-base-300 bg-base-200">
-                      <div className="stat-title">Cancelled orders</div>
+                      <div className="stat-title">取消訂單</div>
                       <div className="stat-value text-error">
                         {analyticsSummary.cancellationCount}
                       </div>
                     </div>
                     <div className="stat rounded-box border border-base-300 bg-base-200">
-                      <div className="stat-title">Group orders</div>
+                      <div className="stat-title">團體訂單</div>
                       <div className="stat-value text-info">
                         {analyticsSummary.groupOrders}
                       </div>
                       <div className="stat-desc">
-                        ${analyticsSummary.groupRevenue} revenue
+                        營收 ${analyticsSummary.groupRevenue}
                       </div>
                     </div>
                     <div className="stat rounded-box border border-base-300 bg-base-200">
-                      <div className="stat-title">Bundle orders</div>
+                      <div className="stat-title">套餐訂單</div>
                       <div className="stat-value text-secondary">
                         {analyticsSummary.bundleOrders}
                       </div>
                       <div className="stat-desc">
-                        ${analyticsSummary.bundleRevenue} bundle items
+                        套餐金額 ${analyticsSummary.bundleRevenue}
                       </div>
                     </div>
                     <div className="stat rounded-box border border-base-300 bg-base-200">
-                      <div className="stat-title">Active ingredients</div>
+                      <div className="stat-title">啟用原料</div>
                       <div className="stat-value text-primary">
                         {analyticsSummary.activeIngredientCount}
                       </div>
                     </div>
                     <div className="stat rounded-box border border-base-300 bg-base-200">
-                      <div className="stat-title">Low / out stock</div>
+                      <div className="stat-title">低庫存 / 缺料</div>
                       <div className="stat-value text-warning">
                         {analyticsSummary.lowStockIngredientCount} /{" "}
                         {analyticsSummary.outOfStockIngredientCount}
                       </div>
                     </div>
                     <div className="stat rounded-box border border-base-300 bg-base-200">
-                      <div className="stat-title">Affected menu items</div>
+                      <div className="stat-title">受影響餐點</div>
                       <div className="stat-value text-error">
                         {analyticsSummary.affectedMenuItemCount}
                       </div>
@@ -8726,38 +8788,38 @@ export default function App() {
                   </div>
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
                     <div className="rounded-box border border-base-300 p-3">
-                      <h3 className="mb-2 font-semibold">Payment methods</h3>
-                      <p>Cash: {analyticsSummary.paymentMethods.cash}</p>
-                      <p>Card: {analyticsSummary.paymentMethods.card}</p>
-                      <p>Online: {analyticsSummary.paymentMethods.online}</p>
+                      <h3 className="mb-2 font-semibold">付款方式</h3>
+                      <p>現金：{analyticsSummary.paymentMethods.cash}</p>
+                      <p>刷卡：{analyticsSummary.paymentMethods.card}</p>
+                      <p>線上付款：{analyticsSummary.paymentMethods.online}</p>
                     </div>
                     <div className="rounded-box border border-base-300 p-3">
-                      <h3 className="mb-2 font-semibold">Payment statuses</h3>
-                      <p>Paid: {analyticsSummary.paymentStatuses.paid}</p>
-                      <p>Unpaid: {analyticsSummary.paymentStatuses.unpaid}</p>
+                      <h3 className="mb-2 font-semibold">付款狀態</h3>
+                      <p>已付款：{analyticsSummary.paymentStatuses.paid}</p>
+                      <p>未付款：{analyticsSummary.paymentStatuses.unpaid}</p>
                     </div>
                     <div className="rounded-box border border-base-300 p-3">
-                      <h3 className="mb-2 font-semibold">Order statuses</h3>
+                      <h3 className="mb-2 font-semibold">訂單狀態</h3>
                       <p>
-                        Submitted: {analyticsSummary.orderStatuses.submitted}
+                        已送出：{analyticsSummary.orderStatuses.submitted}
                       </p>
                       <p>
-                        Preparing: {analyticsSummary.orderStatuses.preparing}
+                        製作中：{analyticsSummary.orderStatuses.preparing}
                       </p>
-                      <p>Ready: {analyticsSummary.orderStatuses.ready}</p>
+                      <p>可取餐：{analyticsSummary.orderStatuses.ready}</p>
                       <p>
-                        Completed: {analyticsSummary.orderStatuses.completed}
+                        已完成：{analyticsSummary.orderStatuses.completed}
                       </p>
                       <p>
-                        Cancelled: {analyticsSummary.orderStatuses.cancelled}
+                        已取消：{analyticsSummary.orderStatuses.cancelled}
                       </p>
                     </div>
                     <div className="rounded-box border border-base-300 p-3">
-                      <h3 className="mb-2 font-semibold">Order sources</h3>
-                      <p>Customer: {analyticsSummary.orderSources.customer}</p>
-                      <p>Walk-in: {analyticsSummary.orderSources.walk_in}</p>
-                      <p>Phone: {analyticsSummary.orderSources.phone}</p>
-                      <p>Guest: {analyticsSummary.orderSources.guest}</p>
+                      <h3 className="mb-2 font-semibold">訂單來源</h3>
+                      <p>會員：{analyticsSummary.orderSources.customer}</p>
+                      <p>現場：{analyticsSummary.orderSources.walk_in}</p>
+                      <p>電話：{analyticsSummary.orderSources.phone}</p>
+                      <p>訪客：{analyticsSummary.orderSources.guest}</p>
                     </div>
                   </div>
                 </div>
@@ -8765,35 +8827,34 @@ export default function App() {
                 <div className="alert">
                   <span>
                     {analyticsLoading
-                      ? "Loading summary..."
-                      : "No summary data yet."}
+                      ? "營運摘要載入中..."
+                      : "目前沒有營運摘要資料。"}
                   </span>
                 </div>
               )}
               <div className="space-y-4 rounded-box border border-base-300 bg-base-100 p-4">
                 <div>
-                  <h3 className="font-semibold">Trends</h3>
+                  <h3 className="font-semibold">營運趨勢</h3>
                   <p className="text-sm opacity-70">
-                    Track daily revenue, peak ordering hours, ratings, and
-                    cancellation rate for the selected range.
+                    查看所選期間的每日營收、尖峰時段、評價與取消率。
                   </p>
                 </div>
                 {analyticsTrends ? (
                   <>
                     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                       <div className="stat rounded-box border border-base-300 bg-base-200">
-                        <div className="stat-title">Cancellation rate</div>
+                        <div className="stat-title">取消率</div>
                         <div className="stat-value text-error">
                           {(analyticsTrends.cancellationRate * 100).toFixed(1)}
                           %
                         </div>
                         <div className="stat-desc">
-                          cancelled / formal orders
+                          已取消 / 正式訂單
                         </div>
                       </div>
                       <div className="rounded-box border border-base-300 bg-base-200 p-4">
                         <h4 className="mb-2 font-semibold">
-                          Rating distribution
+                          評價分布
                         </h4>
                         <div className="space-y-2">
                           {(["5", "4", "3", "2", "1"] as const).map(
@@ -8811,7 +8872,7 @@ export default function App() {
                                   className="grid grid-cols-[64px_1fr_48px] items-center gap-2 text-sm"
                                   key={rating}
                                 >
-                                  <span>{rating} stars</span>
+                                  <span>{rating} 星</span>
                                   <div className="h-2 rounded bg-base-300">
                                     <div
                                       className="h-2 rounded bg-warning"
@@ -8830,28 +8891,28 @@ export default function App() {
                           )}
                         </div>
                         <p className="mt-3 text-sm opacity-70">
-                          Low rating count: {analyticsTrends.lowRatingCount}
+                          低分評價：{analyticsTrends.lowRatingCount}
                         </p>
                       </div>
                     </div>
                     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                       <div>
                         <h4 className="mb-2 font-semibold">
-                          Daily revenue trend
+                          每日營收趨勢
                         </h4>
                         {analyticsTrends.dailyRevenue.length === 0 ? (
                           <div className="alert">
-                            <span>No daily trend data</span>
+                            <span>目前沒有每日趨勢資料。</span>
                           </div>
                         ) : (
                           <div className="overflow-x-auto">
                             <table className="table">
                               <thead>
                                 <tr>
-                                  <th>Date</th>
-                                  <th>Revenue</th>
-                                  <th>Orders</th>
-                                  <th>Trend</th>
+                                  <th>日期</th>
+                                  <th>營收</th>
+                                  <th>訂單</th>
+                                  <th>趨勢</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -8882,11 +8943,11 @@ export default function App() {
                       </div>
                       <div>
                         <h4 className="mb-2 font-semibold">
-                          Hourly order trend
+                          時段訂單趨勢
                         </h4>
                         {activeHourlyRows === 0 ? (
                           <div className="alert">
-                            <span>No hourly trend data</span>
+                            <span>目前沒有時段趨勢資料。</span>
                           </div>
                         ) : (
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -8900,7 +8961,7 @@ export default function App() {
                                     {formatTrendHour(row.hour)}
                                   </span>
                                   <span className="badge badge-outline">
-                                    {row.orderCount} orders
+                                    {row.orderCount} 筆
                                   </span>
                                 </div>
                                 <div className="mt-2 h-2 rounded bg-base-300">
@@ -9618,7 +9679,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {hasManagerTools && managerTab === "menu" && canManageMenu ? (
+        {hasManagerTools && mainView === "manager" && managerTab === "menu" && canManageMenu ? (
           <section className="mb-8 space-y-4">
             <form
               className="card bg-base-100 shadow-sm border border-base-300"
@@ -9993,7 +10054,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {hasManagerTools && managerTab === "inventory" && canViewInventory ? (
+        {hasManagerTools && mainView === "manager" && managerTab === "inventory" && canViewInventory ? (
           <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
             <div className="card-body">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -10501,7 +10562,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {hasManagerTools && managerTab === "categories" && canManageMenu ? (
+        {hasManagerTools && mainView === "manager" && managerTab === "categories" && canManageMenu ? (
           <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -10676,15 +10737,14 @@ export default function App() {
           </section>
         ) : null}
 
-        {hasManagerTools && managerTab === "promotions" && canManageMenu ? (
+        {hasManagerTools && mainView === "manager" && managerTab === "promotions" && canManageMenu ? (
           <section className="mb-8 card bg-base-100 shadow-sm border border-base-300">
             <div className="card-body">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="card-title">優惠券管理</h2>
                   <p className="text-sm opacity-70">
-                    Create, update, deactivate, and reactivate checkout promo
-                    codes.
+                    建立、修改、停用與重新啟用結帳優惠碼。
                   </p>
                 </div>
                 <select
@@ -10696,9 +10756,9 @@ export default function App() {
                     );
                   }}
                 >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="all">All</option>
+                  <option value="active">啟用中</option>
+                  <option value="inactive">停用中</option>
+                  <option value="all">全部</option>
                 </select>
               </div>
               <div className="alert alert-info items-start">
@@ -10718,7 +10778,7 @@ export default function App() {
                     onClick={() => {
                       setPromotionRuntimeFilter(filter.id);
                       if (filter.id !== "all") {
-                        notifyInfo("Promotion filter applied.");
+                        notifyInfo("已套用優惠券篩選。");
                       }
                     }}
                   >
@@ -10730,15 +10790,15 @@ export default function App() {
                     className="btn btn-xs btn-ghost"
                     onClick={() => {
                       setPromotionRuntimeFilter("all");
-                      notifyInfo("Promotion filters cleared.");
+                      notifyInfo("已清除優惠券篩選。");
                     }}
                   >
-                    Clear filter
+                    清除篩選
                   </button>
                 ) : null}
                 {promotionRuntimeFilter !== "all" ? (
                   <span className="text-xs opacity-60">
-                    Showing promotions by runtime status.
+                    依可用狀態篩選優惠券。
                   </span>
                 ) : null}
               </div>
@@ -10765,14 +10825,14 @@ export default function App() {
                       className="btn btn-sm btn-ghost"
                       onClick={resetPromotionForm}
                     >
-                      Cancel edit
+                      取消編輯
                     </button>
                   ) : null}
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                   <input
                     className="input input-bordered input-sm"
-                    placeholder="Code"
+                    placeholder="優惠碼"
                     value={promotionForm.code}
                     onChange={(event) =>
                       setPromotionForm((current) => ({
@@ -10792,8 +10852,8 @@ export default function App() {
                       }))
                     }
                   >
-                    <option value="percent">Percent</option>
-                    <option value="fixed">Fixed amount</option>
+                    <option value="percent">百分比折扣</option>
+                    <option value="fixed">固定金額折扣</option>
                   </select>
                   <input
                     className="input input-bordered input-sm"
@@ -10814,7 +10874,7 @@ export default function App() {
                   <input
                     className="input input-bordered input-sm"
                     min={0}
-                    placeholder="Minimum order amount"
+                    placeholder="最低消費金額"
                     type="number"
                     value={promotionForm.minOrderAmount}
                     onChange={(event) =>
@@ -10849,7 +10909,7 @@ export default function App() {
                   <input
                     className="input input-bordered input-sm"
                     min={1}
-                    placeholder="Usage limit"
+                    placeholder="使用次數上限"
                     type="number"
                     value={promotionForm.usageLimit}
                     onChange={(event) =>
@@ -10865,35 +10925,35 @@ export default function App() {
                   disabled={promotionBusy}
                 >
                   {promotionBusy
-                    ? "Saving..."
+                    ? "儲存中..."
                     : editingPromotionId
-                      ? "Save promotion"
-                      : "Create promotion"}
+                      ? "儲存優惠碼"
+                      : "新增優惠碼"}
                 </button>
               </form>
 
               {promotions.length === 0 ? (
                 <div className="alert alert-info">
-                  <span>No promotions found.</span>
+                  <span>目前沒有優惠券。</span>
                 </div>
               ) : filteredPromotions.length === 0 ? (
                 <div className="alert alert-info">
-                  <span>No promotions match the current filters.</span>
+                  <span>沒有符合篩選條件的優惠券。</span>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Code</th>
-                        <th>Discount</th>
-                        <th>Runtime</th>
-                        <th>Min order</th>
-                        <th>Valid period</th>
-                        <th>Status</th>
-                        <th>Usage</th>
-                        <th>Updated</th>
-                        <th>Actions</th>
+                        <th>優惠碼</th>
+                        <th>折扣</th>
+                        <th>可用狀態</th>
+                        <th>最低消費</th>
+                        <th>有效期間</th>
+                        <th>啟用狀態</th>
+                        <th>使用次數</th>
+                        <th>更新時間</th>
+                        <th>操作</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -10936,16 +10996,16 @@ export default function App() {
                           <td>
                             <div className="text-sm">
                               <div>
-                                Starts:{" "}
+                                開始：{" "}
                                 {promotion.startsAt
                                   ? formatCheckoutDateTime(promotion.startsAt)
-                                  : "Immediate"}
+                                  : "立即生效"}
                               </div>
                               <div>
-                                Ends:{" "}
+                                結束：{" "}
                                 {promotion.endsAt
                                   ? formatCheckoutDateTime(promotion.endsAt)
-                                  : "No end"}
+                                  : "無結束時間"}
                               </div>
                             </div>
                           </td>
@@ -10971,7 +11031,7 @@ export default function App() {
                                   : "badge-neutral"
                               }`}
                             >
-                              {promotion.isActive ? "active" : "inactive"}
+                              {promotion.isActive ? "啟用中" : "停用中"}
                             </span>
                           </td>
                           <td>
@@ -10983,8 +11043,8 @@ export default function App() {
                               }
                             >
                               {promotion.usageLimit
-                                ? `Used ${usedCount} / ${promotion.usageLimit}`
-                                : `Used ${usedCount} / Unlimited`}
+                                ? `已使用 ${usedCount} / ${promotion.usageLimit}`
+                                : `已使用 ${usedCount} / 無上限`}
                             </span>
                           </td>
                           <td>{formatCheckoutDateTime(promotion.updatedAt)}</td>
@@ -10995,7 +11055,7 @@ export default function App() {
                                 disabled={promotionBusy}
                                 onClick={() => startEditPromotion(promotion)}
                               >
-                                Edit
+                                編輯
                               </button>
                               {promotion.isActive ? (
                                 <button
@@ -11005,7 +11065,7 @@ export default function App() {
                                     void setPromotionActive(promotion, false);
                                   }}
                                 >
-                                  Deactivate
+                                  停用
                                 </button>
                               ) : (
                                 <button
@@ -11015,7 +11075,7 @@ export default function App() {
                                     void setPromotionActive(promotion, true);
                                   }}
                                 >
-                                  Reactivate
+                                  重新啟用
                                 </button>
                               )}
                             </div>
@@ -11031,10 +11091,11 @@ export default function App() {
           </section>
         ) : null}
 
+        {mainView === "shop" ? (
         <section ref={menuSectionRef} className="scroll-mt-24">
           {items.length === 0 ? (
             <div className="alert alert-info">
-              <span>No menu items yet.</span>
+              <span>目前還沒有可顯示的餐點。</span>
             </div>
           ) : (
             <>
@@ -11334,7 +11395,7 @@ export default function App() {
                                 }));
                               }}
                             >
-                              <option value="">Select category</option>
+                              <option value="">選擇分類</option>
                               {categories.map((category) => (
                                 <option key={category.id} value={category.id}>
                                   {category.name}
@@ -11350,7 +11411,7 @@ export default function App() {
                                 void addCategoryToItem(item);
                               }}
                             >
-                              Add category
+                              加入分類
                             </button>
                           </div>
                           <div className="card-actions justify-end">
@@ -11369,7 +11430,7 @@ export default function App() {
                               className="btn btn-sm btn-outline"
                               onClick={() => startEditMenuItem(item)}
                             >
-                              Edit
+                              編輯
                             </button>
                             <button
                               className="btn btn-sm btn-outline"
@@ -11379,8 +11440,8 @@ export default function App() {
                               disabled={menuHistoryLoadingId === item.id}
                             >
                               {menuHistoryLoadingId === item.id
-                                ? "Loading..."
-                                : "View history"}
+                                ? "載入中..."
+                                : "查看版本"}
                             </button>
                             <button
                               className="btn btn-sm btn-error btn-outline"
@@ -11389,32 +11450,32 @@ export default function App() {
                               }}
                               disabled={menuBusy}
                             >
-                              Delete
+                              刪除
                             </button>
                           </div>
                           {menuHistoryByItemId[item.id] ? (
                             <details className="rounded-box border border-base-300 p-3">
                               <summary className="cursor-pointer font-medium">
-                                Version history
+                                菜單版本紀錄
                               </summary>
                               {menuHistoryByItemId[item.id].length === 0 ? (
                                 <p className="mt-2 text-sm opacity-70">
-                                  No version history.
+                                  目前沒有版本紀錄。
                                 </p>
                               ) : (
                                 <div className="mt-2 overflow-x-auto">
                                   <table className="table table-sm">
                                     <thead>
                                       <tr>
-                                        <th>Version</th>
-                                        <th>Name</th>
-                                        <th>Price</th>
-                                        <th>A/B group</th>
-                                        <th>Order</th>
-                                        <th>Status</th>
-                                        <th>Reason</th>
-                                        <th>Changed by</th>
-                                        <th>Previous</th>
+                                        <th>版本</th>
+                                        <th>名稱</th>
+                                        <th>價格</th>
+                                        <th>測試分組</th>
+                                        <th>排序</th>
+                                        <th>狀態</th>
+                                        <th>變更原因</th>
+                                        <th>變更者</th>
+                                        <th>上一版</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -11424,7 +11485,7 @@ export default function App() {
                                             <td>
                                               {formatSemanticVersion(historyItem)}
                                               <div className="text-xs opacity-70">
-                                                Serial {historyItem.version}
+                                                版本編號 {historyItem.version}
                                               </div>
                                             </td>
                                             <td>{historyItem.name}</td>
@@ -11471,10 +11532,11 @@ export default function App() {
             </>
           )}
         </section>
+        ) : null}
 
-        {user && !canViewAllOrders ? (
+        {user && !canViewAllOrders && mainView === "account" ? (
           <section ref={ordersSectionRef} className="mt-10 scroll-mt-24">
-            <h2 className="text-2xl font-bold mb-4">Order history</h2>
+            <h2 className="text-2xl font-bold mb-4">我的訂單</h2>
             {statusMessage ? (
               <div className="alert mb-4">
                 <span>{statusMessage}</span>

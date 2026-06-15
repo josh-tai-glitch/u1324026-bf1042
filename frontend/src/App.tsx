@@ -533,6 +533,7 @@ export default function App() {
   >([]);
   const [categoryManagementStatusFilter, setCategoryManagementStatusFilter] =
     useState<CategoryStatusFilter>("active");
+  const [categoryManagementPage, setCategoryManagementPage] = useState(1);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [promotionForm, setPromotionForm] =
     useState<PromotionForm>(emptyPromotionForm);
@@ -596,6 +597,7 @@ export default function App() {
   const [orderId, setOrderId] = useState<number | null>(null);
   const [historyOrders, setHistoryOrders] = useState<Order[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [customerOrderPage, setCustomerOrderPage] = useState(1);
   const [queueSummary, setQueueSummary] =
     useState<QueueSummary>(defaultQueueSummary);
   const [cartQtyByItemId, setCartQtyByItemId] = useState<Record<number, number>>(
@@ -758,6 +760,8 @@ export default function App() {
   const [appliedAnalyticsEndDate, setAppliedAnalyticsEndDate] = useState("");
   const [analyticsSubTab, setAnalyticsSubTab] =
     useState<AnalyticsSubTab>("overview");
+  const [lowRatingInsightPage, setLowRatingInsightPage] = useState(1);
+  const [cancelledInsightPage, setCancelledInsightPage] = useState(1);
   const [promotionPerformancePage, setPromotionPerformancePage] = useState(1);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [auditLogsLoading, setAuditLogsLoading] = useState(false);
@@ -902,7 +906,7 @@ export default function App() {
       normalizedMessage.includes("code") ||
       normalizedMessage.includes("inactive")
     ) {
-      return "Promo code could not be applied. Please check the code and try again.";
+      return "優惠碼無法套用，請確認代碼後再試一次。";
     }
 
     if (
@@ -910,7 +914,7 @@ export default function App() {
       normalizedMessage.includes("date") ||
       normalizedMessage.includes("time")
     ) {
-      return "Pickup time is invalid. Please choose a valid date and time.";
+      return "取餐時間格式不正確，請選擇有效日期與時間。";
     }
 
     return message;
@@ -919,10 +923,10 @@ export default function App() {
   function getMenuErrorToastMessage(message: string): string {
     const normalizedMessage = message.toLowerCase();
     if (normalizedMessage.includes("image") || normalizedMessage.includes("url")) {
-      return "Image URL must start with /, http://, or https://.";
+      return "圖片網址必須以 /、http:// 或 https:// 開頭。";
     }
     if (normalizedMessage.includes("price")) {
-      return "Price must be a valid whole number.";
+      return "價格必須是有效整數。";
     }
     if (
       normalizedMessage.includes("change reason") ||
@@ -1262,6 +1266,18 @@ export default function App() {
     (currentPromotionManagementPage - 1) * tablePageSize,
     currentPromotionManagementPage * tablePageSize,
   );
+  const categoryManagementPageCount = Math.max(
+    1,
+    Math.ceil(categoryManagementItems.length / tablePageSize),
+  );
+  const currentCategoryManagementPage = Math.min(
+    categoryManagementPage,
+    categoryManagementPageCount,
+  );
+  const paginatedCategoryManagementItems = categoryManagementItems.slice(
+    (currentCategoryManagementPage - 1) * tablePageSize,
+    currentCategoryManagementPage * tablePageSize,
+  );
   const menuListPageSize = 10;
   const menuListPageCount = Math.max(
     1,
@@ -1290,6 +1306,19 @@ export default function App() {
   const paginatedIngredients = ingredients.slice(
     (currentIngredientPage - 1) * tablePageSize,
     currentIngredientPage * tablePageSize,
+  );
+  const customerOrderPageSize = 5;
+  const customerOrderPageCount = Math.max(
+    1,
+    Math.ceil(historyOrders.length / customerOrderPageSize),
+  );
+  const currentCustomerOrderPage = Math.min(
+    customerOrderPage,
+    customerOrderPageCount,
+  );
+  const paginatedCustomerOrders = historyOrders.slice(
+    (currentCustomerOrderPage - 1) * customerOrderPageSize,
+    currentCustomerOrderPage * customerOrderPageSize,
   );
   const issueOrders = formalAnalyticsOrders.filter(
     (order) => order.issueType !== null,
@@ -1356,6 +1385,33 @@ export default function App() {
       };
     })
     .filter((row) => row.totalOrders > 0 || row.issueOrders > 0);
+  const insightPageSize = 5;
+  const lowRatingInsightRows = analyticsInsights?.lowRatingOrders ?? [];
+  const lowRatingInsightPageCount = Math.max(
+    1,
+    Math.ceil(lowRatingInsightRows.length / insightPageSize),
+  );
+  const currentLowRatingInsightPage = Math.min(
+    lowRatingInsightPage,
+    lowRatingInsightPageCount,
+  );
+  const paginatedLowRatingInsightRows = lowRatingInsightRows.slice(
+    (currentLowRatingInsightPage - 1) * insightPageSize,
+    currentLowRatingInsightPage * insightPageSize,
+  );
+  const cancelledInsightRows = analyticsInsights?.cancelledOrders ?? [];
+  const cancelledInsightPageCount = Math.max(
+    1,
+    Math.ceil(cancelledInsightRows.length / insightPageSize),
+  );
+  const currentCancelledInsightPage = Math.min(
+    cancelledInsightPage,
+    cancelledInsightPageCount,
+  );
+  const paginatedCancelledInsightRows = cancelledInsightRows.slice(
+    (currentCancelledInsightPage - 1) * insightPageSize,
+    currentCancelledInsightPage * insightPageSize,
+  );
   const staffOperationRows = useMemo(() => {
     const staffRoles: Role[] = ["staff", "chef", "owner", "admin"];
     const managerActions: AuditLogAction[] = [
@@ -1663,6 +1719,12 @@ export default function App() {
   }, [promotionManagementPage, promotionManagementPageCount]);
 
   useEffect(() => {
+    if (categoryManagementPage > categoryManagementPageCount) {
+      setCategoryManagementPage(categoryManagementPageCount);
+    }
+  }, [categoryManagementPage, categoryManagementPageCount]);
+
+  useEffect(() => {
     if (auditLogPage > auditLogPageCount) {
       setAuditLogPage(auditLogPageCount);
     }
@@ -1679,6 +1741,24 @@ export default function App() {
       setMenuListPage(menuListPageCount);
     }
   }, [menuListPage, menuListPageCount]);
+
+  useEffect(() => {
+    if (customerOrderPage > customerOrderPageCount) {
+      setCustomerOrderPage(customerOrderPageCount);
+    }
+  }, [customerOrderPage, customerOrderPageCount]);
+
+  useEffect(() => {
+    if (lowRatingInsightPage > lowRatingInsightPageCount) {
+      setLowRatingInsightPage(lowRatingInsightPageCount);
+    }
+  }, [lowRatingInsightPage, lowRatingInsightPageCount]);
+
+  useEffect(() => {
+    if (cancelledInsightPage > cancelledInsightPageCount) {
+      setCancelledInsightPage(cancelledInsightPageCount);
+    }
+  }, [cancelledInsightPage, cancelledInsightPageCount]);
 
   const kitchenDisplayOrders = useMemo(() => {
     const search = orderSearchText.trim().toLowerCase();
@@ -1958,7 +2038,7 @@ export default function App() {
     try {
       return JSON.stringify(metadata, null, 2);
     } catch {
-      return "Unable to display metadata";
+      return "無法顯示紀錄內容";
     }
   }
 
@@ -2055,8 +2135,8 @@ export default function App() {
     const printWindow = window.open("", "_blank", "width=420,height=640");
 
     if (!printWindow) {
-      setStatusMessage("Unable to open print window.");
-      notifyError("Unable to open print window.");
+      setStatusMessage("無法開啟列印視窗。");
+      notifyError("無法開啟列印視窗。");
       return;
     }
 
@@ -2079,7 +2159,7 @@ export default function App() {
     printWindow.document.close();
     printWindow.focus();
     printWindow.print();
-    notifyInfo("Receipt opened for printing.");
+    notifyInfo("已開啟收據列印視窗。");
   }
 
   function getOrderAgeMinutes(order: Order): number {
@@ -2134,12 +2214,12 @@ export default function App() {
   }
 
   function getCustomerOrderProgressLabel(order: Order): string {
-    if (order.status === "ready") return "Ready for pickup";
-    if (order.status === "completed") return "Completed";
-    if (order.status === "cancelled") return "Cancelled";
-    if (order.status === "preparing") return "Being prepared";
-    if (order.status === "submitted") return "Waiting for kitchen";
-    return order.status;
+    if (order.status === "ready") return "餐點已完成，請準備取餐";
+    if (order.status === "completed") return "已取餐";
+    if (order.status === "cancelled") return "已取消";
+    if (order.status === "preparing") return "餐點製作中";
+    if (order.status === "submitted") return "等待廚房接單";
+    return formatOrderStatus(order.status);
   }
 
   function getReadyAgeMinutes(order: Order): number | null {
@@ -2164,9 +2244,9 @@ export default function App() {
   }
 
   function getManagerOrderFlowHint(order: Order): string {
-    if (order.status === "submitted") return "Waiting for kitchen";
-    if (order.status === "preparing") return "Being prepared";
-    if (order.status === "ready") return "Ready for pickup";
+    if (order.status === "submitted") return "等待廚房接單";
+    if (order.status === "preparing") return "餐點製作中";
+    if (order.status === "ready") return "可取餐";
     return "";
   }
 
@@ -2515,7 +2595,7 @@ export default function App() {
       setAdminMessage(
         loadError instanceof Error
           ? loadError.message
-          : "Unable to load role requests.",
+          : "無法載入權限申請。",
       );
     } finally {
       setAdminLoading(false);
@@ -2561,13 +2641,13 @@ export default function App() {
         setOperationAuditLogs(
           Array.isArray(payload?.data) ? payload.data : [],
         );
-        if (options.notify) notifyInfo("Operation logs refreshed.");
+        if (options.notify) notifyInfo("操作紀錄已重新整理。");
         return true;
       } catch (operationError) {
         const message =
           operationError instanceof Error
             ? operationError.message
-            : "Unable to load operation logs.";
+            : "無法載入操作紀錄。";
         setOperationAuditLogsMessage(message);
         notifyError(message);
         return false;
@@ -2706,7 +2786,7 @@ export default function App() {
       const message =
         analyticsError instanceof Error
           ? analyticsError.message
-          : "Unable to load analytics.";
+          : "無法載入營運分析。";
       setAnalyticsMessage(message);
       notifyError(message);
       return false;
@@ -2729,8 +2809,8 @@ export default function App() {
         analyticsEndDate,
       )
     ) {
-      setAnalyticsMessage("Choose a valid analytics date range.");
-      notifyWarning("Choose a valid analytics date range.");
+      setAnalyticsMessage("請選擇有效的分析日期區間。");
+      notifyWarning("請選擇有效的分析日期區間。");
       return;
     }
 
@@ -2748,15 +2828,15 @@ export default function App() {
       if (!updated) return;
       notifyInfo(
         nextFilters.range === "custom"
-          ? "Analytics updated for selected date range."
-          : `Analytics updated for ${formatAnalyticsRangeLabel(nextFilters)}.`,
+          ? "已更新所選日期區間的營運分析。"
+          : `已更新${formatAnalyticsRangeLabel(nextFilters)}的營運分析。`,
       );
     });
   }
 
   function refreshAnalyticsWithToast(): void {
     void loadAnalytics().then((updated) => {
-      if (updated) notifyInfo("Analytics updated.");
+      if (updated) notifyInfo("營運分析已更新。");
     });
   }
 
@@ -2800,7 +2880,7 @@ export default function App() {
       const message =
         auditError instanceof Error
           ? auditError.message
-          : "Unable to load audit logs.";
+          : "無法載入操作紀錄。";
       setAuditLogsMessage(message);
       notifyError(message);
       return false;
@@ -2827,13 +2907,13 @@ export default function App() {
         auditLogEndDate,
       )
     ) {
-      setAuditLogsMessage("Choose a valid audit log date range.");
-      notifyWarning("Choose a valid audit log date range.");
+      setAuditLogsMessage("請選擇有效的操作紀錄日期區間。");
+      notifyWarning("請選擇有效的操作紀錄日期區間。");
       return;
     }
 
     void loadAuditLogs().then((updated) => {
-      if (updated) notifyInfo("Audit logs updated.");
+      if (updated) notifyInfo("操作紀錄已更新。");
     });
   }
 
@@ -2846,7 +2926,7 @@ export default function App() {
     setAuditLogEndDate("");
     setAuditLogActorFilter("");
     setAuditLogTargetIdFilter("");
-    notifyInfo("Audit log filters reset.");
+    notifyInfo("操作紀錄篩選已重設。");
   }
 
   // Effects
@@ -2907,7 +2987,7 @@ export default function App() {
           setDemoAuthError(
             demoError instanceof Error
               ? demoError.message
-              : "Unable to load demo users.",
+              : "無法載入測試帳號。",
           );
         }
       }
@@ -2923,7 +3003,7 @@ export default function App() {
         ]);
       } catch (fetchError) {
         if (mounted) {
-          setError("Unable to load menu.");
+          setError("無法載入菜單。");
           console.error(fetchError);
         }
       } finally {
@@ -2950,7 +3030,7 @@ export default function App() {
     }
 
     void refreshUserOrders().catch((refreshError) => {
-      setActionError("Unable to refresh your orders.");
+      setActionError("無法重新整理您的訂單。");
       console.error(refreshError);
     });
   }, [user]);
@@ -2998,7 +3078,7 @@ export default function App() {
           setCategoryMessage(
             categoryError instanceof Error
               ? categoryError.message
-              : "Unable to load categories.",
+              : "無法載入分類。",
           );
         },
       );
@@ -3013,7 +3093,7 @@ export default function App() {
         setPromotionMessage(
           promotionError instanceof Error
             ? promotionError.message
-            : "Unable to load promotions.",
+            : "無法載入優惠券。",
         );
       });
     } else if (!canManageMenu) {
@@ -3027,7 +3107,7 @@ export default function App() {
         setMenuBundleMessage(
           bundleError instanceof Error
             ? bundleError.message
-            : "Unable to load bundles.",
+            : "無法載入套餐。",
         );
       });
     } else if (!canManageMenu) {
@@ -3041,7 +3121,7 @@ export default function App() {
         setInventoryMessage(
           inventoryError instanceof Error
             ? inventoryError.message
-            : "Unable to load inventory.",
+            : "無法載入庫存資料。",
         );
       });
     } else if (!canViewInventory) {
@@ -3062,7 +3142,7 @@ export default function App() {
       setInventoryMessage(
         inventoryError instanceof Error
           ? inventoryError.message
-          : "Unable to load menu item ingredients.",
+          : "無法載入餐點原料設定。",
       );
     });
   }, [canViewInventory, selectedInventoryMenuItemId, loadMenuItemIngredients]);
@@ -3380,7 +3460,7 @@ export default function App() {
       }));
     }
 
-    notifyInfo(`Added ${chip} to note.`);
+    notifyInfo(`已加入「${chip}」到備註。`);
   }
 
   function addTastePreferenceChip(): void {
@@ -3665,7 +3745,7 @@ export default function App() {
   // Event handlers
   async function ensureOrder(): Promise<number> {
     if (!user) {
-      throw new Error("Please sign in first.");
+      throw new Error("請先登入。");
     }
 
     if (orderId !== null) {
@@ -3682,8 +3762,8 @@ export default function App() {
     if (!response.ok) {
       if ([401, 403].includes(response.status)) {
         setUser(null);
-        setAuthError("Your session expired. Please sign in again.");
-        setActionError("Your session expired. Please sign in again.");
+        setAuthError("登入狀態已過期，請重新登入。");
+        setActionError("登入狀態已過期，請重新登入。");
         setHistoryOrders([]);
         resetCartState();
         throw new Error(`Auth expired: HTTP ${response.status}`);
@@ -3803,7 +3883,7 @@ export default function App() {
 
       const payload = (await response.json()) as ApiDataResponse<SessionUser>;
       if (!payload?.data) {
-        throw new Error("Demo login failed: invalid payload");
+        throw new Error("測試登入失敗：回傳資料不正確");
       }
 
       setUser(normalizeUser(payload.data));
@@ -3814,10 +3894,10 @@ export default function App() {
         loadCurrentOrder(),
         loadOrderHistory(),
       ]);
-      notifySuccess("Demo login successful.");
+      notifySuccess("測試帳號登入成功。");
     } catch (demoError) {
       const message =
-        demoError instanceof Error ? demoError.message : "Demo login failed.";
+        demoError instanceof Error ? demoError.message : "測試帳號登入失敗。";
       setDemoAuthError(message);
       notifyError(message);
     } finally {
@@ -3841,7 +3921,7 @@ export default function App() {
       setRoleRequestMessage("");
       setAdminRequests([]);
       resetCartState();
-      notifyInfo("Signed out.");
+      notifyInfo("已登出。");
       return;
     }
 
@@ -3856,14 +3936,14 @@ export default function App() {
         credentials: "include",
       });
       if (!res.ok) {
-        const message = `Sign out failed: ${await readApiError(res)}`;
+        const message = `登出失敗：${await readApiError(res)}`;
         setActionError(message);
-        notifyError("Sign out failed. Please try again.");
+        notifyError("登出失敗，請稍後再試。");
         return;
       }
     } catch {
-      setActionError("Sign out failed. Please try again.");
-      notifyError("Sign out failed. Please try again.");
+      setActionError("登出失敗，請稍後再試。");
+      notifyError("登出失敗，請稍後再試。");
       return;
     }
     setUser(null);
@@ -3872,7 +3952,7 @@ export default function App() {
     setRoleRequestMessage("");
     setAdminRequests([]);
     resetCartState();
-    notifyInfo("Signed out.");
+    notifyInfo("已登出。");
   }
 
   async function addToCart(
@@ -3885,13 +3965,13 @@ export default function App() {
     try {
       if (!user) {
         if (!item.is_available) {
-          throw new Error("This item is sold out.");
+          throw new Error("這項餐點已售完。");
         }
 
         const currentQty = cartQtyByItemId[item.id] ?? 0;
         const nextQty = Math.min(99, currentQty + 1);
         if (nextQty === currentQty) {
-          throw new Error("Cart quantity is already at the maximum.");
+          throw new Error("購物車數量已達上限。");
         }
 
         setCartQtyByItemId((current) => ({
@@ -3905,12 +3985,12 @@ export default function App() {
         setLastGuestOrder(null);
         setIsCartOpen(true);
         notifySuccess(
-          successMessage ?? `Added ${item.name} to cart. Cart quantity: ${nextQty}.`,
+          successMessage ?? `已加入 ${item.name}，購物車數量：${nextQty}。`,
         );
         return;
       }
       if (!item.is_available) {
-        throw new Error("This item is sold out.");
+        throw new Error("這項餐點已售完。");
       }
 
       const targetOrderId = await ensureOrder();
@@ -3925,7 +4005,7 @@ export default function App() {
         );
         syncCartFromOrder(updatedOrder);
         notifySuccess(
-          successMessage ?? `Added ${item.name} to cart. Cart quantity: ${nextQty}.`,
+          successMessage ?? `已加入 ${item.name}，購物車數量：${nextQty}。`,
         );
       } catch (firstTryError) {
         const firstTryMessage =
@@ -3953,7 +4033,7 @@ export default function App() {
           syncCartFromOrder(retriedOrder);
           notifySuccess(
             successMessage ??
-              `Added ${item.name} to cart. Cart quantity: ${retryQty}.`,
+              `已加入 ${item.name}，購物車數量：${retryQty}。`,
           );
           return;
         }
@@ -3965,15 +4045,15 @@ export default function App() {
         cartError instanceof Error &&
         cartError.message.startsWith("Auth expired:")
       ) {
-        notifyError("Your session expired. Please sign in again.");
+        notifyError("登入狀態已過期，請重新登入。");
         return;
       }
 
       const message =
-        cartError instanceof Error ? cartError.message : "Unable to update cart.";
+        cartError instanceof Error ? cartError.message : "無法更新購物車。";
       if (isMenuVersionChangedMessage(message)) {
         await refreshMenuAndCurrentOrderAfterVersionConflict(message);
-        notifyWarning("Menu changed. Please refresh your cart.");
+        notifyWarning("菜單已更新，請重新整理購物車。");
       } else {
         setActionError(message);
         notifyError(message);
@@ -3996,11 +4076,11 @@ export default function App() {
           cartItemSnapshotsById[itemId];
 
         if (!currentItem) {
-          throw new Error("Menu item not found.");
+          throw new Error("找不到這項餐點。");
         }
 
         if (!currentItem.is_available && nextQty > currentQty) {
-          throw new Error("This item is sold out.");
+          throw new Error("這項餐點已售完。");
         }
 
         if (nextQty === 0) {
@@ -4024,7 +4104,7 @@ export default function App() {
             delete next[itemId];
             return next;
           });
-          notifySuccess("Item removed from cart.");
+          notifySuccess("已從購物車移除餐點。");
           return;
         }
 
@@ -4036,7 +4116,7 @@ export default function App() {
           ...current,
           [itemId]: currentItem,
         }));
-        notifySuccess("Cart quantity updated.");
+        notifySuccess("購物車數量已更新。");
         return;
       }
 
@@ -4047,25 +4127,25 @@ export default function App() {
         Math.max(0, qty),
       );
       syncCartFromOrder(updatedOrder);
-      notifySuccess(qty > 0 ? "Cart quantity updated." : "Item removed from cart.");
+      notifySuccess(qty > 0 ? "購物車數量已更新。" : "已從購物車移除餐點。");
     } catch (cartError) {
       if (
         cartError instanceof Error &&
         cartError.message.startsWith("Auth expired:")
       ) {
-        notifyError("Your session expired. Please sign in again.");
+        notifyError("登入狀態已過期，請重新登入。");
         return;
       }
 
       const message =
-        cartError instanceof Error ? cartError.message : "Unable to update cart.";
+        cartError instanceof Error ? cartError.message : "無法更新購物車。";
       setActionError(message);
       if (
         cartError instanceof Error &&
         isMenuVersionChangedMessage(cartError.message)
       ) {
         await refreshMenuAndCurrentOrderAfterVersionConflict(cartError.message);
-        notifyWarning("Menu changed. Please refresh your cart.");
+        notifyWarning("菜單已更新，請重新整理購物車。");
       } else {
         notifyError(message);
       }
@@ -4077,12 +4157,12 @@ export default function App() {
 
   async function reorderPreviousOrder(order: Order): Promise<void> {
     if (!user) {
-      notifyWarning("Please sign in first.");
+      notifyWarning("請先登入。");
       return;
     }
 
     if (order.items.length === 0) {
-      notifyWarning("This order has no items to reorder.");
+      notifyWarning("這筆訂單沒有可再次加入的餐點。");
       return;
     }
 
@@ -4118,12 +4198,12 @@ export default function App() {
           currentItemById.get(detail.item.id);
 
         if (!currentItem) {
-          skippedItems.push(`${detail.item.name} is no longer on the menu.`);
+          skippedItems.push(`${detail.item.name} 已不在目前菜單中。`);
           continue;
         }
 
         if (!currentItem.is_available) {
-          skippedItems.push(`${currentItem.name} is sold out.`);
+          skippedItems.push(`${currentItem.name} 已售完。`);
           continue;
         }
 
@@ -4160,10 +4240,10 @@ export default function App() {
           const message =
             reorderItemError instanceof Error
               ? reorderItemError.message
-              : "Unable to reorder item.";
+              : "無法再次加入餐點。";
           if (isMenuVersionChangedMessage(message)) {
             await refreshMenuAndCurrentOrderAfterVersionConflict(message);
-            notifyWarning("Menu changed. Please refresh your cart.");
+            notifyWarning("菜單已更新，請重新整理購物車。");
           }
           throw reorderItemError;
         }
@@ -4174,36 +4254,36 @@ export default function App() {
       const summaryParts: string[] = [];
       if (addedItems.length > 0) {
         summaryParts.push(
-          `Added ${addedItems.length} item(s) from order ${formatPickupNumber(
+          `已從訂單 ${formatPickupNumber(
             order.id,
-          )} to your cart.`,
+          )} 加入 ${addedItems.length} 項餐點到購物車。`,
         );
       }
       if (skippedItems.length > 0) {
-        summaryParts.push(`Skipped: ${skippedItems.join(" ")}`);
+        summaryParts.push(`略過：${skippedItems.join(" ")}`);
       }
       if (priceChangedItems.length > 0) {
-        summaryParts.push(`Price changed: ${priceChangedItems.join(" ")}`);
+        summaryParts.push(`價格已變更：${priceChangedItems.join(" ")}`);
       }
       setReorderMessage(summaryParts.join("\n"));
 
       if (addedItems.length > 0) {
         setIsCartOpen(true);
-        notifySuccess(`Reordered ${addedItems.length} item(s).`);
+        notifySuccess(`已再次加入 ${addedItems.length} 項餐點。`);
       } else {
-        notifyWarning("No items could be reordered. Please choose from the current menu.");
+        notifyWarning("沒有可再次加入的餐點，請從目前菜單重新選擇。");
       }
       if (priceChangedItems.length > 0) {
-        notifyWarning("Some reordered items have current menu prices.");
+        notifyWarning("部分再次加入的餐點已使用目前菜單價格。");
       }
       if (skippedItems.length > 0) {
-        notifyWarning("Some items could not be reordered.");
+        notifyWarning("部分餐點無法再次加入。");
       }
     } catch (reorderError) {
       const message =
         reorderError instanceof Error
           ? reorderError.message
-          : "Unable to reorder this order.";
+          : "無法再次訂購這筆訂單。";
       if (isMenuVersionChangedMessage(message)) {
         setActionError(message);
       } else {
@@ -4218,7 +4298,7 @@ export default function App() {
 
   async function clearCart(): Promise<void> {
     if (cartDetails.length === 0) return;
-    if (!window.confirm("Clear all items from cart?")) return;
+    if (!window.confirm("確定要清空購物車嗎？")) return;
 
     setActionError("");
     setIsClearingCart(true);
@@ -4230,7 +4310,7 @@ export default function App() {
         setCartMemberNameByItemId({});
         setCartBundleByItemId({});
         setCartTotal(0);
-        notifySuccess("Cart cleared.");
+        notifySuccess("購物車已清空。");
         return;
       }
 
@@ -4248,7 +4328,7 @@ export default function App() {
         });
 
         if (!response.ok) {
-          throw new Error(`Clear cart failed: ${await readApiError(response)}`);
+          throw new Error(`清空購物車失敗：${await readApiError(response)}`);
         }
       }
 
@@ -4256,10 +4336,10 @@ export default function App() {
       setCartMemberNameByItemId({});
       setCartBundleByItemId({});
       setCartTotal(0);
-      notifySuccess("Cart cleared.");
+      notifySuccess("購物車已清空。");
     } catch (clearError) {
       const message =
-        clearError instanceof Error ? clearError.message : "Unable to clear cart.";
+        clearError instanceof Error ? clearError.message : "無法清空購物車。";
       setActionError(message);
       notifyError(message);
       console.error(clearError);
@@ -4274,13 +4354,13 @@ export default function App() {
     const guestName = guestCheckoutForm.guestName.trim();
     const guestPhone = guestCheckoutForm.guestPhone.trim();
     if (!guestName) {
-      setActionError("Guest name is required.");
-      notifyWarning("Enter a guest name before checkout.");
+      setActionError("請填寫訪客姓名。");
+      notifyWarning("送出前請填寫訪客姓名。");
       return;
     }
     if (!guestPhone) {
-      setActionError("Guest phone is required.");
-      notifyWarning("Enter a guest phone number before checkout.");
+      setActionError("請填寫訪客電話。");
+      notifyWarning("送出前請填寫訪客電話。");
       return;
     }
 
@@ -4318,13 +4398,13 @@ export default function App() {
 
       if (!response.ok) {
         const details = await readApiErrorDetails(response);
-        throw new Error(`Submit guest order failed: ${formatApiErrorDetails(details)}`);
+        throw new Error(`送出訪客訂單失敗：${formatApiErrorDetails(details)}`);
       }
 
       const payload = (await response.json()) as ApiDataResponse<Order>;
       const submittedOrder = payload?.data;
       if (!submittedOrder) {
-        throw new Error("Submit guest order failed: invalid payload");
+        throw new Error("送出訪客訂單失敗：回傳資料不正確");
       }
 
       resetCartState();
@@ -4346,10 +4426,10 @@ export default function App() {
       const message =
         submitError instanceof Error
           ? submitError.message
-          : "Unable to submit guest order.";
+          : "無法送出訪客訂單。";
       if (isMenuVersionChangedMessage(message)) {
         await refreshMenuAndCurrentOrderAfterVersionConflict(message);
-        notifyWarning("Menu changed. Please refresh your cart.");
+        notifyWarning("菜單已更新，請重新整理購物車。");
       } else {
         setActionError(message);
         notifyError(getCheckoutErrorToastMessage(message));
@@ -4389,7 +4469,7 @@ export default function App() {
       const payload = (await response.json()) as ApiDataResponse<Order>;
       const order = payload?.data;
       if (!order) {
-        throw new Error("Guest order lookup failed: invalid payload");
+        throw new Error("訪客訂單查詢失敗：回傳資料不正確");
       }
 
       setGuestLookupOrder(order);
@@ -4450,7 +4530,7 @@ export default function App() {
 
       if (!response.ok) {
         const details = await readApiErrorDetails(response);
-        throw new Error(`Submit order failed: ${formatApiErrorDetails(details)}`);
+        throw new Error(`送出訂單失敗：${formatApiErrorDetails(details)}`);
       }
 
       const payload = (await response.json()) as ApiDataResponse<Order>;
@@ -4477,7 +4557,7 @@ export default function App() {
       const message =
         submitError instanceof Error
           ? submitError.message
-          : "Unable to submit order.";
+          : "無法送出訂單。";
       if (isMenuVersionChangedMessage(message)) {
         await refreshMenuAndCurrentOrderAfterVersionConflict(message);
         notifyWarning("菜單已更新，請重新整理購物車。");
@@ -4516,7 +4596,7 @@ export default function App() {
       const payload = (await response.json()) as ApiDataResponse<Order>;
       const updatedOrder = payload?.data;
       if (!updatedOrder) {
-        throw new Error("Update order status failed: invalid payload");
+        throw new Error("更新訂單狀態失敗：回傳資料不正確");
       }
 
       setHistoryOrders((currentOrders) =>
@@ -4529,12 +4609,12 @@ export default function App() {
         delete nextDrafts[updatedOrder.id];
         return nextDrafts;
       });
-      setStatusMessage(`Order #${updatedOrder.id} status updated.`);
+      setStatusMessage(`訂單 ${formatPickupNumber(updatedOrder.id)} 狀態已更新。`);
       highlightOrder(updatedOrder.id);
       notifySuccess(
-        `Order ${formatPickupNumber(updatedOrder.id)} moved to ${
-          updatedOrder.status
-        }.`,
+        `訂單 ${formatPickupNumber(updatedOrder.id)} 已改為${formatOrderStatus(
+          updatedOrder.status,
+        )}。`,
       );
       await loadQueueSummary();
 
@@ -4545,7 +4625,7 @@ export default function App() {
       const message =
         statusError instanceof Error
           ? statusError.message
-          : "Unable to update order status.";
+          : "無法更新訂單狀態。";
       setStatusMessage(message);
       notifyError(message);
     } finally {
@@ -4575,7 +4655,7 @@ export default function App() {
       const payload = (await response.json()) as ApiDataResponse<Order>;
       const updatedOrder = payload?.data;
       if (!updatedOrder) {
-        throw new Error("Update payment failed: invalid payload");
+        throw new Error("更新付款狀態失敗：回傳資料不正確");
       }
 
       setHistoryOrders((currentOrders) =>
@@ -4583,14 +4663,14 @@ export default function App() {
           order.id === updatedOrder.id ? updatedOrder : order,
         ),
       );
-      setStatusMessage(`Order #${updatedOrder.id} marked paid.`);
+      setStatusMessage(`訂單 ${formatPickupNumber(updatedOrder.id)} 已標記為已付款。`);
       highlightOrder(updatedOrder.id);
-      notifySuccess(`Order ${formatPickupNumber(updatedOrder.id)} marked as paid.`);
+      notifySuccess(`訂單 ${formatPickupNumber(updatedOrder.id)} 已標記為已付款。`);
     } catch (paymentError) {
       const message =
         paymentError instanceof Error
           ? paymentError.message
-          : "Unable to update payment status.";
+          : "無法更新付款狀態。";
       setStatusMessage(message);
       notifyError(message);
     } finally {
@@ -4630,7 +4710,7 @@ export default function App() {
       const payload = (await response.json()) as ApiDataResponse<Order>;
       const updatedOrder = payload?.data;
       if (!updatedOrder) {
-        throw new Error("Cancel order failed: invalid payload");
+        throw new Error("取消訂單失敗：回傳資料不正確");
       }
 
       setHistoryOrders((currentOrders) =>
@@ -4638,12 +4718,12 @@ export default function App() {
           order.id === updatedOrder.id ? updatedOrder : order,
         ),
       );
-      setStatusMessage(`Order #${updatedOrder.id} cancelled.`);
+      setStatusMessage(`訂單 ${formatPickupNumber(updatedOrder.id)} 已取消。`);
       highlightOrder(updatedOrder.id);
       notifySuccess(
         context === "manager"
-          ? `Order ${formatPickupNumber(updatedOrder.id)} voided.`
-          : `Order ${formatPickupNumber(updatedOrder.id)} cancelled.`,
+          ? `訂單 ${formatPickupNumber(updatedOrder.id)} 已作廢。`
+          : `訂單 ${formatPickupNumber(updatedOrder.id)} 已取消。`,
       );
       await loadQueueSummary();
 
@@ -4654,7 +4734,7 @@ export default function App() {
       const message =
         cancelError instanceof Error
           ? cancelError.message
-          : "Unable to cancel order.";
+          : "無法取消訂單。";
       setStatusMessage(message);
       notifyError(message);
     } finally {
@@ -4691,7 +4771,7 @@ export default function App() {
       const payload = (await response.json()) as ApiDataResponse<Order>;
       const updatedOrder = payload?.data;
       if (!updatedOrder) {
-        throw new Error("Set order issue failed: invalid payload");
+        throw new Error("新增訂單問題失敗：回傳資料不正確");
       }
 
       setHistoryOrders((currentOrders) =>
@@ -4706,14 +4786,14 @@ export default function App() {
           issueNote: "",
         },
       }));
-      setStatusMessage(`Order #${updatedOrder.id} issue updated.`);
+      setStatusMessage(`訂單 ${formatPickupNumber(updatedOrder.id)} 問題已更新。`);
       highlightOrder(updatedOrder.id);
-      notifySuccess(`Issue added to order ${formatPickupNumber(updatedOrder.id)}.`);
+      notifySuccess(`已為訂單 ${formatPickupNumber(updatedOrder.id)} 新增問題。`);
     } catch (issueError) {
       const message =
         issueError instanceof Error
           ? issueError.message
-          : "Unable to update order issue.";
+          : "無法更新訂單問題。";
       setStatusMessage(message);
       notifyError(message);
     } finally {
@@ -4741,7 +4821,7 @@ export default function App() {
       const payload = (await response.json()) as ApiDataResponse<Order>;
       const updatedOrder = payload?.data;
       if (!updatedOrder) {
-        throw new Error("Clear order issue failed: invalid payload");
+        throw new Error("清除訂單問題失敗：回傳資料不正確");
       }
 
       setHistoryOrders((currentOrders) =>
@@ -4749,16 +4829,16 @@ export default function App() {
           order.id === updatedOrder.id ? updatedOrder : order,
         ),
       );
-      setStatusMessage(`Order #${updatedOrder.id} issue cleared.`);
+      setStatusMessage(`訂單 ${formatPickupNumber(updatedOrder.id)} 問題已清除。`);
       highlightOrder(updatedOrder.id);
       notifySuccess(
-        `Issue cleared for order ${formatPickupNumber(updatedOrder.id)}.`,
+        `已清除訂單 ${formatPickupNumber(updatedOrder.id)} 的問題。`,
       );
     } catch (issueError) {
       const message =
         issueError instanceof Error
           ? issueError.message
-          : "Unable to clear order issue.";
+          : "無法清除訂單問題。";
       setStatusMessage(message);
       notifyError(message);
     } finally {
@@ -4773,8 +4853,8 @@ export default function App() {
     };
     const rating = Number(draft.rating);
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-      setStatusMessage("Choose a rating from 1 to 5.");
-      notifyWarning("Choose a rating from 1 to 5.");
+      setStatusMessage("請選擇 1 到 5 分的評分。");
+      notifyWarning("請選擇 1 到 5 分的評分。");
       return;
     }
 
@@ -4802,7 +4882,7 @@ export default function App() {
       const payload = (await response.json()) as ApiDataResponse<Order>;
       const updatedOrder = payload?.data;
       if (!updatedOrder) {
-        throw new Error("Update rating failed: invalid payload");
+        throw new Error("儲存評價失敗：回傳資料不正確");
       }
 
       setHistoryOrders((currentOrders) =>
@@ -4817,13 +4897,13 @@ export default function App() {
           ratingComment: updatedOrder.ratingComment ?? "",
         },
       }));
-      setStatusMessage(`Order #${updatedOrder.id} rating saved.`);
-      notifySuccess("Rating saved.");
+      setStatusMessage(`訂單 ${formatPickupNumber(updatedOrder.id)} 評價已儲存。`);
+      notifySuccess("評價已儲存。");
     } catch (ratingError) {
       const message =
         ratingError instanceof Error
           ? ratingError.message
-          : "Unable to update rating.";
+          : "無法儲存評價。";
       setStatusMessage(message);
       notifyError(message);
     } finally {
@@ -4835,14 +4915,14 @@ export default function App() {
     const itemId = Number(walkInSelectedItemId);
     const qty = Number(walkInQty);
     if (!itemId || !Number.isInteger(qty) || qty <= 0) {
-      setStatusMessage("Select a menu item and quantity first.");
-      notifyWarning("Select a menu item and quantity first.");
+      setStatusMessage("請先選擇餐點與數量。");
+      notifyWarning("請先選擇餐點與數量。");
       return;
     }
     const selectedItem = items.find((item) => item.id === itemId);
     if (!selectedItem?.is_available) {
-      setStatusMessage("This item is sold out.");
-      notifyWarning("This item is sold out.");
+      setStatusMessage("這項餐點已售完。");
+      notifyWarning("這項餐點已售完。");
       return;
     }
 
@@ -4861,8 +4941,8 @@ export default function App() {
     });
     notifyInfo(
       existingItem
-        ? `Updated ${selectedItem.name} quantity in staff order.`
-        : `Added ${selectedItem.name} to staff order.`,
+        ? `已更新店員訂單中的 ${selectedItem.name} 數量。`
+        : `已加入 ${selectedItem.name} 到店員訂單。`,
     );
     setWalkInSelectedItemId("");
     setWalkInQty("1");
@@ -4872,14 +4952,14 @@ export default function App() {
     setWalkInOrderItems((currentItems) =>
       currentItems.filter((item) => item.itemId !== itemId),
     );
-    notifyInfo("Removed item from staff order.");
+    notifyInfo("已從店員訂單移除餐點。");
   }
 
   function addWalkInBundle(bundle: MenuBundle) {
     const availableItems = bundle.items.filter((entry) => entry.item?.is_available);
     if (availableItems.length === 0) {
-      setStatusMessage("This bundle has no available items.");
-      notifyWarning("This bundle has no available items.");
+      setStatusMessage("這個套餐目前沒有可販售的餐點。");
+      notifyWarning("這個套餐目前沒有可販售的餐點。");
       return;
     }
 
@@ -4909,7 +4989,7 @@ export default function App() {
       }
       return nextItems;
     });
-    notifyInfo(`Added ${bundle.name} to staff order.`);
+    notifyInfo(`已加入套餐「${bundle.name}」到店員訂單。`);
   }
 
   async function submitWalkInOrder(): Promise<void> {
@@ -4958,25 +5038,25 @@ export default function App() {
         : "";
       setStatusMessage(
         walkInOrderForm.orderSource === "phone"
-          ? `Phone order${createdPickupNumber} created. Track it in Orders board and call the guest if pickup time changes.`
-          : `Walk-in order${createdPickupNumber} created. Track it in Orders board.`,
+          ? `電話訂單${createdPickupNumber} 已建立，請在訂單處理追蹤；取餐時間異動時請通知客人。`
+          : `現場訂單${createdPickupNumber} 已建立，請在訂單處理追蹤。`,
       );
       if (createdOrder) {
         highlightOrder(createdOrder.id);
       }
       notifySuccess(
         walkInOrderForm.orderSource === "phone"
-          ? `Phone order${createdPickupNumber} created.`
-          : `Walk-in order${createdPickupNumber} created.`,
+          ? `電話訂單${createdPickupNumber} 已建立。`
+          : `現場訂單${createdPickupNumber} 已建立。`,
       );
     } catch (walkInError) {
       const message =
         walkInError instanceof Error
           ? walkInError.message
-          : "Unable to create walk-in order.";
+          : "無法建立店員訂單。";
       if (isMenuVersionChangedMessage(message)) {
         await refreshMenuAfterWalkInVersionConflict(message);
-        notifyWarning("Menu changed. Please refresh menu.");
+        notifyWarning("菜單已更新，請重新整理菜單。");
       } else {
         setStatusMessage(message);
         notifyError(
@@ -5015,13 +5095,13 @@ export default function App() {
         [item.id]: history,
       }));
       if (history.length > 0) {
-        notifyInfo(`Loaded version history for ${item.name}.`);
+        notifyInfo(`已載入 ${item.name} 的版本紀錄。`);
       }
     } catch (historyError) {
       const message =
         historyError instanceof Error
           ? historyError.message
-          : "Unable to load menu history.";
+          : "無法載入菜單版本紀錄。";
       setMenuMessage(message);
       notifyError(message);
     } finally {
@@ -5037,8 +5117,8 @@ export default function App() {
       10,
     );
     if (!Number.isFinite(value) || value < 0) {
-      setMenuMessage("Display order must be a non-negative number.");
-      notifyWarning("Display order must be a non-negative number.");
+      setMenuMessage("顯示順序必須是 0 以上的數字。");
+      notifyWarning("顯示順序必須是 0 以上的數字。");
       return;
     }
 
@@ -5062,7 +5142,7 @@ export default function App() {
       const payload = (await response.json()) as ApiDataResponse<MenuItem>;
       const updated = payload?.data;
       if (!updated) {
-        throw new Error("Display order update failed: invalid payload");
+        throw new Error("更新顯示順序失敗：回傳資料不正確");
       }
 
       setItems((currentItems) =>
@@ -5075,14 +5155,14 @@ export default function App() {
         delete nextDrafts[item.id];
         return nextDrafts;
       });
-      setMenuMessage(`Display order updated for ${updated.name}.`);
+      setMenuMessage(`已更新 ${updated.name} 的顯示順序。`);
       highlightMenuItem(updated.id);
-      notifySuccess("Display order updated.");
+      notifySuccess("顯示順序已更新。");
     } catch (displayOrderError) {
       const message =
         displayOrderError instanceof Error
           ? displayOrderError.message
-          : "Unable to update display order.";
+          : "無法更新顯示順序。";
       setMenuMessage(message);
       notifyError(message);
     } finally {
@@ -5255,7 +5335,7 @@ export default function App() {
     if (!canManageMenu) return;
     const menuItemId = Number(selectedInventoryMenuItemId);
     if (!menuItemId) {
-      setInventoryMessage("Select a menu item first.");
+      setInventoryMessage("請先選擇餐點。");
       return;
     }
     setInventoryBusy(true);
@@ -5528,7 +5608,7 @@ export default function App() {
     const menuItemId = Number(menuBundleSelectedItemId);
     const qty = Number(menuBundleSelectedQty);
     if (!menuItemId || !Number.isInteger(qty) || qty <= 0) {
-      setMenuBundleMessage("Select a menu item and quantity first.");
+      setMenuBundleMessage("請先選擇餐點與數量。");
       return;
     }
 
@@ -5557,8 +5637,8 @@ export default function App() {
     event.preventDefault();
     if (!canManageMenu) return;
     if (menuBundleDraftItems.length === 0) {
-      setMenuBundleMessage("Add at least one menu item to the bundle.");
-      notifyWarning("Add at least one menu item to the bundle.");
+      setMenuBundleMessage("請至少加入一項餐點到套餐。");
+      notifyWarning("請至少加入一項餐點到套餐。");
       return;
     }
 
@@ -5596,17 +5676,17 @@ export default function App() {
         loadMenuBundles({ includeInactive: true }),
       ]);
       setMenuBundleMessage(
-        editingMenuBundleId ? "Bundle updated." : "Bundle created.",
+        editingMenuBundleId ? "套餐已更新。" : "套餐已建立。",
       );
       notifySuccess(
         editingMenuBundleId
-          ? `Bundle ${body.name} updated.`
-          : `Bundle ${body.name} created.`,
+          ? `套餐「${body.name}」已更新。`
+          : `套餐「${body.name}」已建立。`,
       );
       resetMenuBundleForm();
     } catch (bundleError) {
       const message =
-        bundleError instanceof Error ? bundleError.message : "Bundle update failed.";
+        bundleError instanceof Error ? bundleError.message : "套餐更新失敗。";
       setMenuBundleMessage(message);
       notifyError(message);
     } finally {
@@ -5639,18 +5719,18 @@ export default function App() {
         loadMenuBundles({ includeInactive: true }),
       ]);
       setMenuBundleMessage(
-        isActive ? "Bundle reactivated." : "Bundle deactivated.",
+        isActive ? "套餐已重新啟用。" : "套餐已停用。",
       );
       notifySuccess(
         isActive
-          ? `Bundle ${bundle.name} reactivated.`
-          : `Bundle ${bundle.name} deactivated.`,
+          ? `套餐「${bundle.name}」已重新啟用。`
+          : `套餐「${bundle.name}」已停用。`,
       );
     } catch (bundleError) {
       const message =
         bundleError instanceof Error
           ? bundleError.message
-          : "Bundle status update failed.";
+          : "套餐狀態更新失敗。";
       setMenuBundleMessage(message);
       notifyError(message);
     } finally {
@@ -5661,8 +5741,8 @@ export default function App() {
   async function addBundleToCart(bundle: MenuBundle): Promise<void> {
     const availableItems = bundle.items.filter((entry) => entry.item?.is_available);
     if (availableItems.length === 0) {
-      setActionError("This bundle has no available items.");
-      notifyWarning("This bundle has no available items.");
+      setActionError("這個套餐目前沒有可販售的餐點。");
+      notifyWarning("這個套餐目前沒有可販售的餐點。");
       return;
     }
 
@@ -5683,7 +5763,7 @@ export default function App() {
     for (const entry of availableItems) {
       if (!entry.item) continue;
       for (let count = 0; count < entry.qty; count += 1) {
-        await addToCart(entry.item, `Added ${bundle.name} to cart.`);
+        await addToCart(entry.item, `已加入套餐「${bundle.name}」到購物車。`);
       }
     }
     setCartBundleByItemId((current) => ({
@@ -5756,21 +5836,21 @@ export default function App() {
       ]);
       resetCategoryForm();
       setCategoryMessage(
-        editingCategoryId ? "Category updated." : "Category created.",
+        editingCategoryId ? "分類已更新。" : "分類已建立。",
       );
       if (savedCategory) {
         highlightCategory(savedCategory.id);
       }
       notifySuccess(
         editingCategoryId
-          ? `Category ${savedCategory?.name ?? body.name} updated.`
-          : `Category ${savedCategory?.name ?? body.name} created.`,
+          ? `分類「${savedCategory?.name ?? body.name}」已更新。`
+          : `分類「${savedCategory?.name ?? body.name}」已建立。`,
       );
     } catch (categoryError) {
       const message =
         categoryError instanceof Error
           ? categoryError.message
-          : "Category update failed.";
+          : "分類更新失敗。";
       setCategoryMessage(message);
       notifyError(message);
     } finally {
@@ -5782,7 +5862,7 @@ export default function App() {
     if (!canManageMenu) return;
     if (
       !window.confirm(
-        `Deactivate category "${category.name}"? Items may still keep historical category data.`,
+        `確定要停用分類「${category.name}」嗎？既有訂單仍會保留歷史分類資料。`,
       )
     ) {
       return;
@@ -5805,15 +5885,15 @@ export default function App() {
         loadCategoryManagementItems(categoryManagementStatusFilter),
         loadMenu(),
       ]);
-      setCategoryMessage("Category deactivated.");
+      setCategoryMessage("分類已停用。");
       highlightCategory(category.id);
-      notifySuccess(`Category ${category.name} deactivated.`);
+      notifySuccess(`分類「${category.name}」已停用。`);
       if (editingCategoryId === category.id) resetCategoryForm();
     } catch (categoryError) {
       const message =
         categoryError instanceof Error
           ? categoryError.message
-          : "Category deactivate failed.";
+          : "分類停用失敗。";
       setCategoryMessage(message);
       notifyError(message);
     } finally {
@@ -5843,15 +5923,15 @@ export default function App() {
         loadCategoryManagementItems(categoryManagementStatusFilter),
         loadMenu(),
       ]);
-      setCategoryMessage("Category reactivated.");
+      setCategoryMessage("分類已重新啟用。");
       highlightCategory(category.id);
-      notifySuccess(`Category ${category.name} reactivated.`);
+      notifySuccess(`分類「${category.name}」已重新啟用。`);
       if (editingCategoryId === category.id) resetCategoryForm();
     } catch (categoryError) {
       const message =
         categoryError instanceof Error
           ? categoryError.message
-          : "Category reactivate failed.";
+          : "分類重新啟用失敗。";
       setCategoryMessage(message);
       notifyError(message);
     } finally {
@@ -6065,14 +6145,14 @@ export default function App() {
       }
 
       await loadMenu();
-      setMenuMessage("Category assigned to item.");
+      setMenuMessage("分類已加入餐點。");
       highlightMenuItem(item.id);
-      notifySuccess("Category assigned to menu item.");
+      notifySuccess("已將分類加入餐點。");
     } catch (assignError) {
       const message =
         assignError instanceof Error
           ? assignError.message
-          : "Category assignment failed.";
+          : "分類加入餐點失敗。";
       setMenuMessage(message);
       notifyError(message);
     } finally {
@@ -6100,14 +6180,14 @@ export default function App() {
       }
 
       await loadMenu();
-      setMenuMessage("Category removed from item.");
+      setMenuMessage("分類已從餐點移除。");
       highlightMenuItem(item.id);
-      notifySuccess("Category removed from menu item.");
+      notifySuccess("已從餐點移除分類。");
     } catch (removeError) {
       const message =
         removeError instanceof Error
           ? removeError.message
-          : "Category removal failed.";
+          : "分類移除失敗。";
       setMenuMessage(message);
       notifyError(message);
     } finally {
@@ -6142,19 +6222,19 @@ export default function App() {
       }
 
       setRoleRequestReason("");
-      setRoleRequestMessage("Role request submitted.");
-      notifySuccess("Role request submitted.");
+      setRoleRequestMessage("權限申請已送出。");
+      notifySuccess("權限申請已送出。");
     } catch (requestError) {
       const message =
         requestError instanceof Error
           ? requestError.message
-          : "Role request failed.";
+          : "權限申請失敗。";
       const isPendingRequestError =
         message.toLowerCase().includes("pending") ||
         message.toLowerCase().includes("duplicate");
       setRoleRequestMessage(message);
       if (isPendingRequestError) {
-        notifyWarning("You already have a pending role request.");
+        notifyWarning("您已經有待審核的權限申請。");
       } else {
         notifyError(message);
       }
@@ -6190,16 +6270,16 @@ export default function App() {
       }
 
       await loadAdminRoleRequests();
-      setAdminMessage(`Request ${status}.`);
+      setAdminMessage(status === "approved" ? "申請已核准。" : "申請已拒絕。");
       highlightRoleRequest(requestId);
       notifySuccess(
         status === "approved"
-          ? "Role request approved."
-          : "Role request rejected.",
+          ? "權限申請已核准。"
+          : "權限申請已拒絕。",
       );
     } catch (reviewError) {
       const message =
-        reviewError instanceof Error ? reviewError.message : "Review failed.";
+        reviewError instanceof Error ? reviewError.message : "審核失敗。";
       setAdminMessage(message);
       notifyError(message);
     } finally {
@@ -6233,11 +6313,11 @@ export default function App() {
         throw new Error(await readApiError(response));
       }
 
-      setAdminMessage("Roles updated.");
-      notifySuccess("User roles updated.");
+      setAdminMessage("使用者角色已更新。");
+      notifySuccess("使用者角色已更新。");
     } catch (roleError) {
       const message =
-        roleError instanceof Error ? roleError.message : "Role update failed.";
+        roleError instanceof Error ? roleError.message : "角色更新失敗。";
       setAdminMessage(message);
       notifyError(message);
     } finally {
@@ -7413,7 +7493,7 @@ export default function App() {
                       />
                     </label>
                     <label className="form-control">
-                      <span className="label-text">Source</span>
+                      <span className="label-text">來源</span>
                       <select
                         className="select select-bordered select-sm"
                         value={orderSourceFilter}
@@ -7431,7 +7511,7 @@ export default function App() {
                       </select>
                     </label>
                     <label className="form-control">
-                      <span className="label-text">Payment</span>
+                      <span className="label-text">付款</span>
                       <select
                         className="select select-bordered select-sm"
                         value={orderPaymentFilter}
@@ -7550,16 +7630,16 @@ export default function App() {
                   </div>
                 ) : historyOrders.length === 0 ? (
                   <div className="alert alert-info">
-                    <span>No orders yet.</span>
+                    <span>目前還沒有訂單。</span>
                   </div>
                 ) : ordersViewMode === "kitchen" ? (
                   <div className="space-y-4">
                     <section className="rounded-box border border-base-300 bg-base-200 p-4">
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <div>
-                          <h4 className="font-semibold">Kitchen display</h4>
+                          <h4 className="font-semibold">廚房看板</h4>
                           <p className="text-sm opacity-70">
-                            Focused view for submitted and preparing orders.
+                            專注顯示待製作與製作中的訂單。
                           </p>
                         </div>
                         <span
@@ -7570,15 +7650,15 @@ export default function App() {
                       </div>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
                         <div className="stat rounded-box border border-base-300 bg-base-100">
-                          <div className="stat-title">Kitchen queue</div>
+                          <div className="stat-title">廚房排隊</div>
                           <div className="stat-value text-info">
                             {queueSummary.kitchenQueue}
                           </div>
                         </div>
                         <div className="stat rounded-box border border-base-300 bg-base-100">
-                          <div className="stat-title">Estimated wait</div>
+                          <div className="stat-title">預估等待</div>
                           <div className="stat-value text-primary">
-                            {estimatedWaitMinutes}m
+                            {estimatedWaitMinutes} 分
                           </div>
                         </div>
                         <div className="stat rounded-box border border-base-300 bg-base-100">
@@ -7588,13 +7668,13 @@ export default function App() {
                           </div>
                         </div>
                         <div className="stat rounded-box border border-base-300 bg-base-100">
-                          <div className="stat-title">Items waiting</div>
+                          <div className="stat-title">待製作餐點</div>
                           <div className="stat-value">
                             {totalKitchenItemsWaiting}
                           </div>
                         </div>
                         <div className="stat rounded-box border border-base-300 bg-base-100">
-                          <div className="stat-title">Busy level</div>
+                          <div className="stat-title">忙碌程度</div>
                           <div
                             className={`stat-value text-2xl ${
                               busyLevel === "very_busy"
@@ -7611,10 +7691,10 @@ export default function App() {
                     </section>
 
                     <section className="rounded-box border border-base-300 bg-base-100 p-4">
-                      <h4 className="mb-3 font-semibold">Items to prepare</h4>
+                      <h4 className="mb-3 font-semibold">待製作餐點彙總</h4>
                       {kitchenItemSummary.length === 0 ? (
                         <div className="rounded-box border border-dashed border-base-300 p-3 text-sm opacity-60">
-                          No items waiting.
+                          目前沒有待製作餐點。
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -7630,13 +7710,13 @@ export default function App() {
                                 </span>
                               </div>
                               <p className="mt-1 text-xs opacity-70">
-                                {row.orderIds.size} order(s) /{" "}
+                                {row.orderIds.size} 筆訂單 /{" "}
                                 {Array.from(row.sources)
                                   .map(formatOrderSource)
                                   .join(", ")}
                               </p>
                               <p className="text-xs opacity-60">
-                                Earliest: {formatCheckoutDateTime(row.earliestTime)}
+                                最早時間：{formatCheckoutDateTime(row.earliestTime)}
                               </p>
                             </div>
                           ))}
@@ -7647,9 +7727,9 @@ export default function App() {
                     {kitchenDisplayOrders.length === 0 ? (
                       <div className="alert alert-info">
                         <div>
-                          <div>No active kitchen orders.</div>
+                          <div>目前沒有廚房進行中的訂單。</div>
                           <div className="text-sm">
-                            Submitted and preparing orders will appear here.
+                            待接單與製作中的訂單會顯示在這裡。
                           </div>
                         </div>
                       </div>
@@ -7677,7 +7757,7 @@ export default function App() {
                                     {formatPickupNumber(order.id)}
                                   </div>
                                   <p className="text-sm opacity-70">
-                                    Order #{order.id} /{" "}
+                                    訂單 #{order.id} /{" "}
                                     {formatOrderSource(order.orderSource)}
                                   </p>
                                 </div>
@@ -7713,7 +7793,7 @@ export default function App() {
                                 </span>
                                 {order.isGroupOrder ? (
                                   <span>
-                                    Group: {order.groupName || "Group order"}
+                                    團體訂單：{order.groupName || "團體訂單"}
                                   </span>
                                 ) : null}
                                 <span>付款：{formatPaymentStatus(order.paymentStatus)}</span>
@@ -7815,7 +7895,7 @@ export default function App() {
                           </div>
                           {columnOrders.length === 0 ? (
                             <div className="rounded-box border border-dashed border-base-300 bg-base-100 p-3 text-sm opacity-60">
-                              No orders
+                              沒有訂單
                             </div>
                           ) : (
                             <div className="space-y-2">
@@ -7848,11 +7928,11 @@ export default function App() {
                                     <div className="flex items-start justify-between gap-2">
                                       <div>
                                         <div className="font-semibold">
-                                          Pickup{" "}
+                                          取餐編號{" "}
                                           {formatPickupNumber(order.id)}
                                         </div>
                                         <div className="text-xs opacity-70">
-                                          Order #{order.id}
+                                          訂單 #{order.id}
                                         </div>
                                       </div>
                                       <span
@@ -7884,18 +7964,18 @@ export default function App() {
                                       ) : null}
                                       {order.orderSource === "phone" ? (
                                         <span className="badge badge-info badge-sm">
-                                          Phone
+                                          電話
                                         </span>
                                       ) : null}
                                       {order.issueType ? (
                                         <span className="badge badge-warning badge-sm">
-                                          Issue
+                                          問題
                                         </span>
                                       ) : null}
                                       {order.promoCode ||
                                       order.discountAmount > 0 ? (
                                         <span className="badge badge-success badge-sm">
-                                          Promo
+                                          優惠
                                         </span>
                                       ) : null}
                                       <span
@@ -7947,7 +8027,7 @@ export default function App() {
                                       ))}
                                       {order.items.length > 3 ? (
                                         <li>
-                                          +{order.items.length - 3} more items
+                                          另有 {order.items.length - 3} 項餐點
                                         </li>
                                       ) : null}
                                     </ul>
@@ -8008,8 +8088,8 @@ export default function App() {
                                         }}
                                       >
                                         {cancelUpdatingOrderId === order.id
-                                          ? "Cancelling..."
-                                          : "Void order"}
+                                           ? "作廢中..."
+                                           : "作廢訂單"}
                                       </button>
                                     ) : null}
                                   </article>
@@ -8070,10 +8150,10 @@ export default function App() {
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
                               <h4 className="font-semibold">
-                                Order #{order.id}
+                                訂單 #{order.id}
                               </h4>
                               <p className="text-sm font-medium text-primary">
-                                Pickup {formatPickupNumber(order.id)}
+                                取餐編號 {formatPickupNumber(order.id)}
                               </p>
                             </div>
                             <div className="flex flex-wrap items-center justify-end gap-2">
@@ -8104,7 +8184,7 @@ export default function App() {
                               ) : null}
                               {order.status === "ready" ? (
                                 <span className="badge badge-primary">
-                                  Ready for pickup
+                                  可取餐
                                 </span>
                               ) : null}
                               {canUpdatePaymentStatus ? (
@@ -8112,7 +8192,7 @@ export default function App() {
                                   className="btn btn-sm btn-outline"
                                   onClick={() => printReceipt(order)}
                                 >
-                                  Print receipt
+                                  列印收據
                                 </button>
                               ) : null}
                               {canCancelThisOrder ? (
@@ -8126,8 +8206,8 @@ export default function App() {
                                   }}
                                 >
                                   {cancelUpdatingOrderId === order.id
-                                    ? "Cancelling..."
-                                    : "Void order"}
+                                    ? "作廢中..."
+                                    : "作廢訂單"}
                                 </button>
                               ) : null}
                               {primaryAction ? (
@@ -8184,14 +8264,14 @@ export default function App() {
                                   >
                                     {statusUpdatingOrderId === order.id
                                       ? "更新中..."
-                                      : "Update status"}
+                                      : "更新狀態"}
                                   </button>
                                 </div>
                               ) : null}
                             </div>
                           </div>
                           <p className="mt-2 text-sm opacity-70">
-                            Created at{" "}
+                            建立時間：{" "}
                             {
                               (order as Order & { createdAtTaipei?: string })
                                 .createdAtTaipei ?? order.createdAt
@@ -8203,7 +8283,7 @@ export default function App() {
                             </span>
                             {order.isGroupOrder ? (
                               <span>
-                                Group: {order.groupName || "Group order"}
+                                團體訂單：{order.groupName || "團體訂單"}
                               </span>
                             ) : null}
                             {(order.orderSource === "walk_in" ||
@@ -8212,11 +8292,11 @@ export default function App() {
                               <span>顧客：{order.guestName}</span>
                             ) : null}
                             {order.guestPhone ? (
-                              <span>Phone: {order.guestPhone}</span>
+                              <span>電話：{order.guestPhone}</span>
                             ) : null}
                             <span>取餐方式：{formatFulfillmentType(order.fulfillmentType)}</span>
                             <div className="flex flex-wrap items-center gap-2">
-                              <span>Payment: {order.paymentMethod}</span>
+                              <span>付款方式：{formatPaymentMethod(order.paymentMethod)}</span>
                               <span
                                 className={`badge ${
                                   order.paymentStatus === "paid"
@@ -9386,59 +9466,97 @@ export default function App() {
                     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                       <div>
                         <h4 className="mb-2 font-semibold">
-                          Low rating orders
+                          低評分訂單
                         </h4>
                         {analyticsInsights.lowRatingOrders.length === 0 ? (
                           <div className="alert">
-                            <span>No low rating orders</span>
+                            <span>目前沒有低評分訂單。</span>
                           </div>
                         ) : (
-                          <div className="overflow-x-auto">
-                            <table className="table">
-                              <thead>
-                                <tr>
-                                  <th>Pickup</th>
-                                  <th>Rating</th>
-                                  <th>Comment</th>
-                                  <th>Date</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {analyticsInsights.lowRatingOrders.map((row) => (
+                          <>
+                            <div className="overflow-x-auto rounded-box border border-base-300">
+                              <table className="table">
+                                <thead>
+                                  <tr>
+                                    <th>取餐編號</th>
+                                    <th>評分</th>
+                                    <th>留言</th>
+                                    <th>日期</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {paginatedLowRatingInsightRows.map((row) => (
                                   <tr key={row.orderId}>
                                     <td>{row.pickupNumber}</td>
                                     <td>{row.rating}/5</td>
                                     <td>{row.comment || "-"}</td>
                                     <td>{formatCheckoutDateTime(row.date)}</td>
                                   </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            <div className="mt-2 flex items-center justify-between gap-2 text-sm">
+                              <span>
+                                第 {currentLowRatingInsightPage} /{" "}
+                                {lowRatingInsightPageCount} 頁
+                              </span>
+                              <div className="join">
+                                <button
+                                  type="button"
+                                  className="btn btn-xs join-item"
+                                  disabled={currentLowRatingInsightPage <= 1}
+                                  onClick={() =>
+                                    setLowRatingInsightPage((page) =>
+                                      Math.max(1, page - 1),
+                                    )
+                                  }
+                                >
+                                  上一頁
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-xs join-item"
+                                  disabled={
+                                    currentLowRatingInsightPage >=
+                                    lowRatingInsightPageCount
+                                  }
+                                  onClick={() =>
+                                    setLowRatingInsightPage((page) =>
+                                      Math.min(lowRatingInsightPageCount, page + 1),
+                                    )
+                                  }
+                                >
+                                  下一頁
+                                </button>
+                              </div>
+                            </div>
+                          </>
                         )}
                       </div>
                       <div>
                         <h4 className="mb-2 font-semibold">
-                          Cancelled orders
+                          已取消訂單
                         </h4>
                         {analyticsInsights.cancelledOrders.length === 0 ? (
                           <div className="alert">
-                            <span>No cancelled orders</span>
+                            <span>目前沒有已取消訂單。</span>
                           </div>
                         ) : (
-                          <div className="overflow-x-auto">
-                            <table className="table">
-                              <thead>
-                                <tr>
-                                  <th>Pickup</th>
-                                  <th>Source</th>
-                                  <th>Total</th>
-                                  <th>Created</th>
-                                  <th>Note</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {analyticsInsights.cancelledOrders.map((row) => (
+                          <>
+                            <div className="overflow-x-auto rounded-box border border-base-300">
+                              <table className="table">
+                                <thead>
+                                  <tr>
+                                    <th>取餐編號</th>
+                                    <th>來源</th>
+                                    <th>金額</th>
+                                    <th>建立時間</th>
+                                    <th>備註</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {paginatedCancelledInsightRows.map((row) => (
                                   <tr key={row.orderId}>
                                     <td>{row.pickupNumber}</td>
                                     <td>
@@ -9450,10 +9568,46 @@ export default function App() {
                                     </td>
                                     <td>{row.customerNote || "-"}</td>
                                   </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            <div className="mt-2 flex items-center justify-between gap-2 text-sm">
+                              <span>
+                                第 {currentCancelledInsightPage} /{" "}
+                                {cancelledInsightPageCount} 頁
+                              </span>
+                              <div className="join">
+                                <button
+                                  type="button"
+                                  className="btn btn-xs join-item"
+                                  disabled={currentCancelledInsightPage <= 1}
+                                  onClick={() =>
+                                    setCancelledInsightPage((page) =>
+                                      Math.max(1, page - 1),
+                                    )
+                                  }
+                                >
+                                  上一頁
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-xs join-item"
+                                  disabled={
+                                    currentCancelledInsightPage >=
+                                    cancelledInsightPageCount
+                                  }
+                                  onClick={() =>
+                                    setCancelledInsightPage((page) =>
+                                      Math.min(cancelledInsightPageCount, page + 1),
+                                    )
+                                  }
+                                >
+                                  下一頁
+                                </button>
+                              </div>
+                            </div>
+                          </>
                         )}
                       </div>
                     </div>
@@ -9462,7 +9616,7 @@ export default function App() {
                   <div className="alert">
                     <span>
                       {analyticsLoading
-                        ? "Loading insights..."
+                        ? "洞察資料載入中..."
                         : "目前沒有洞察資料。"}
                     </span>
                   </div>
@@ -11017,7 +11171,7 @@ export default function App() {
                 <div>
                   <h2 className="card-title">分類管理</h2>
                   <p className="text-sm opacity-70">
-                    Create, update, and deactivate menu categories.
+                    建立、編輯與停用菜單分類，讓顧客更容易瀏覽餐點。
                   </p>
                 </div>
                 {editingCategoryId ? (
@@ -11026,7 +11180,7 @@ export default function App() {
                     className="btn btn-sm btn-ghost"
                     onClick={resetCategoryForm}
                   >
-                    Cancel edit
+                    取消編輯
                   </button>
                 ) : null}
               </div>
@@ -11038,7 +11192,7 @@ export default function App() {
               >
                 <input
                   className="input input-bordered"
-                  placeholder="Name"
+                  placeholder="分類名稱"
                   value={categoryForm.name}
                   onChange={(event) =>
                     updateCategoryForm("name", event.target.value)
@@ -11047,7 +11201,7 @@ export default function App() {
                 />
                 <input
                   className="input input-bordered"
-                  placeholder="Slug"
+                  placeholder="分類代碼"
                   value={categoryForm.slug}
                   onChange={(event) =>
                     updateCategoryForm("slug", event.target.value)
@@ -11056,7 +11210,7 @@ export default function App() {
                 />
                 <input
                   className="input input-bordered"
-                  placeholder="Description"
+                  placeholder="分類說明"
                   value={categoryForm.description}
                   onChange={(event) =>
                     updateCategoryForm("description", event.target.value)
@@ -11064,7 +11218,7 @@ export default function App() {
                 />
                 <input
                   className="input input-bordered"
-                  placeholder="Display order"
+                  placeholder="顯示順序"
                   type="number"
                   step={1}
                   value={categoryForm.displayOrder}
@@ -11081,14 +11235,14 @@ export default function App() {
                       updateCategoryForm("isActive", event.target.checked)
                     }
                   />
-                  <span className="label-text">Active</span>
+                  <span className="label-text">啟用</span>
                 </label>
                 <button className="btn btn-primary w-fit" disabled={categoryBusy}>
                   {categoryBusy
-                    ? "Saving..."
+                    ? "儲存中..."
                     : editingCategoryId
-                      ? "Save category"
-                      : "Add category"}
+                      ? "儲存分類"
+                      : "新增分類"}
                 </button>
               </form>
               {categoryMessage ? (
@@ -11105,32 +11259,39 @@ export default function App() {
                         ? "btn-primary"
                         : "btn-outline"
                     }`}
-                    onClick={() => setCategoryManagementStatusFilter(status)}
+                    onClick={() => {
+                      setCategoryManagementStatusFilter(status);
+                      setCategoryManagementPage(1);
+                    }}
                   >
-                    {status[0].toUpperCase()}
-                    {status.slice(1)}
+                    {status === "active"
+                      ? "啟用"
+                      : status === "inactive"
+                        ? "停用"
+                        : "全部"}
                   </button>
                 ))}
               </div>
               {categoryManagementItems.length === 0 ? (
                 <div className="alert alert-info">
-                  <span>No categories match this filter.</span>
+                  <span>目前沒有符合條件的分類。</span>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Slug</th>
-                        <th>Description</th>
-                        <th>Order</th>
-                        <th>Active</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {categoryManagementItems.map((category) => (
+                <>
+                  <div className="overflow-x-auto rounded-box border border-base-300">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>名稱</th>
+                          <th>代碼</th>
+                          <th>說明</th>
+                          <th>順序</th>
+                          <th>狀態</th>
+                          <th>操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedCategoryManagementItems.map((category) => (
                         <tr
                           key={category.id}
                           className={
@@ -11143,14 +11304,14 @@ export default function App() {
                           <td>{category.slug}</td>
                           <td>{category.description || ""}</td>
                           <td>{category.displayOrder}</td>
-                          <td>{category.isActive ? "yes" : "no"}</td>
+                          <td>{category.isActive ? "啟用" : "停用"}</td>
                           <td>
                             <div className="flex flex-wrap gap-2">
                               <button
                                 className="btn btn-sm btn-outline"
                                 onClick={() => startEditCategory(category)}
                               >
-                                Edit
+                                編輯
                               </button>
                               {category.isActive ? (
                                 <button
@@ -11160,7 +11321,7 @@ export default function App() {
                                     void deactivateCategory(category);
                                   }}
                                 >
-                                  Deactivate
+                                  停用
                                 </button>
                               ) : (
                                 <button
@@ -11170,16 +11331,53 @@ export default function App() {
                                     void reactivateCategory(category);
                                   }}
                                 >
-                                  Reactivate
+                                  重新啟用
                                 </button>
                               )}
                             </div>
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span>
+                      第 {currentCategoryManagementPage} /{" "}
+                      {categoryManagementPageCount} 頁，共{" "}
+                      {categoryManagementItems.length} 筆分類
+                    </span>
+                    <div className="join">
+                      <button
+                        type="button"
+                        className="btn btn-sm join-item"
+                        disabled={currentCategoryManagementPage <= 1}
+                        onClick={() =>
+                          setCategoryManagementPage((page) =>
+                            Math.max(1, page - 1),
+                          )
+                        }
+                      >
+                        上一頁
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm join-item"
+                        disabled={
+                          currentCategoryManagementPage >=
+                          categoryManagementPageCount
+                        }
+                        onClick={() =>
+                          setCategoryManagementPage((page) =>
+                            Math.min(categoryManagementPageCount, page + 1),
+                          )
+                        }
+                      >
+                        下一頁
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </section>
@@ -11649,7 +11847,7 @@ export default function App() {
                               {entry.item?.name ?? `Item #${entry.menuItemId}`} x{" "}
                               {entry.qty}
                               {entry.item && !entry.item.is_available
-                                ? " (sold out)"
+                                ? "（已售完）"
                                 : ""}
                             </li>
                           ))}
@@ -11674,14 +11872,14 @@ export default function App() {
                 <section className="mb-8 rounded-box border border-base-300 bg-base-100 p-4 shadow-sm">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <h2 className="text-xl font-bold">Frequently ordered</h2>
+                      <h2 className="text-xl font-bold">常點餐點</h2>
                       <p className="text-sm opacity-70">
-                        Quick picks from your previous completed and active orders.
+                        根據您過去訂單整理的快速加點清單。
                       </p>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-                    {frequentItems.map((entry) => (
+                    {frequentItems.slice(0, 6).map((entry) => (
                       <div
                         key={entry.currentItem.id}
                         className="rounded-box border border-base-300 bg-base-200 p-3"
@@ -11692,11 +11890,11 @@ export default function App() {
                               {entry.currentItem.name}
                             </h3>
                             <p className="text-sm opacity-70">
-                              Ordered {entry.orderCount} time(s), total qty{" "}
+                              點過 {entry.orderCount} 次，累計數量{" "}
                               {entry.totalQuantity}
                             </p>
                             <p className="text-xs opacity-60">
-                              Last ordered{" "}
+                              上次點餐：{" "}
                               {formatCheckoutDateTime(entry.lastOrderedAt)}
                             </p>
                           </div>
@@ -11710,7 +11908,7 @@ export default function App() {
                           onClick={() => {
                             void addToCart(
                               entry.currentItem,
-                              `Added ${entry.currentItem.name} from frequent items.`,
+                              `已從常點餐點加入 ${entry.currentItem.name}。`,
                             );
                           }}
                         >
@@ -11797,7 +11995,7 @@ export default function App() {
                       ) : null}
                       {canManageMenu && item.change_reason ? (
                         <p className="text-xs opacity-70">
-                          Last change: {item.change_reason}
+                          最近變更：{item.change_reason}
                         </p>
                       ) : null}
                       {canManageMenu ? (
@@ -11839,7 +12037,7 @@ export default function App() {
                           <div className="flex flex-wrap items-end gap-2">
                             <label className="form-control flex-1 min-w-32">
                               <span className="label-text mb-1">
-                                Display order
+                                顯示順序
                               </span>
                               <input
                                 className="input input-bordered input-sm"
@@ -11866,8 +12064,8 @@ export default function App() {
                               }}
                             >
                               {displayOrderUpdatingId === item.id
-                                ? "Saving..."
-                                : "Save order"}
+                                ? "儲存中..."
+                                : "儲存順序"}
                             </button>
                           </div>
                           <div className="flex gap-2">
@@ -12035,15 +12233,45 @@ export default function App() {
             ) : null}
             {historyLoading ? (
               <div className="alert">
-                <span>Loading history...</span>
+                <span>訂單紀錄載入中...</span>
               </div>
             ) : historyOrders.length === 0 ? (
               <div className="alert alert-info">
-                <span>No orders yet.</span>
+                <span>目前還沒有訂單。</span>
               </div>
             ) : (
               <div className="space-y-3">
-                {historyOrders.map((order) => {
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-box border border-base-300 bg-base-100 p-3 text-sm">
+                  <span>
+                    第 {currentCustomerOrderPage} / {customerOrderPageCount} 頁，
+                    共 {historyOrders.length} 筆訂單
+                  </span>
+                  <div className="join">
+                    <button
+                      type="button"
+                      className="btn btn-sm join-item"
+                      disabled={currentCustomerOrderPage <= 1}
+                      onClick={() =>
+                        setCustomerOrderPage((page) => Math.max(1, page - 1))
+                      }
+                    >
+                      上一頁
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm join-item"
+                      disabled={currentCustomerOrderPage >= customerOrderPageCount}
+                      onClick={() =>
+                        setCustomerOrderPage((page) =>
+                          Math.min(customerOrderPageCount, page + 1),
+                        )
+                      }
+                    >
+                      下一頁
+                    </button>
+                  </div>
+                </div>
+                {paginatedCustomerOrders.map((order) => {
                   const allowedStatuses = getNextAllowedStatuses(order);
                   const draftedStatus = orderStatusDrafts[order.id];
                   const selectedStatus =
@@ -12076,23 +12304,23 @@ export default function App() {
                       <div className="card-body p-4">
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                           <div>
-                            <h3 className="font-semibold">Order #{order.id}</h3>
+                            <h3 className="font-semibold">訂單 #{order.id}</h3>
                             <p className="text-sm font-medium text-primary">
                               取餐編號：{formatPickupNumber(order.id)}
                             </p>
                             {order.status === "ready" ? (
                               <p className="text-sm font-semibold text-primary">
-                                Ready for pickup
+                                可取餐
                               </p>
                             ) : null}
                             {order.status === "completed" ? (
                               <p className="text-sm font-semibold text-success">
-                                Picked up
+                                已取餐
                               </p>
                             ) : null}
                             {order.status === "cancelled" ? (
                               <p className="text-sm font-semibold text-error">
-                                Cancelled
+                                已取消
                               </p>
                             ) : null}
                             {isCustomerActiveOrder ? (
@@ -12117,9 +12345,9 @@ export default function App() {
                                   void cancelOrder(order.id);
                                 }}
                               >
-                                {cancelUpdatingOrderId === order.id
-                                  ? "Cancelling..."
-                                  : "Cancel order"}
+                                  {cancelUpdatingOrderId === order.id
+                                  ? "取消中..."
+                                  : "取消訂單"}
                               </button>
                             ) : null}
                             {order.status !== "pending" &&
@@ -12167,15 +12395,15 @@ export default function App() {
                                   }}
                                 >
                                   {statusUpdatingOrderId === order.id
-                                    ? "Updating..."
-                                    : "Update status"}
+                                    ? "更新中..."
+                                    : "更新狀態"}
                                 </button>
                               </div>
                             ) : null}
                           </div>
                         </div>
                         <p className="text-sm opacity-70">
-                          Created at{" "}
+                          建立時間：{" "}
                           {
                             (order as Order & { createdAtTaipei?: string })
                               .createdAtTaipei ?? order.createdAt
@@ -12183,10 +12411,10 @@ export default function App() {
                         </p>
                         {isCustomerActiveOrder ? (
                           <div className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
-                            <span>Ahead of you: {queueAheadCount} order(s)</span>
+                            <span>前方可見排隊：{queueAheadCount} 筆</span>
                             {order.status === "ready" ? (
                               <span className="font-semibold text-primary">
-                                Ready for pickup
+                                可取餐
                               </span>
                             ) : (
                               <span>

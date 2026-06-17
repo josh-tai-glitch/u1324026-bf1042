@@ -491,14 +491,32 @@ function formatChangeReason(reason?: string | null): string {
 }
 
 function formatChangedBy(userId?: string | null): string {
-  if (!userId) return "-";
-  if (userId === "demo-admin") return "測試管理者";
-  if (userId === "demo-owner") return "測試老闆";
-  if (userId === "demo-staff") return "測試店員";
-  if (userId === "demo-chef") return "測試廚師";
-  if (userId === "demo-customer") return "測試顧客";
-  if (/^[A-Za-z0-9_-]{12,}$/.test(userId)) return "系統使用者";
-  return userId;
+  return formatActorName(userId);
+}
+
+function formatActorName(name?: string | null): string {
+  if (!name) return "-";
+  const normalized = name.trim();
+  if (!normalized) return "-";
+  const lowerName = normalized.toLowerCase();
+  if (lowerName === "demo-admin" || lowerName === "demo admin") {
+    return "測試管理者";
+  }
+  if (lowerName === "demo-owner" || lowerName === "demo owner") {
+    return "測試老闆";
+  }
+  if (lowerName === "demo-staff" || lowerName === "demo staff") {
+    return "測試店員";
+  }
+  if (lowerName === "demo-chef" || lowerName === "demo chef") {
+    return "測試廚師";
+  }
+  if (lowerName === "demo-customer" || lowerName === "demo customer") {
+    return "測試顧客";
+  }
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return normalized;
+  if (/^[A-Za-z0-9_-]{12,}$/.test(normalized)) return "系統使用者";
+  return normalized;
 }
 
 function getPhoneLastFour(phone?: string | null) {
@@ -2073,12 +2091,125 @@ export default function App() {
     }
   }
 
-  function formatAuditAction(action: AuditLogAction): string {
-    return auditLogActionLabels[action] ?? action;
+  function formatAuditAction(action?: string | null): string {
+    if (!action) return "其他操作";
+    const extraActionLabels: Record<string, string> = {
+      inventory_sync_menu_availability: "庫存同步下架",
+      ingredient_update: "更新原料",
+      ingredient_stock_adjust: "調整原料庫存",
+      order_create: "建立訂單",
+      order_update: "更新訂單",
+      promotion_deactivate: "停用優惠券",
+      menu_item_create: "新增餐點",
+      menu_item_update: "更新餐點",
+      menu_item_delete: "刪除餐點",
+    };
+    return (
+      (auditLogActionLabels as Record<string, string>)[action] ??
+      extraActionLabels[action] ??
+      "其他操作"
+    );
   }
 
-  function formatAuditTargetType(targetType: AuditLogTargetType): string {
-    return auditLogTargetTypeLabels[targetType] ?? targetType;
+  function formatAuditTargetType(targetType?: string | null): string {
+    if (!targetType) return "-";
+    const extraTargetLabels: Record<string, string> = {
+      inventory: "庫存管理",
+      ingredient: "原料",
+    };
+    return (
+      (auditLogTargetTypeLabels as Record<string, string>)[targetType] ??
+      extraTargetLabels[targetType] ??
+      "-"
+    );
+  }
+
+  function formatAuditTarget(
+    targetType?: string | null,
+    targetId?: string | number | null,
+  ): string {
+    if (!targetType) return "-";
+    const idText =
+      targetId === null || targetId === undefined || targetId === ""
+        ? ""
+        : ` #${targetId}`;
+
+    switch (targetType) {
+      case "menu_item":
+        return `餐點${idText}`;
+      case "order":
+        return `訂單${idText}`;
+      case "inventory":
+        return "庫存管理";
+      case "ingredient":
+        return `原料${idText}`;
+      case "promotion":
+        return `優惠券${idText}`;
+      case "category":
+        return `分類${idText}`;
+      case "user":
+        return "使用者";
+      case "role_request":
+        return `權限申請${idText}`;
+      case "menu_item_category":
+        return `餐點分類${idText}`;
+      default:
+        return idText ? `${formatAuditTargetType(targetType)}${idText}` : "-";
+    }
+  }
+
+  function formatAuditOrderActor(actor: string): string {
+    const normalized = actor.trim().toLowerCase();
+    if (normalized === "customer") return "顧客";
+    if (normalized === "guest") return "訪客";
+    if (normalized === "staff") return "店員";
+    if (normalized === "phone") return "電話訂餐";
+    if (normalized === "walk_in" || normalized === "walk-in") return "現場訂餐";
+    return actor;
+  }
+
+  function formatAuditMessage(message?: string | null): string {
+    if (!message) return "-";
+
+    const availabilityMatch = message.match(/^Availability updated for (.+)$/);
+    if (availabilityMatch) {
+      return `已更新「${availabilityMatch[1]}」販售狀態`;
+    }
+
+    const statusMatch = message.match(/^Updated order #(\d+) status to (.+)$/);
+    if (statusMatch) {
+      return `已將訂單 #${statusMatch[1]} 狀態更新為${formatOrderStatus(
+        statusMatch[2] as OrderStatus,
+      )}`;
+    }
+
+    if (message === "Synced menu availability by inventory") {
+      return "已依庫存同步餐點可售狀態";
+    }
+
+    const updatedIngredientMatch = message.match(/^Updated ingredient (.+)$/);
+    if (updatedIngredientMatch) {
+      return `已更新原料「${updatedIngredientMatch[1]}」`;
+    }
+
+    const adjustedStockMatch = message.match(/^Adjusted stock for (.+)$/);
+    if (adjustedStockMatch) {
+      return `已調整「${adjustedStockMatch[1]}」庫存`;
+    }
+
+    const cancelledOrderMatch = message.match(/^Cancelled order #(\d+)$/);
+    if (cancelledOrderMatch) {
+      return `已取消訂單 #${cancelledOrderMatch[1]}`;
+    }
+
+    const submittedByMatch = message.match(/^Order #(\d+) submitted by (.+)$/);
+    if (submittedByMatch) {
+      return `${formatAuditOrderActor(submittedByMatch[2])}已送出訂單 #${
+        submittedByMatch[1]
+      }`;
+    }
+
+    return message;
   }
 
   function formatTrendHour(hour: number): string {
@@ -8908,7 +9039,9 @@ export default function App() {
                             {formatCheckoutDateTime(log.createdAt)}
                           </td>
                           <td>
-                            <div>{log.actorName ?? "-"}</div>
+                            <div>
+                              {formatActorName(log.actorName ?? log.actorUserId)}
+                            </div>
                             <div className="text-xs opacity-60">
                               {log.actorRoles.length > 0
                                 ? log.actorRoles.map(formatRoleLabel).join(", ")
@@ -8919,18 +9052,13 @@ export default function App() {
                             <span className="badge badge-outline">
                               {formatAuditAction(log.action)}
                             </span>
-                            <div className="text-xs opacity-60">
-                              {log.action}
-                            </div>
                           </td>
                           <td>
-                            <div>{formatAuditTargetType(log.targetType)}</div>
-                            <div className="text-xs opacity-60">
-                              {log.targetType}
-                              {log.targetId ? ` / ${log.targetId}` : ""}
-                            </div>
+                            <div>{formatAuditTarget(log.targetType, log.targetId)}</div>
                           </td>
-                          <td className="max-w-sm">{log.message}</td>
+                          <td className="max-w-sm">
+                            {formatAuditMessage(log.message)}
+                          </td>
                           <td className="max-w-xs break-words text-xs">
                             {log.metadata ? (
                               <details>

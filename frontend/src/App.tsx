@@ -448,11 +448,11 @@ function formatFulfillmentType(type: FulfillmentType) {
   return type === "dine_in" ? "內用" : "外帶";
 }
 
-function formatOrderIssueType(type: OrderIssueType) {
+function formatOrderIssueType(type: OrderIssueType | string | null | undefined) {
   if (type === "out_of_stock") return "原料不足";
-  if (type === "need_customer_confirmation") return "需與顧客確認";
+  if (type === "need_customer_confirmation") return "需聯絡顧客確認";
   if (type === "special_request_problem") return "特殊需求問題";
-  return "其他";
+  return "其他問題";
 }
 
 function formatDemoUserLabel(demoUser: SessionUser) {
@@ -2405,6 +2405,14 @@ export default function App() {
     return readyAgeMinutes !== null && readyAgeMinutes > 10;
   }
 
+  function formatOverdueMinutes(minutes: number | null | undefined): string | null {
+    if (minutes === null || minutes === undefined || minutes <= 0) {
+      return null;
+    }
+    if (minutes > 999) return "已嚴重逾時";
+    return `逾時 ${minutes} 分鐘`;
+  }
+
   function getManagerOrderFlowHint(order: Order): string {
     if (order.status === "submitted") return "等待廚房接單";
     if (order.status === "preparing") return "餐點製作中";
@@ -2438,8 +2446,8 @@ export default function App() {
 
   function formatKitchenPriority(priority: "normal" | "soon" | "urgent") {
     if (priority === "urgent") return "緊急";
-    if (priority === "soon") return "Due soon";
-    return "Normal";
+    if (priority === "soon") return "即將到時";
+    return "一般";
   }
 
   function isUrgentOrder(order: Order): boolean {
@@ -7902,6 +7910,9 @@ export default function App() {
                           const priority = getKitchenPriorityLabel(order);
                           const urgent = isUrgentOrder(order);
                           const orderAgeMinutes = getOrderAgeMinutes(order);
+                          const urgentOverdueLabel = urgent
+                            ? formatOverdueMinutes(orderAgeMinutes)
+                            : null;
                           return (
                             <article
                               key={order.id}
@@ -7941,9 +7952,9 @@ export default function App() {
                                   <span className="badge badge-outline">
                                     等待 {orderAgeMinutes} 分
                                   </span>
-                                  {urgent ? (
+                                  {urgentOverdueLabel ? (
                                     <span className="badge badge-error">
-                                      緊急
+                                      {urgentOverdueLabel}
                                     </span>
                                   ) : null}
                                 </div>
@@ -7980,7 +7991,7 @@ export default function App() {
                               {order.issueType ? (
                                 <div className="alert alert-warning mt-3 py-2">
                                   <span>
-                                    問題：{order.issueType}
+                                    問題：{formatOrderIssueType(order.issueType)}
                                     {order.issueNote
                                       ? ` / ${order.issueNote}`
                                       : ""}
@@ -8071,6 +8082,12 @@ export default function App() {
                                   getReadyAgeMinutes(order);
                                 const readyPickupOverdue =
                                   isReadyPickupOverdue(order);
+                                const urgentOverdueLabel = urgent
+                                  ? formatOverdueMinutes(orderAgeMinutes)
+                                  : null;
+                                const readyOverdueLabel = readyPickupOverdue
+                                  ? formatOverdueMinutes(readyAgeMinutes)
+                                  : null;
                                 const managerFlowHint =
                                   getManagerOrderFlowHint(order);
                                 const canCancelThisOrder =
@@ -8106,9 +8123,9 @@ export default function App() {
                                       </span>
                                     </div>
                                     <div className="mt-2 flex flex-wrap gap-1">
-                                      {urgent ? (
+                                      {urgentOverdueLabel ? (
                                         <span className="badge badge-error badge-sm">
-                                          緊急 {orderAgeMinutes} 分
+                                          {urgentOverdueLabel}
                                         </span>
                                       ) : null}
                                       {managerFlowHint ? (
@@ -8116,12 +8133,9 @@ export default function App() {
                                           {managerFlowHint}
                                         </span>
                                       ) : null}
-                                      {readyPickupOverdue ? (
+                                      {readyOverdueLabel ? (
                                         <span className="badge badge-error badge-sm">
-                                          取餐逾時
-                                          {readyAgeMinutes !== null
-                                            ? ` ${readyAgeMinutes}m`
-                                            : ""}
+                                          {readyOverdueLabel}
                                         </span>
                                       ) : null}
                                       {order.orderSource === "phone" ? (
@@ -8272,6 +8286,12 @@ export default function App() {
                       const orderAgeMinutes = getOrderAgeMinutes(order);
                       const readyAgeMinutes = getReadyAgeMinutes(order);
                       const readyPickupOverdue = isReadyPickupOverdue(order);
+                      const urgentOverdueLabel = urgent
+                        ? formatOverdueMinutes(orderAgeMinutes)
+                        : null;
+                      const readyOverdueLabel = readyPickupOverdue
+                        ? formatOverdueMinutes(readyAgeMinutes)
+                        : null;
                       const managerFlowHint = getManagerOrderFlowHint(order);
                       const draftedStatus = orderStatusDrafts[order.id];
                       const selectedStatus =
@@ -8326,9 +8346,9 @@ export default function App() {
                               >
                                 {formatOrderStatus(order.status)}
                               </span>
-                              {urgent ? (
+                              {urgentOverdueLabel ? (
                                 <span className="badge badge-error">
-                                  緊急 {orderAgeMinutes} 分
+                                  {urgentOverdueLabel}
                                 </span>
                               ) : null}
                               {managerFlowHint ? (
@@ -8336,12 +8356,9 @@ export default function App() {
                                   {managerFlowHint}
                                 </span>
                               ) : null}
-                              {readyPickupOverdue ? (
+                              {readyOverdueLabel ? (
                                 <span className="badge badge-error">
-                                  取餐逾時
-                                  {readyAgeMinutes !== null
-                                    ? ` ${readyAgeMinutes}m`
-                                    : ""}
+                                  {readyOverdueLabel}
                                 </span>
                               ) : null}
                               {order.status === "ready" ? (
@@ -8541,7 +8558,7 @@ export default function App() {
                               order.status !== "completed" &&
                               order.status !== "cancelled" ? (
                                 <span className="rounded-box border border-warning px-2 py-1 text-warning">
-                                  Resolve issue before completion.
+                                  完成訂單前請先處理問題。
                                 </span>
                               ) : null}
                               {order.promoCode || order.discountAmount > 0 ? (
@@ -8556,7 +8573,7 @@ export default function App() {
                             <div className="alert alert-warning mt-3 items-start">
                               <div>
                                 <div className="font-semibold">
-                                  問題：{order.issueType}
+                                  問題：{formatOrderIssueType(order.issueType)}
                                 </div>
                                 {order.issueNote ? (
                                   <div className="text-sm">
@@ -8565,7 +8582,7 @@ export default function App() {
                                 ) : null}
                                 {order.issueReportedAt ? (
                                   <div className="text-sm opacity-70">
-                                    Reported at:{" "}
+                                    回報時間：{" "}
                                     {formatCheckoutDateTime(
                                       order.issueReportedAt,
                                     )}
@@ -8585,7 +8602,7 @@ export default function App() {
                                 >
                                   {issueUpdatingOrderId === order.id
                                     ? "更新中..."
-                                    : "Clear issue"}
+                                    : "解除問題"}
                                 </button>
                               ) : null}
                             </div>
@@ -8593,7 +8610,7 @@ export default function App() {
                           {canSetIssueForOrder ? (
                             <div className="mt-3 rounded-box border border-base-300 bg-base-200 p-3">
                               <div className="mb-2 text-sm font-semibold">
-                                Internal issue
+                                訂單問題
                               </div>
                               <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,220px)_1fr_auto]">
                                 <select
@@ -8613,13 +8630,13 @@ export default function App() {
                                 >
                                   {orderIssueTypeOptions.map((issueType) => (
                                     <option key={issueType} value={issueType}>
-                                      {issueType}
+                                      {formatOrderIssueType(issueType)}
                                     </option>
                                   ))}
                                 </select>
                                 <input
                                   className="input input-sm input-bordered"
-                                  placeholder="問題備註"
+                                  placeholder="請輸入問題備註"
                                   value={issueDraft.issueNote}
                                   disabled={issueUpdatingOrderId === order.id}
                                   onChange={(event) => {
@@ -9994,7 +10011,7 @@ export default function App() {
                           <tbody>
                             {issueTypeRows.map((row) => (
                               <tr key={row.issueType}>
-                                <td>{row.issueType}</td>
+                                <td>{formatOrderIssueType(row.issueType)}</td>
                                 <td>{row.count}</td>
                                 <td>{row.openCount}</td>
                                 <td>{row.completedCount}</td>

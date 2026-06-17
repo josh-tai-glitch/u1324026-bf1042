@@ -1,523 +1,354 @@
-# 00_demo01 - V9 (Better Auth + Google OAuth)
+# 早餐店訂餐系統
 
-聯大資工早餐訂餐系統 - 完整版
+這是一套以早餐店實際營運流程為核心設計的訂餐與後台管理系統。系統把「顧客點餐、店員接單、廚房製作、老闆管理、系統管理者權限控管」串成同一套流程，目標不是只做出菜單頁面，而是讓早餐店可以從接單到出餐、促銷、庫存與營運分析都在同一個網站內完成。
 
-## 專案概述
+## 1. 線上展示與程式碼
 
-這是一個完整的全端點餐系統，採用「開發分離、部署整合」架構：
+| 項目 | 內容 |
+|---|---|
+| 線上展示網站 | https://u1324026-bf1042.onrender.com/ |
+| GitHub Repository | https://github.com/josh-tai-glitch/u1324026-bf1042.git |
+| 專案類型 | 早餐店訂餐系統 / 期末專題 |
+| Runtime | Bun |
+| 前端 | React 19、Vite、Tailwind CSS、DaisyUI |
+| 後端 | Elysia |
+| 資料庫 | PostgreSQL / Neon |
+| ORM | Drizzle ORM |
+| 認證 | Better Auth、Google OAuth、Demo Login |
 
-**技術棧**：
+---
 
-- 🔧 後端：Elysia v1.4+ (TypeScript) + Drizzle ORM
-- ⚛️ 前端：React 19 + Vite + DaisyUI
-- 🔐 認證：Better Auth v1.6+ (Google OAuth only)
-- 🗄️ 資料庫：PostgreSQL (Neon Serverless)
-- 📋 API 規格：OpenAPI 3.0 (自動生成 Swagger UI)
-- 🎯 架構模式：三層架構 (contracts → route-schemas → backend)
+## 2. 系統可以解決的問題
 
-**特色**：
+傳統早餐店常見問題包括：電話訂單容易漏記、現場與線上訂單分散、廚房不知道訂單優先順序、老闆不容易掌握熱銷商品、優惠券成效與缺料商品。本系統將這些流程整合在同一套平台中。
 
-- ✅ 單一事實來源（Zod schemas）
-- ✅ 前後端型別安全共享
-- ✅ Google OAuth 登入（無密碼管理）
-- ✅ Session-based 認證（HttpOnly cookies）
-- ✅ 完整的訂單流程（購物車 → 送出 → 歷史記錄）
-- ✅ 部署整合模式（單一 Node 運行）
+| 店家問題 | 系統解法 |
+|---|---|
+| 顧客不想註冊，導致線上點餐門檻高 | 支援訪客訂餐，只需留下姓名與電話即可下單。 |
+| 電話與現場訂單容易寫在紙上，造成漏單 | 店員可在後台建立現場或電話訂單，並進入同一套訂單流程。 |
+| 廚房不知道目前哪些訂單要先做 | 廚房看板集中顯示待製作與製作中訂單。 |
+| 老闆不知道哪些商品賣得好 | 後台提供營運分析、熱銷商品、訂單來源與優惠券成效。 |
+| 原料缺貨時，顧客仍可能點到無法製作的餐點 | 庫存管理可分析缺料影響，並同步下架無法製作的商品。 |
+| 不同人員權限混在一起，容易誤改資料 | 以 customer、staff、chef、owner、admin 分工管理。 |
 
-## 快速開始
+---
 
-### 1. 安裝依賴
+## 3. 使用者角色與操作範圍
 
-在專案根目錄執行（會同時安裝 frontend 依賴）：
+| 角色代碼 | 中文身份 | 主要操作 |
+|---|---|---|
+| `customer` | 顧客 | 線上點餐、查看自己的訂單、再次訂購、查看常點品項。 |
+| `staff` | 店員 | 建立現場 / 電話訂單、處理付款、取消訂單、協助查詢、調整基本庫存。 |
+| `chef` | 廚師 | 查看廚房看板、更新製作狀態、查看缺料提醒、回報訂單問題。 |
+| `owner` | 老闆 | 管理菜單、套餐、分類、優惠券、庫存、缺料影響與營運分析。 |
+| `admin` | 管理者 | 擁有完整後台權限，可審核身份申請與調整使用者權限。 |
+
+---
+
+## 4. 操作流程導覽
+
+這一段提供給老師、助教或測試者快速驗收系統使用。
+
+### 4.1 顧客 / 訪客點餐
+
+1. 進入線上展示網站。
+2. 瀏覽菜單與套餐組合。
+3. 將餐點加入購物車。
+4. 可選擇登入會員，或直接使用訪客身份填寫姓名與電話。
+5. 選擇取餐方式、付款方式、取餐時間與備註。
+6. 送出訂單。
+7. 訪客可使用取餐編號與電話查詢訂單。
+
+### 4.2 店員處理現場與電話訂單
+
+1. 使用店員身份登入。
+2. 進入「後台管理」。
+3. 到「訂單處理」建立現場或電話訂單。
+4. 填寫顧客姓名、電話、餐點、付款方式與備註。
+5. 協助更新付款狀態、取消訂單或標記問題訂單。
+
+### 4.3 廚師使用廚房看板
+
+1. 使用廚師身份登入。
+2. 進入後台的「廚房看板」。
+3. 查看待製作、製作中與餐點彙總。
+4. 將訂單標記為「製作中」或「可取餐」。
+5. 若餐點有缺料或特殊狀況，可標記訂單問題。
+
+### 4.4 老闆管理營運
+
+1. 使用老闆身份登入。
+2. 在後台管理菜單、分類、套餐與優惠券。
+3. 查看營運分析，例如營收、熱銷商品、訂單來源與優惠券成效。
+4. 到「庫存管理」建立原料、設定安全庫存、綁定餐點原料。
+5. 使用「缺料影響分析」查看哪些餐點因原料不足無法製作。
+6. 執行「同步下架缺料商品」，避免顧客點到無法製作的餐點。
+
+### 4.5 管理者處理權限
+
+1. 使用管理者身份登入。
+2. 進入「權限管理」。
+3. 查看員工身份申請。
+4. 核准或拒絕店員 / 廚師權限。
+5. 查看操作紀錄，確認誰修改了訂單、菜單、庫存或權限。
+
+---
+
+## 5. 系統架構
+
+本專案可從兩個角度理解：一個是老師課程中強調的 Contract-first 三層架構，另一個是實際部署時的 Web 系統三層架構。
+
+### 5.1 05-1 Contract-first 三層架構
+
+本專案延續 05-1 講義中的三層架構概念，以 `contracts → route-schemas → backend` 作為主要開發順序。這種做法可以避免前後端各寫各的，也可以讓 API 輸入、輸出與權限規則更清楚。
+
+| 層級 | 對應檔案 | 在本專案中的作用 |
+|---|---|---|
+| 第 1 層：業務資料事實 | `shared/contracts.ts` | 定義系統中穩定存在的資料，例如餐點、訂單、角色、優惠券、原料、操作紀錄等。 |
+| 第 2 層：API 操作規格 | `shared/route-schemas.ts` | 定義每個 API 的請求參數、body、response envelope 與驗證規則。認證與授權也屬於 API 操作規格的一部分。 |
+| 第 3 層：後端實作與資料儲存 | `backend.ts`, `store/*`, `db/schema.ts` | 由 Elysia route 實作 API，呼叫 Store 操作資料，並透過 Drizzle / Neon PostgreSQL 儲存資料。 |
+
+### 5.2 實際部署三層架構
+
+| 層級 | 技術 | 說明 |
+|---|---|---|
+| 前端介面層 | React、Vite、Tailwind、DaisyUI | 顧客點餐、購物車、後台管理、廚房看板、營運分析與庫存管理。 |
+| 後端服務層 | Bun、Elysia、Better Auth | 提供 REST API、登入驗證、RBAC 權限檢查、訂單流程、優惠券計算與庫存同步。 |
+| 資料儲存層 | Neon PostgreSQL、Drizzle ORM、JSON fallback | 保存使用者、訂單、菜單、分類、套餐、優惠券、庫存與操作紀錄。 |
+
+---
+
+## 6. 已完成的主要功能
+
+### 6.1 顧客端
+
+- 會員顧客可登入後點餐。
+- 訪客可免登入點餐，只需留下姓名與電話。
+- 顧客可查詢歷史訂單、再次訂購與查看常點品項。
+- 可查看目前廚房排隊數、預估等待時間與忙碌程度。
+- 支援套餐加入購物車與優惠碼套用。
+
+### 6.2 店員端
+
+- 可建立現場訂單與電話訂單。
+- 可協助顧客處理付款、取消訂單與訂單問題。
+- 可查看訂單列表與訂單狀態。
+- 可協助調整基本庫存。
+
+### 6.3 廚房端
+
+- 廚房看板顯示待製作與製作中的訂單。
+- 可更新訂單狀態，例如製作中、可取餐、已完成。
+- 可查看餐點彙總，方便一次整理同類餐點。
+- 可看到團體訂單中的成員名稱與特殊備註。
+
+### 6.4 老闆端
+
+- 菜單、分類、套餐管理。
+- 優惠券建立、修改、停用與成效分析。
+- 營運分析：營收、熱銷商品、訂單來源、價格敏感度、A/B 測試。
+- 庫存管理：原料、配方、缺料影響與缺料商品同步下架。
+- 操作紀錄：查看重要後台操作。
+
+### 6.5 管理者端
+
+- 審核店員與廚師身份申請。
+- 調整使用者角色。
+- 查看完整操作紀錄。
+- 擁有完整後台管理權限。
+
+---
+
+## 7. 功能與 API 對應
+
+| 功能 | 主要 API | 用途 |
+|---|---|---|
+| 使用者與權限 | `GET /api/me`, `POST /api/users/me/role-request`, `GET /api/admin/role-requests`, `PATCH /api/admin/users/:userId/roles` | 取得登入者、申請身份、審核身份與調整角色。 |
+| 菜單 | `GET /api/menu`, `POST /api/menu`, `PATCH /api/menu/:id`, `DELETE /api/menu/:id`, `GET /api/menu/:id/history` | 查詢、建立、修改、刪除餐點與查看菜單版本紀錄。 |
+| 分類 | `GET /api/categories`, `POST /api/categories`, `PATCH /api/categories/:id`, `DELETE /api/categories/:id` | 管理菜單分類。 |
+| 訂單 | `GET /api/orders`, `POST /api/orders`, `PATCH /api/orders/:id`, `POST /api/orders/:id/submit`, `PATCH /api/orders/:id/status` | 建立購物車、送出訂單、更新品項與訂單狀態。 |
+| 訪客訂單 | `POST /api/orders/guest`, `POST /api/orders/guest/lookup` | 訪客建立訂單與查詢訂單。 |
+| 現場 / 電話訂單 | `POST /api/orders/walk-in` | 店員建立現場或電話訂單。 |
+| 套餐 | `GET /api/menu-bundles`, `GET /api/admin/menu-bundles`, `POST /api/admin/menu-bundles`, `PATCH /api/admin/menu-bundles/:id` | 顧客查看套餐，老闆與管理者維護套餐。 |
+| 優惠券 | `GET /api/admin/promotions`, `POST /api/admin/promotions`, `PATCH /api/admin/promotions/:id`, `DELETE /api/admin/promotions/:id` | 建立、修改、停用與查詢優惠券。 |
+| 營運分析 | `GET /api/admin/analytics/summary`, `GET /api/admin/analytics/top-items`, `GET /api/admin/analytics/insights`, `GET /api/admin/analytics/price-sensitivity`, `GET /api/admin/analytics/ab-tests` | 查看營收、熱銷商品、洞察、價格敏感度與 A/B 測試結果。 |
+| 庫存 | `GET /api/ingredients`, `POST /api/ingredients`, `PATCH /api/ingredients/:id/stock`, `GET /api/inventory/impacts`, `POST /api/inventory/sync-menu-availability` | 原料管理、缺料影響與缺料同步下架。 |
+| 操作紀錄 | `GET /api/admin/audit-logs` | 查詢重要後台操作紀錄。 |
+
+---
+
+## 8. 主要資料表
+
+| 模組 | 資料表 | 說明 |
+|---|---|---|
+| 使用者與權限 | `user`, `session`, `account`, `verification`, `role_requests` | Better Auth 使用者資料、登入 session、OAuth 帳號與角色申請。 |
+| 菜單與分類 | `menu_items`, `categories`, `menu_item_categories` | 餐點、分類與餐點分類關聯。 |
+| 訂單 | `orders`, `order_items` | 訂單主檔與訂單明細，包含訂購當下的餐點快照。 |
+| 套餐 | `menu_bundles`, `menu_bundle_items` | 套餐主檔與套餐內餐點組成。 |
+| 優惠券 | `promotions` | 折扣碼、折扣類型、最低消費、有效期間與使用上限。 |
+| 庫存 | `ingredients`, `menu_item_ingredients` | 原料庫存與餐點所需原料設定。 |
+| 操作紀錄 | `audit_logs` | 後台重要操作記錄，例如修改菜單、取消訂單、調整庫存。 |
+
+---
+
+## 9. 本機啟動方式
+
+### 9.1 安裝套件
 
 ```bash
 bun install
 ```
 
-### 2. 環境變數設定
-
-複製環境變數範本：
-
-```bash
-cp .env.example .env
-```
-
-編輯 `.env` 並填入必要資訊：
-
-```env
-# 伺服器設定
-PORT=3000
-HOST=localhost
-
-# PostgreSQL 資料庫 (Neon)
-DATABASE_URL=postgresql://user:pass@host-pooler.region.aws.neon.tech/dbname?sslmode=require
-DATABASE_URL_MIGRATION=postgresql://user:pass@host.region.aws.neon.tech/dbname?sslmode=require
-STORE_DRIVER=postgres
-PG_SCHEMA=bf_v9
-
-# Better Auth 設定
-BETTER_AUTH_URL=http://localhost:3000
-BETTER_AUTH_SECRET=你的隨機密鑰_至少32字元
-
-# Google OAuth 2.0
-GOOGLE_CLIENT_ID=你的-google-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-你的-google-secret
-```
-
-**環境變數說明**：
-
-| 變數名稱                 | 說明                                   | 範例                                                                    |
-| ------------------------ | -------------------------------------- | ----------------------------------------------------------------------- |
-| `PORT`                   | 後端監聽埠號                           | `3000`                                                                  |
-| `HOST`                   | 後端監聽位址                           | `localhost` 或 `0.0.0.0`                                                |
-| `DATABASE_URL`           | Neon Pooled Connection（一般查詢用）   | `postgresql://...pooler...`                                             |
-| `DATABASE_URL_MIGRATION` | Neon Direct Connection（migration 用） | `postgresql://...`                                                      |
-| `STORE_DRIVER`           | 資料儲存驅動                           | `postgres`（生產）或 `json`（開發）                                     |
-| `PG_SCHEMA`              | PostgreSQL schema 名稱                 | `bf_v9`（建議不用 `public`）                                            |
-| `BETTER_AUTH_URL`        | Better Auth 基礎 URL                   | 本地：`http://localhost:3000`<br/>生產：`https://your-app.onrender.com` |
-| `BETTER_AUTH_SECRET`     | Better Auth 加密密鑰                   | 至少 32 字元隨機字串                                                    |
-| `GOOGLE_CLIENT_ID`       | Google OAuth Client ID                 | 從 Google Cloud Console 取得                                            |
-| `GOOGLE_CLIENT_SECRET`   | Google OAuth Secret                    | 從 Google Cloud Console 取得                                            |
-
-**如何取得 Google OAuth 憑證**：
-
-1. 前往 [Google Cloud Console](https://console.cloud.google.com/)
-2. 建立新專案或選擇現有專案
-3. 啟用「Google+ API」
-4. 建立「OAuth 2.0 用戶端 ID」（應用程式類型：網頁應用程式）
-5. 設定授權重新導向 URI：
-   - 本地開發：`http://localhost:3000/api/auth/callback/google`
-   - 生產環境：`https://your-app.onrender.com/api/auth/callback/google`
-6. 複製 Client ID 和 Client Secret 到 `.env`
-
-**如何生成 BETTER_AUTH_SECRET**：
-
-```bash
-# 方法 1：使用 openssl
-openssl rand -hex 32
-
-# 方法 2：使用 Node.js
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-
-# 方法 3：使用 Bun
-bun -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-### 3. 資料庫設定
-
-**建立 Neon 資料庫**：
-
-1. 前往 [Neon Console](https://console.neon.tech/)
-2. 建立新專案
-3. 複製 Connection String（需要 Pooled 和 Direct 兩種）
-4. 填入 `.env` 的 `DATABASE_URL` 和 `DATABASE_URL_MIGRATION`
-
-**執行 Database Migration**：
-
-```bash
-# 生成 migration 檔案（當 schema 變更時）
-bun run db:generate
-
-# 執行 migration（套用到資料庫）
-bun run db:migrate
-```
-
-**快速推送 Schema（開發用）**：
-
-```bash
-# 直接推送當前 schema 到資料庫（不生成 migration 檔案）
-bun run db:push
-```
-
-**查看資料庫內容**：
-
-```bash
-# 啟動 Drizzle Studio（視覺化資料庫管理介面）
-bun run db:studio
-# 訪問 https://local.drizzle.studio
-```
-
-**清空測試數據**：
-
-```bash
-# 清空所有訂單和用戶數據（保留菜單）
-bun run db:reset
-```
-
-**資料庫 Schema 結構**：
-
-V9 使用獨立的 PostgreSQL schema (`bf_v9`)，包含以下資料表：
-
-| 資料表         | 說明                   | 關鍵欄位                           |
-| -------------- | ---------------------- | ---------------------------------- |
-| `menu_items`   | 菜單資料               | `id`, `name`, `price`, `category`  |
-| `orders`       | 訂單主表               | `id`, `user_id`, `total`, `status` |
-| `order_items`  | 訂單項目               | `order_id`, `item_id`, `qty`       |
-| `user`         | Better Auth 用戶表     | `id`, `email`, `name`              |
-| `session`      | Better Auth 會話表     | `token`, `expires_at`              |
-| `account`      | Better Auth OAuth 連結 | `provider_id`, `user_id`           |
-| `verification` | Better Auth 驗證記錄   | `identifier`, `value`              |
-
-## 開發模式
-
-### 同時啟動前後端（推薦）
+### 9.2 啟動前後端
 
 ```bash
 bun run dev
 ```
 
-- 🔧 後端 API：`http://localhost:3000`
-- ⚛️ 前端開發伺服器：`http://localhost:5173`
-- 🔄 Vite 會自動代理 `/api/*` 到後端
+此指令會同時啟動前端 Vite 與後端 Elysia。
 
-**開發時請訪問**：`http://localhost:5173`
-
-### 分別啟動
+也可以分開啟動：
 
 ```bash
-# 只啟動前端
 bun run dev:frontend
-
-# 只啟動後端
 bun run dev:backend
 ```
 
-### 開發階段常見問題
-
-#### Q1: 開發時應該訪問哪個網址？
-
-**A**: 訪問 `http://localhost:5173`（前端開發伺服器）
-
-- ✅ 正確：`http://localhost:5173` → 完整功能 + Hot reload
-- ❌ 錯誤：`http://localhost:3000` → 只有 API，沒有前端畫面
-
-#### Q2: 為什麼 3000 port 沒有前端畫面？
-
-**A**: 因為開發模式下，前端由 Vite 伺服器提供（5173），後端只提供 API。
-
-要在 3000 看到完整網站，需要先 build 前端：
+### 9.3 建置專案
 
 ```bash
-bun run build:frontend
-bun run dev:backend
-```
-
-然後訪問 `http://localhost:3000`（此時變成整合模式）。
-
-#### Q3: 如何清理舊的 backend 行程？
-
-如果遇到 port 衝突或奇怪的行為，執行：
-
-```bash
-# 清理所有佔用 3000 的行程
-fuser -k 3000/tcp || true
-
-# 或清理所有 bun backend 行程
-pkill -f "bun.*backend" || true
-```
-
-### npm scripts 完整列表
-
-| 指令                       | 說明                          |
-| -------------------------- | ----------------------------- |
-| `bun run dev`              | 並行啟動前後端開發伺服器      |
-| `bun run dev:backend`      | 只啟動後端（watch 模式）      |
-| `bun run dev:frontend`     | 只啟動前端（Vite 開發伺服器） |
-| `bun run build`            | 打包前後端（部署前執行）      |
-| `bun run build:frontend`   | 只打包前端 → `public/`        |
-| `bun run build:backend`    | 只打包後端 → `dist/`          |
-| `bun run start`            | 啟動生產環境（需先 build）    |
-| `bun run preview:frontend` | 預覽前端 build 結果           |
-| `bun run db:generate`      | 生成 migration 檔案           |
-| `bun run db:migrate`       | 執行 migration                |
-| `bun run db:push`          | 快速推送 schema（開發用）     |
-| `bun run db:studio`        | 啟動 Drizzle Studio           |
-| `bun run db:reset`         | 清空測試數據（保留菜單）      |
-
-## 建置與部署
-
-### 本地測試生產版本
-
-```bash
-# 1. 打包前後端
 bun run build
-
-# 2. 啟動生產模式
-bun run start
 ```
 
-訪問 `http://localhost:3000` 查看完整網站。
-
-**build 輸出**：
-
-- 前端：`public/` （靜態檔案，由後端提供）
-- 後端：`dist/backend.js` （打包後的 Node.js 程式）
-
-### 部署到 Render.com
-
-#### 前置準備
-
-1. **推送程式碼到 GitHub**
+### 9.4 執行測試
 
 ```bash
-# 如果在開發分支，先合併到 main
-git checkout main
-git merge feat/v9-clean-better-auth-v2  # 或你的開發分支名稱
-
-# 推送到 GitHub（Render 會監看 main 分支）
-git push origin main
+bun test
 ```
 
-2. **在 Render.com 建立 Web Service**
+---
 
-- 前往 [Render Dashboard](https://dashboard.render.com/)
-- 點擊「New +」 → 「Web Service」
-- 連結你的 GitHub repository
-- 選擇 branch：`main`
+## 10. 常用指令
 
-#### 部署設定
+| 指令 | 說明 |
+|---|---|
+| `bun run dev` | 同時啟動前端與後端開發模式。 |
+| `bun run dev:frontend` | 只啟動前端開發伺服器。 |
+| `bun run dev:backend` | 只啟動後端開發伺服器。 |
+| `bun run build` | 建置前端與後端。 |
+| `bun test` | 執行測試。 |
+| `bun run start` | 啟動 build 後的後端。 |
+| `bun run db:studio` | 開啟 Drizzle Studio。 |
 
-**基本設定**：
+---
 
-| 欄位           | 值                             |
-| -------------- | ------------------------------ |
-| Name           | `bf1042-v9` 或自訂名稱         |
-| Region         | `Singapore` 或最近的區域       |
-| Branch         | `main`                         |
-| Root Directory | 留空（或 `./`）                |
-| Runtime        | `Node`                         |
-| Build Command  | `bun install && bun run build` |
-| Start Command  | `bun run start`                |
-| Instance Type  | `Free` 或 `Starter`            |
+## 11. 環境變數
 
-**環境變數設定**：
-
-在 Render 的「Environment」頁面新增以下變數：
+部署或本機連線資料庫時，需要依環境設定下列變數。請勿把真實 secret commit 到 GitHub。
 
 ```env
-# 伺服器設定
 PORT=3000
 HOST=0.0.0.0
-
-# PostgreSQL
-DATABASE_URL=postgresql://user:pass@host-pooler.region.aws.neon.tech/dbname?sslmode=require
-DATABASE_URL_MIGRATION=postgresql://user:pass@host.region.aws.neon.tech/dbname?sslmode=require
+API_ALLOWED_ORIGIN=
+DATABASE_URL=
+DATABASE_URL_MIGRATION=
 STORE_DRIVER=postgres
-PG_SCHEMA=bf_v9
-
-# Better Auth（❗ 重要：使用正式網址）
-BETTER_AUTH_URL=https://你的app名稱.onrender.com
-BETTER_AUTH_SECRET=你的隨機密鑰_至少32字元
-
-# Google OAuth（❗ 重要：需更新 redirect URI）
-GOOGLE_CLIENT_ID=你的-google-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-你的-google-secret
+PG_SCHEMA=bf_v10
+BETTER_AUTH_URL=
+BETTER_AUTH_SECRET=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+DEMO_AUTH_ENABLED=true
+VITE_API_BASE_URL=
 ```
 
-**❗ 特別注意**：
+注意事項：
 
-1. **BETTER_AUTH_URL** 必須改成正式網址：`https://你的app名稱.onrender.com`
-2. **Google OAuth Redirect URI** 必須新增生產環境網址：
-   - 前往 [Google Cloud Console](https://console.cloud.google.com/)
-   - OAuth 2.0 用戶端 → 編輯
-   - 授權重新導向 URI 新增：`https://你的app名稱.onrender.com/api/auth/callback/google`
-   - 儲存變更
+- `PG_SCHEMA` 本專案使用 `bf_v10`，不建議使用 `public`。
+- `STORE_DRIVER=postgres` 時使用 Neon PostgreSQL；未使用 PostgreSQL 時可使用 JSON fallback store。
+- `BETTER_AUTH_SECRET` 必須設定為安全字串，不能使用範例值。
+- Google OAuth callback 需要與部署網址一致。
 
-#### 首次部署後的檢查清單
+---
 
-- [ ] 網站可以正常訪問：`https://你的app名稱.onrender.com`
-- [ ] 點擊「使用 Google 登入」會導向 Google 授權頁
-- [ ] Google 授權後能正確回調並顯示已登入狀態
-- [ ] 菜單資料正常顯示
-- [ ] 加入購物車功能正常
-- [ ] 送出訂單功能正常
-- [ ] 訂單歷史可查詢
+## 12. SQL 文件位置
 
-#### 持續部署（CI/CD）
+資料庫補充 SQL 放在 `docs/sql/`，每個檔案對應一個功能階段：
 
-Render 預設啟用自動部署，當你推送到指定 branch 時會自動觸發部署：
+| SQL 檔案 | 用途 |
+|---|---|
+| `v10_1_menu_versioning.sql` | 菜單版本化與訂單明細版本快照。 |
+| `v10_3_ab_testing.sql` | A/B 測試分組。 |
+| `v10_3_promotions.sql` | 優惠券。 |
+| `v10_3_phone_orders.sql` | 電話訂單。 |
+| `v10_3_guest_checkout.sql` | 訪客訂餐。 |
+| `v10_3_group_bundle_order.sql` | 團體訂餐與套餐。 |
+| `v10_3_inventory_shortage.sql` | 原料庫存與缺料影響。 |
 
-```bash
-# 修改程式碼
-git add .
-git commit -m "fix: 修正某個功能"
-git push origin main
+---
 
-# Render 會自動偵測並部署
+## 13. 測試檔案
+
+| 測試檔案 | 測試重點 |
+|---|---|
+| `tests/menu-versioning.test.ts` | 菜單版本化、版本紀錄與版本驗證。 |
+| `tests/ab-testing.test.ts` | A/B 分組與菜單過濾。 |
+| `tests/promotion-discount.test.ts` | 優惠券折扣規則。 |
+| `tests/guest-checkout.test.ts` | 訪客訂餐與訪客訂單查詢。 |
+| `tests/phone-orders.test.ts` | 電話訂單。 |
+| `tests/group-bundle-order.test.ts` | 團體訂餐、套餐 schema 與套餐計價。 |
+| `tests/inventory-shortage.test.ts` | 庫存狀態、缺料影響與缺料同步下架。 |
+| `tests/audit-log.test.ts` | 操作紀錄資料格式。 |
+
+---
+
+## 14. Render 部署說明
+
+建議 Render 設定：
+
+| 項目 | 設定 |
+|---|---|
+| Build Command | `bun install && bun run build` |
+| Start Command | `bun run start` |
+| HOST | `0.0.0.0` |
+| Database | Neon PostgreSQL |
+
+Google OAuth callback 需要加入正式部署網址，例如：
+
+```text
+https://u1324026-bf1042.onrender.com/api/auth/callback/google
 ```
 
-#### 常見部署問題
+---
 
-##### 問題 1：Google 登入後顯示「redirect_uri_mismatch」
+## 15. 驗收建議流程
 
-**原因**：Google OAuth 設定中沒有加入生產環境的 redirect URI
+建議驗收時依照以下順序展示，可以完整看出前台、後台與資料流程：
 
-**解決**：
+1. 以訪客身份點餐，送出訂單。
+2. 使用訪客取餐編號與電話查詢訂單。
+3. 使用店員身份建立現場或電話訂單。
+4. 使用廚師身份進入廚房看板，更新訂單狀態。
+5. 使用老闆身份管理菜單、套餐、優惠券與庫存。
+6. 建立原料並綁定餐點，測試缺料影響分析。
+7. 執行缺料商品同步下架。
+8. 使用管理者身份查看操作紀錄與審核身份申請。
 
-1. 前往 Google Cloud Console
-2. 編輯 OAuth 2.0 用戶端
-3. 新增：`https://你的app名稱.onrender.com/api/auth/callback/google`
+---
 
-##### 問題 2：Build 失敗，顯示「command not found: bun」
+## 16. 未來可延伸功能
 
-**原因**：Render 預設使用 npm/yarn，需要安裝 bun
+以下功能尚未完整實作，可作為後續擴充方向：
 
-**解決**：修改 Build Command 為：
-
-```bash
-npm install -g bun && bun install && bun run build
-```
-
-或在專案根目錄新增 `.node-version` 檔案指定 Node.js 版本。
-
-##### 問題 3：啟動後立即崩潰，顯示「DATABASE_URL is required」
-
-**原因**：環境變數未正確設定
-
-**解決**：
-
-1. 檢查 Render Environment 頁面
-2. 確認所有必要環境變數都已填入
-3. 重新部署
-
-##### 問題 4：Free tier 冷啟動很慢
-
-**說明**：Render Free tier 在閒置 15 分鐘後會進入睡眠，下次訪問需要 30-60 秒喚醒
-
-**解決方案**：
-
-- 升級到 Starter ($7/月) 可避免冷啟動
-- 或使用 cron 服務定時 ping 你的網站
-
-### 其他部署平台
-
-本專案也可部署到：
-
-- **Railway**: 類似 Render，支援 bun runtime
-- **Fly.io**: 適合需要多區域部署
-- **Vercel**: 需要分離前後端部署（前端 Vercel，後端另選）
-- **AWS/GCP/Azure**: 適合大型生產環境
-
-## 專案架構
-
-### 目錄結構
-
-```
-00_demo01/
-├── backend.ts              # Elysia 後端主程式
-├── auth/
-│   ├── better-auth.ts      # Better Auth 設定與 getCurrentUser()
-│   └── user-mapper.ts      # DB User → SessionUser 轉換
-├── db/
-│   ├── client.ts           # Drizzle 客戶端
-│   ├── schema.ts           # 業務資料表定義
-│   └── auth-schema.ts      # Better Auth 資料表定義
-├── shared/
-│   ├── contracts.ts        # 第1事實：業務物件 schemas
-│   └── route-schemas.ts    # 第2事實：API 規格 schemas
-├── store/
-│   └── index.ts            # 業務邏輯層（訂單、菜單管理）
-├── frontend/               # React 前端
-│   ├── src/
-│   │   └── App.tsx         # 前端主程式
-│   ├── dist/               # build 輸出（gitignore）
-│   └── package.json
-├── public/                 # 前端 build 產物（後端靜態資源）
-├── scripts/
-│   ├── reset-database.ts   # 資料庫初始化腳本
-│   └── run-migration.ts    # 手動 migration 執行
-├── drizzle/                # Migration 檔案
-├── .env                    # 環境變數（gitignore）
-└── package.json
-```
-
-### 三層架構設計
-
-V9 採用嚴格的三層架構，確保程式碼可維護性：
-
-```
-┌─────────────────────────────────────┐
-│   shared/contracts.ts               │ ← 第1事實：業務物件
-│   (MenuItem, Order, SessionUser)    │
-└─────────────────────────────────────┘
-              ↓ import
-┌─────────────────────────────────────┐
-│   shared/route-schemas.ts           │ ← 第2事實：API 規格
-│   (CreateOrderBody, OrderResponse)  │
-└─────────────────────────────────────┘
-              ↓ import
-┌─────────────────────────────────────┐
-│   backend.ts                        │ ← 第3層：路由實作
-│   (Elysia routes)                   │
-└─────────────────────────────────────┘
-```
-
-**設計原則**：
-
-- ✅ `backend.ts` 不能有 inline `z.object()`
-- ✅ `backend.ts` 只能 import `route-schemas.ts`
-- ✅ `contracts.ts` 定義業務物件，不包含 API 專用欄位
-- ✅ `route-schemas.ts` 可以擴展 contracts，加入 API 專用欄位
-
-**優點**：
-
-- 更換認證方式時，業務邏輯零修改（實驗證明 ✅）
-- 前後端共享型別定義，保證一致性
-- API 規格集中管理，容易維護
-- 支援自動生成 OpenAPI 文件
-
-詳見教學文件：`00_demo01-docs/00_teaching/02_4_Schema一致性設計_Zod與Drizzle多層架構.md`
-
-## API 文件
-
-### OpenAPI / Swagger UI
-
-啟動後端後訪問：
-
-```
-http://localhost:3000/swagger
-```
-
-自動生成的 API 文件包含：
-
-- 所有端點的 request/response schemas
-- 互動式測試介面
-- 可下載 OpenAPI JSON
-
-### 主要 API 端點
-
-| 端點                       | 方法  | 說明         | 需認證 |
-| -------------------------- | ----- | ------------ | ------ |
-| `/health`                  | GET   | 健康檢查     | ❌     |
-| `/api/auth/sign-in/social` | POST  | Google 登入  | ❌     |
-| `/api/auth/sign-out`       | POST  | 登出         | ✅     |
-| `/api/auth/get-session`    | GET   | 取得當前會話 | ✅     |
-| `/api/menu`                | GET   | 取得菜單     | ❌     |
-| `/api/orders`              | POST  | 建立訂單     | ✅     |
-| `/api/orders/current`      | GET   | 取得當前訂單 | ✅     |
-| `/api/orders/:id`          | PATCH | 更新訂單項目 | ✅     |
-| `/api/orders/:id/submit`   | POST  | 送出訂單     | ✅     |
-| `/api/orders/history`      | GET   | 訂單歷史     | ✅     |
-
-## 學習資源
-
-### 相關講義
-
-專案配套教學文件位於 `00_demo01-docs/00_teaching/`：
-
-- `01_版本閱讀指南.md` - 各版本演進說明
-- `02_4_Schema一致性設計_Zod與Drizzle多層架構.md` - 架構設計理念
-- `03_1_Drizzle+Neon_註冊與升級實作步驟清單.md` - 資料庫設定
-- `03_2_V8_合併主線與_Render_最小部署_CI_CD_教案手冊.md` - 部署教學
-
-### 技術文件連結
-
-- [Elysia 官方文件](https://elysiajs.com/)
-- [Better Auth 官方文件](https://better-auth.com/)
-- [Drizzle ORM 官方文件](https://orm.drizzle.team/)
-- [Neon PostgreSQL 官方文件](https://neon.tech/docs)
-- [React 19 官方文件](https://react.dev/)
-
-## 授權
-
-此專案為教學用途，遵循 MIT License。
+| 未來功能 | 延伸價值 |
+|---|---|
+| 成本與毛利分析 | 由原料成本推算餐點毛利，協助老闆調整價格。 |
+| 自動扣庫存 | 訂單完成後依照餐點配方自動扣除原料數量。 |
+| 進貨與補貨建議 | 根據安全庫存與銷售速度提醒補貨。 |
+| 會員集點 | 提高熟客回訪率。 |
+| 營業時間與公休日設定 | 控制可下單時段，避免非營業時間接單。 |
+| 報表匯出 | 將營收、訂單、操作紀錄匯出為 CSV 或 Excel。 |
+| QR Code 桌邊點餐 | 顧客掃 QR Code 建立內用訂單。 |
+| 多分店管理 | 支援不同分店各自管理菜單、庫存與訂單。 |
+| AI 銷售預測 | 根據歷史訂單與時段預測備料需求。 |
+| Line / 簡訊通知 | 訂單可取餐時自動通知顧客。 |

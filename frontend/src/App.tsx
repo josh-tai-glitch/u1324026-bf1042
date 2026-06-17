@@ -562,6 +562,7 @@ export default function App() {
   const [menuListPage, setMenuListPage] = useState(1);
   const [menuForm, setMenuForm] = useState<MenuForm>(emptyMenuForm);
   const [editingMenuId, setEditingMenuId] = useState<number | null>(null);
+  const [isShopMenuEditorOpen, setIsShopMenuEditorOpen] = useState(false);
   const [menuMessage, setMenuMessage] = useState("");
   const [menuBusy, setMenuBusy] = useState(false);
   const [recentlyUpdatedMenuItemId, setRecentlyUpdatedMenuItemId] = useState<
@@ -4057,6 +4058,8 @@ export default function App() {
       }
 
       setUser(normalizeUser(payload.data));
+      setMainView("shop");
+      resetMenuForm();
       setActionError("");
       await Promise.all([
         loadMenu(),
@@ -4065,6 +4068,7 @@ export default function App() {
         loadOrderHistory(),
       ]);
       notifySuccess("測試帳號登入成功。");
+      window.setTimeout(() => scrollToSection(menuSectionRef), 0);
     } catch (demoError) {
       const message =
         demoError instanceof Error ? demoError.message : "測試帳號登入失敗。";
@@ -4091,7 +4095,10 @@ export default function App() {
       setRoleRequestMessage("");
       setAdminRequests([]);
       resetCartState();
+      resetMenuForm();
+      setMainView("shop");
       notifyInfo("已登出。");
+      window.setTimeout(() => scrollToSection(menuSectionRef), 0);
       return;
     }
 
@@ -4122,7 +4129,10 @@ export default function App() {
     setRoleRequestMessage("");
     setAdminRequests([]);
     resetCartState();
+    resetMenuForm();
+    setMainView("shop");
     notifyInfo("已登出。");
+    window.setTimeout(() => scrollToSection(menuSectionRef), 0);
   }
 
   async function addToCart(
@@ -5594,8 +5604,15 @@ export default function App() {
     });
   }
 
+  function startInlineEditMenuItem(item: MenuItem) {
+    startEditMenuItem(item);
+    setIsShopMenuEditorOpen(true);
+    setMainView("shop");
+  }
+
   function resetMenuForm() {
     setEditingMenuId(null);
+    setIsShopMenuEditorOpen(false);
     setMenuForm(emptyMenuForm);
   }
 
@@ -12288,7 +12305,7 @@ export default function App() {
                             </button>
                             <button
                               className="btn btn-sm btn-outline"
-                              onClick={() => startEditMenuItem(item)}
+                              onClick={() => startInlineEditMenuItem(item)}
                             >
                               編輯
                             </button>
@@ -12395,6 +12412,166 @@ export default function App() {
             </>
           )}
         </section>
+        ) : null}
+
+        {canManageMenu && isShopMenuEditorOpen && editingMenuId ? (
+          <div className="modal modal-open">
+            <div className="modal-box max-w-4xl">
+              <form
+                onSubmit={(event) => {
+                  void submitMenuForm(event);
+                }}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-xl font-bold">編輯餐點</h3>
+                    <p className="text-sm opacity-70">
+                      直接在菜單畫面修改餐點資料，儲存後會重新整理菜單。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={resetMenuForm}
+                  >
+                    取消
+                  </button>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  <label className="form-control">
+                    <span className="label-text">餐點名稱</span>
+                    <input
+                      className="input input-bordered"
+                      value={menuForm.name}
+                      onChange={(event) =>
+                        updateMenuForm("name", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="form-control">
+                    <span className="label-text">價格</span>
+                    <input
+                      className="input input-bordered"
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={menuForm.price}
+                      onChange={(event) =>
+                        updateMenuForm("price", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="form-control">
+                    <span className="label-text">分類</span>
+                    <input
+                      className="input input-bordered"
+                      value={menuForm.category}
+                      onChange={(event) =>
+                        updateMenuForm("category", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="form-control">
+                    <span className="label-text">主要分類</span>
+                    <select
+                      className="select select-bordered"
+                      value={menuForm.primaryCategoryId}
+                      onChange={(event) =>
+                        updateMenuPrimaryCategory(event.target.value)
+                      }
+                    >
+                      <option value="">未設定主要分類</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="form-control">
+                    <span className="label-text">測試分組</span>
+                    <select
+                      className="select select-bordered"
+                      value={menuForm.abTestGroup}
+                      onChange={(event) =>
+                        updateMenuForm("abTestGroup", event.target.value)
+                      }
+                    >
+                      {abTestGroupOptions.map((option) => (
+                        <option key={option.id || "none"} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="form-control md:col-span-2">
+                    <span className="label-text">餐點描述</span>
+                    <input
+                      className="input input-bordered"
+                      value={menuForm.description}
+                      onChange={(event) =>
+                        updateMenuForm("description", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="form-control">
+                    <span className="label-text">圖片網址</span>
+                    <input
+                      className="input input-bordered"
+                      value={menuForm.image_url}
+                      onChange={(event) =>
+                        updateMenuForm("image_url", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="form-control md:col-span-2">
+                    <span className="label-text">變更原因</span>
+                    <input
+                      className="input input-bordered"
+                      placeholder="例如：調整價格、更新描述"
+                      value={menuForm.changeReason}
+                      onChange={(event) =>
+                        updateMenuForm("changeReason", event.target.value)
+                      }
+                    />
+                  </label>
+                </div>
+
+                {menuMessage ? (
+                  <div className="alert mt-4">
+                    <span>{menuMessage}</span>
+                  </div>
+                ) : null}
+
+                <div className="modal-action">
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={resetMenuForm}
+                  >
+                    取消
+                  </button>
+                  <button className="btn btn-primary" disabled={menuBusy}>
+                    {menuBusy ? "儲存中..." : "儲存變更"}
+                  </button>
+                </div>
+              </form>
+            </div>
+            <button
+              type="button"
+              className="modal-backdrop"
+              onClick={resetMenuForm}
+              aria-label="關閉餐點編輯"
+            >
+              關閉
+            </button>
+          </div>
         ) : null}
 
         {user && !canViewAllOrders && mainView === "account" ? (

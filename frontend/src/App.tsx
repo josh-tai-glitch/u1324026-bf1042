@@ -72,7 +72,7 @@ const orderBoardColumnStatuses: OrderStatus[] = [
 ];
 const analyticsRangeOptions = [
   { id: "all", label: "全部" },
-  { id: "today", label: "今天" },
+  { id: "today", label: "今日" },
   { id: "last7Days", label: "近 7 天" },
   { id: "thisMonth", label: "本月" },
   { id: "custom", label: "自訂" },
@@ -392,9 +392,9 @@ async function readApiErrorDetails(response: Response): Promise<ApiErrorDetails>
 }
 
 function formatApiErrorDetails(details: ApiErrorDetails) {
-  const message = details.message || details.error || "Request failed.";
+  const message = details.message || details.error || "請求失敗。";
   if (details.code === "MENU_VERSION_CHANGED" && details.itemName) {
-    return `${message} Changed item: ${details.itemName}`;
+    return `${message} 變更餐點：${details.itemName}`;
   }
   return message;
 }
@@ -417,14 +417,14 @@ function formatAbTestGroup(group?: AbTestGroup | null) {
 }
 
 function formatOrderSource(source: Order["orderSource"]) {
-  if (source === "walk_in") return "現場點餐";
+  if (source === "walk_in") return "現場訂餐";
   if (source === "phone") return "電話訂餐";
   if (source === "guest") return "訪客訂餐";
   return "會員訂餐";
 }
 
 function formatOrderStatus(status: OrderStatus) {
-  if (status === "pending") return "購物車";
+  if (status === "pending") return "未送出";
   if (status === "submitted") return "已送出";
   if (status === "preparing") return "製作中";
   if (status === "ready") return "可取餐";
@@ -434,6 +434,7 @@ function formatOrderStatus(status: OrderStatus) {
 }
 
 function formatPaymentStatus(status: PaymentStatus) {
+  if ((status as string) === "refunded") return "已退款";
   return status === "paid" ? "已付款" : "未付款";
 }
 
@@ -468,6 +469,36 @@ function formatRoleLabel(role: Role) {
   if (role === "chef") return "廚師";
   if (role === "staff") return "店員";
   return "顧客";
+}
+
+function formatChangeReason(reason?: string | null): string {
+  switch (reason) {
+    case "Marked sold out":
+      return "標記為售完";
+    case "Marked available":
+      return "恢復販售";
+    case "Menu item updated":
+      return "餐點資料更新";
+    case "Initial version":
+      return "初始版本";
+    case "Inventory shortage auto sync":
+      return "因缺料自動下架";
+    case "Inventory restock auto sync":
+      return "補貨同步恢復";
+    default:
+      return reason || "-";
+  }
+}
+
+function formatChangedBy(userId?: string | null): string {
+  if (!userId) return "-";
+  if (userId === "demo-admin") return "測試管理者";
+  if (userId === "demo-owner") return "測試老闆";
+  if (userId === "demo-staff") return "測試店員";
+  if (userId === "demo-chef") return "測試廚師";
+  if (userId === "demo-customer") return "測試顧客";
+  if (/^[A-Za-z0-9_-]{12,}$/.test(userId)) return "系統使用者";
+  return userId;
 }
 
 function getPhoneLastFour(phone?: string | null) {
@@ -992,7 +1023,7 @@ export default function App() {
       case "usage_full":
         return "已達上限";
       case "inactive":
-        return "停用中";
+        return "已停用";
     }
   }
 
@@ -2009,21 +2040,21 @@ export default function App() {
   function formatAnalyticsRangeLabel(filters: AnalyticsDateFilters): string {
     switch (filters.range) {
       case "today":
-        return "Today";
+        return "今日";
       case "last7Days":
-        return "Last 7 days";
+        return "近 7 天";
       case "thisMonth":
-        return "This month";
+        return "本月";
       case "custom":
         if (filters.startDate && filters.endDate) {
-          return `Custom ${filters.startDate} to ${filters.endDate}`;
+          return `自訂 ${filters.startDate} 至 ${filters.endDate}`;
         }
-        if (filters.startDate) return `Custom from ${filters.startDate}`;
-        if (filters.endDate) return `Custom until ${filters.endDate}`;
-        return "Custom";
+        if (filters.startDate) return `自訂，自 ${filters.startDate} 起`;
+        if (filters.endDate) return `自訂，至 ${filters.endDate} 止`;
+        return "自訂";
       case "all":
       default:
-        return "All time";
+        return "全部期間";
     }
   }
 
@@ -5356,8 +5387,8 @@ export default function App() {
         },
       );
       if (!response.ok) throw new Error(await readApiError(response));
-      setInventoryMessage("Menu item ingredients saved.");
-      notifySuccess("Menu item ingredients saved.");
+      setInventoryMessage("餐點原料設定已儲存。");
+      notifySuccess("餐點原料設定已儲存。");
       await Promise.all([loadInventory(), loadMenu()]);
     } catch (mappingError) {
       const message =
@@ -5475,18 +5506,18 @@ export default function App() {
       const savedItem = payload?.data;
       await Promise.all([loadMenu(), loadCategories()]);
       resetMenuForm();
-      setMenuMessage(editingMenuId ? "Menu item updated." : "Menu item added.");
+      setMenuMessage(editingMenuId ? "餐點已更新。" : "餐點已新增。");
       if (savedItem) {
         highlightMenuItem(savedItem.id);
       }
       notifySuccess(
         editingMenuId
-          ? `Menu item ${savedItem?.name ?? body.name} updated.`
-          : `Menu item ${savedItem?.name ?? body.name} created.`,
+          ? `餐點「${savedItem?.name ?? body.name}」已更新。`
+          : `餐點「${savedItem?.name ?? body.name}」已新增。`,
       );
     } catch (menuError) {
       const message =
-        menuError instanceof Error ? menuError.message : "Menu update failed.";
+        menuError instanceof Error ? menuError.message : "餐點更新失敗。";
       setMenuMessage(message);
       notifyError(getMenuErrorToastMessage(message));
     } finally {
@@ -5498,7 +5529,7 @@ export default function App() {
     if (!canManageMenu) return;
     if (
       !window.confirm(
-        `Delete menu item "${item.name}"? This cannot be undone.`,
+        `確定要刪除餐點「${item.name}」嗎？此操作無法復原。`,
       )
     ) {
       return;
@@ -5517,12 +5548,12 @@ export default function App() {
       }
 
       await Promise.all([loadMenu(), loadCategories()]);
-      setMenuMessage("Menu item deleted.");
-      notifySuccess(`Menu item ${item.name} deleted.`);
+      setMenuMessage("餐點已刪除。");
+      notifySuccess(`餐點「${item.name}」已刪除。`);
       if (editingMenuId === item.id) resetMenuForm();
     } catch (menuError) {
       const message =
-        menuError instanceof Error ? menuError.message : "Delete failed.";
+        menuError instanceof Error ? menuError.message : "刪除失敗。";
       setMenuMessage(message);
       notifyError(message);
     } finally {
@@ -5556,21 +5587,21 @@ export default function App() {
       const updatedItem = payload?.data;
       await loadMenu();
       setMenuMessage(
-        item.is_available ? "Menu item marked sold out." : "Menu item available.",
+        item.is_available ? "餐點已標記為售完。" : "餐點已恢復販售。",
       );
       if (updatedItem) {
         highlightMenuItem(updatedItem.id);
       }
       notifySuccess(
         item.is_available
-          ? "Menu item marked sold out."
-          : "Menu item marked available.",
+          ? "餐點已標記為售完。"
+          : "餐點已恢復販售。",
       );
     } catch (menuError) {
       const message =
         menuError instanceof Error
           ? menuError.message
-          : "Availability update failed.";
+          : "販售狀態更新失敗。";
       setMenuMessage(message);
       notifyError(message);
     } finally {
@@ -6071,7 +6102,7 @@ export default function App() {
     if (
       !isActive &&
       !window.confirm(
-        `Deactivate promo code ${promotion.code}? Customers will no longer be able to use it.`,
+        `確定要停用優惠碼 ${promotion.code} 嗎？停用後顧客將無法使用。`,
       )
     ) {
       return;
@@ -8519,7 +8550,7 @@ export default function App() {
                 <div>
                   <h2 className="card-title">權限申請審核</h2>
                   <p className="text-sm opacity-70">
-                    Approve or reject staff and chef access requests.
+                    審核店員與廚師的身份權限申請。
                   </p>
                 </div>
                 <select
@@ -11995,7 +12026,7 @@ export default function App() {
                       ) : null}
                       {canManageMenu && item.change_reason ? (
                         <p className="text-xs opacity-70">
-                          最近變更：{item.change_reason}
+                          最近變更：{formatChangeReason(item.change_reason)}
                         </p>
                       ) : null}
                       {canManageMenu ? (
@@ -12186,11 +12217,14 @@ export default function App() {
                                                 : "已售完"}
                                             </td>
                                             <td>
-                                              {historyItem.change_reason ||
-                                                "-"}
+                                              {formatChangeReason(
+                                                historyItem.change_reason,
+                                              )}
                                             </td>
                                             <td>
-                                              {historyItem.changed_by || "-"}
+                                              {formatChangedBy(
+                                                historyItem.changed_by,
+                                              )}
                                             </td>
                                             <td>
                                               {historyItem.previous_version_id ??
